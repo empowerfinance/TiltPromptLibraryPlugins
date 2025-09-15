@@ -1,0 +1,2 @@
+Note: The actual Gradle wrapper JAR (gradle/wrapper/gradle-wrapper.jar) is required to run the wrapper. If not present, run `gradle wrapper` or let your IDE generate it. If you prefer, commit the wrapper JAR to version control.
+

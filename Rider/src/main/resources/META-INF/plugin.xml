@@ -1,0 +1,32 @@
+<idea-plugin>
+    <id>com.example.riderpromptlibrary</id>
+    <name>Prompt Library</name>
+    <vendor email="" url="">Rider Prompt Library</vendor>
+
+    <description><![CDATA[
+        A simple and efficient prompt library for JetBrains Rider that helps you organize, search, and reuse text prompts.
+
+        Features:
+        • Create, edit, and delete prompts with confirmation
+        • Click any prompt to copy it to clipboard
+        • Real-time search with case-insensitive filtering
+        • Import/Export prompts as JSON (supports simple string arrays)
+        • Automatic duplicate detection and prevention
+        • Persistent storage - prompts survive IDE restarts
+        • Clean, responsive UI that adapts to light/dark themes
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends optional="true">com.intellij.modules.rider</depends>
+
+    <depends>Git4Idea</depends>
+
+
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Prompt Library" factoryClass="com.example.promptlibrary.PromptLibraryToolWindowFactory" anchor="left" />
+        <notificationGroup id="PromptLibrary" displayType="BALLOON" isLogByDefault="true"/>
+        <applicationConfigurable instance="com.example.promptlibrary.settings.PluginSettingsConfigurable" displayName="Prompt Library: Git Sync" />
+        <applicationService serviceImplementation="com.example.promptlibrary.settings.PluginSettingsService"/>
+    </extensions>
+</idea-plugin>
