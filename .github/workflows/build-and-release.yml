@@ -3,6 +3,8 @@
 on:
   push:
     branches: [ main ]
+    tags:
+      - rider-v*
   pull_request:
     branches: [ main ]
 
@@ -42,53 +44,57 @@ jobs:
           ${{ runner.os }}-gradle-rider-${{ env.RIDER_VERSION }}-
           ${{ runner.os }}-gradle-
 
-    - name: Set version from run number
+    - name: Set version from tag or run number
       run: |
-        echo "PLUGIN_VERSION=1.0.${{ github.run_number }}" >> $GITHUB_ENV
-        echo "Building version: 1.0.${{ github.run_number }}"
+        if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == rider-v* ]]; then
+          echo "PLUGIN_VERSION=${GITHUB_REF_NAME#rider-v}" >> $GITHUB_ENV
+          echo "Detected tag version: ${GITHUB_REF_NAME#rider-v}"
+        else
+          echo "PLUGIN_VERSION=1.0.${{ github.run_number }}" >> $GITHUB_ENV
+          echo "Fallback version: 1.0.${{ github.run_number }}"
+        fi
 
 
     - name: Ensure Gradle wrapper is executable
       run: |
-        chmod +x ./gradlew
-        sed -i 's/\r$//' ./gradlew
+        chmod +x Rider/gradlew
+        sed -i 's/\r$//' Rider/gradlew
 
     - name: Warm IntelliJ Platform cache
-      run: ./gradlew setupDependencies --no-daemon --stacktrace
+      run: cd Rider && ./gradlew setupDependencies --no-daemon --stacktrace
       timeout-minutes: 25
 
-    - name: Update plugin version in build.gradle.kts
-      run: |
-        sed -i "s/version = \".*\"/version = \"${{ env.PLUGIN_VERSION }}\"/" build.gradle.kts || echo "version = \"${{ env.PLUGIN_VERSION }}\"" >> build.gradle.kts
+    - name: Prepare plugin version
+      run: echo "Using -PpluginVersion=${{ env.PLUGIN_VERSION }} for build"
 
     - name: Build plugin
-      run: ./gradlew buildPlugin --no-daemon --stacktrace
+      run: cd Rider && ./gradlew buildPlugin --no-daemon --stacktrace -PpluginVersion=${{ env.PLUGIN_VERSION }}
 
     - name: Verify plugin artifact
       run: |
-        ls -la build/distributions/
+        ls -la Rider/build/distributions/
         echo "Plugin built successfully"
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: plugin-distribution-${{ env.PLUGIN_VERSION }}
-        path: build/distributions/*.zip
+        path: Rider/build/distributions/*.zip
         retention-days: 30
 
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: startsWith(github.ref, 'refs/tags/rider-v')
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set version from run number
+    - name: Set version from tag
       run: |
-        echo "PLUGIN_VERSION=1.0.${{ github.run_number }}" >> $GITHUB_ENV
-        echo "RELEASE_TAG=v1.0.${{ github.run_number }}" >> $GITHUB_ENV
+        echo "PLUGIN_VERSION=${GITHUB_REF_NAME#rider-v}" >> $GITHUB_ENV
+        echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> $GITHUB_ENV
 
     - name: Download build artifacts
       uses: actions/download-artifact@v4
@@ -139,8 +145,8 @@ jobs:
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ env.RELEASE_TAG }}
-        name: "Prompt Library Plugin v${{ env.PLUGIN_VERSION }}"
+        tag_name: ${{ github.ref_name }}
+        name: "Rider Prompt Library v${{ env.PLUGIN_VERSION }}"
         body_path: release_notes.md
         files: ./artifacts/*.zip
         draft: false
@@ -149,17 +155,4 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Update README with latest version
-      run: |
-        sed -i "s/Prompt-Library-\*\.zip/Prompt-Library-${{ env.PLUGIN_VERSION }}.zip/g" README.md
-        sed -i "s/version [0-9]\+\.[0-9]\+\.[0-9]\+/version ${{ env.PLUGIN_VERSION }}/g" README.md
-
-    - name: Commit version updates
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add README.md build.gradle.kts
-        git diff --staged --quiet || git commit -m "🚀 Release v${{ env.PLUGIN_VERSION }} [skip ci]"
-        git push
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # Skipping README/version commits; release notes include version. If needed, update Rider/README.md explicitly in the future.

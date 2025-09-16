@@ -1,0 +1,195 @@
+{
+  "name": "prompt-library",
+  "displayName": "Prompt Library",
+  "description": "A VS Code sidebar for managing shared/private prompt libraries with search and import/export.",
+  "version": "0.0.1",
+  "publisher": "empower",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:promptLibraryView",
+    "onView:promptLibraryGroups",
+    "onView:promptLibraryStatus",
+    "onCommand:promptLibrary.hello",
+    "onCommand:promptLibrary.addGroup",
+    "onCommand:promptLibrary.renameGroup",
+    "onCommand:promptLibrary.deleteGroup",
+    "onCommand:promptLibrary.exportJson",
+    "onCommand:promptLibrary.importJson",
+    "onCommand:promptLibrary.deduplicate",
+    "onCommand:promptLibrary.openSettings",
+    "onCommand:promptLibrary.syncWriteNow",
+    "onCommand:promptLibrary.syncDirectCommit",
+    "onCommand:promptLibrary.syncBranchPR",
+    "onCommand:promptLibrary.syncFetch",
+    "onCommand:promptLibrary.syncPull",
+    "onCommand:promptLibrary.syncReadNow"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "promptLibrary.hello",
+        "title": "Prompt Library: Hello"
+      },
+      {
+        "command": "promptLibrary.addGroup",
+        "title": "Prompt Library: Add Group"
+      },
+      {
+        "command": "promptLibrary.renameGroup",
+        "title": "Prompt Library: Rename Group"
+      },
+      {
+        "command": "promptLibrary.deleteGroup",
+        "title": "Prompt Library: Delete Group"
+      },
+      {
+        "command": "promptLibrary.exportJson",
+        "title": "Prompt Library: Export JSON"
+      },
+      {
+        "command": "promptLibrary.importJson",
+        "title": "Prompt Library: Import JSON"
+      },
+      {
+        "command": "promptLibrary.deduplicate",
+        "title": "Prompt Library: Deduplicate"
+      },
+      {
+        "command": "promptLibrary.openSettings",
+        "title": "Prompt Library: Open Settings"
+      },
+      {
+        "command": "promptLibrary.syncWriteNow",
+        "title": "Prompt Library: Sync Now (YAML Write)"
+      },
+      {
+        "command": "promptLibrary.syncDirectCommit",
+        "title": "Prompt Library: Sync (Direct Commit)"
+      },
+      {
+        "command": "promptLibrary.syncBranchPR",
+        "title": "Prompt Library: Sync (Branch + PR)"
+      },
+      {
+        "command": "promptLibrary.syncFetch",
+        "title": "Prompt Library: Sync (Fetch)"
+      },
+      {
+        "command": "promptLibrary.syncPull",
+        "title": "Prompt Library: Sync (Pull)"
+      },
+      {
+        "command": "promptLibrary.syncReadNow",
+        "title": "Prompt Library: Sync (Read YAML)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "promptLibrary",
+          "title": "Prompt Library"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Prompt Library",
+      "properties": {
+        "promptLibrary.remoteRepoUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Remote Git URL for the shared prompts repository (optional for local-only mode)."
+        },
+        "promptLibrary.repoPath": {
+          "type": "string",
+          "default": "",
+          "description": "Local path to the repo root where shared prompts YAML will be written."
+        },
+        "promptLibrary.promptsSubdir": {
+          "type": "string",
+          "default": "prompts",
+          "description": "Subdirectory name for prompts under each group directory."
+        },
+        "promptLibrary.branchName": {
+          "type": "string",
+          "default": "",
+          "description": "Branch name to use when Write Strategy is 'branchPR'."
+        },
+        "promptLibrary.writeStrategy": {
+          "type": "string",
+          "enum": ["direct", "branchPR"],
+          "default": "direct",
+          "description": "Writing strategy for sync: direct commit vs dedicated branch and PR."
+        },
+        "promptLibrary.autoFetch.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable periodic auto-fetch for the repo (future)."
+        },
+        "promptLibrary.autoFetch.minutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "Fetch interval in minutes when auto-fetch is enabled."
+        }
+      }
+    },
+    "views": {
+      "promptLibrary": [
+        {
+          "id": "promptLibraryGroups",
+          "name": "Groups"
+        },
+        {
+          "id": "promptLibraryView",
+          "name": "Prompt Library"
+        },
+        {
+          "id": "promptLibraryStatus",
+          "name": "Sync Status"
+        }
+      ]
+    },
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "promptLibrary.addGroup",
+          "when": "view == promptLibraryGroups && viewItem == root-shared",
+          "group": "inline"
+        },
+        {
+          "command": "promptLibrary.addGroup",
+          "when": "view == promptLibraryGroups && viewItem == root-private",
+          "group": "inline"
+        },
+        {
+          "command": "promptLibrary.renameGroup",
+          "when": "view == promptLibraryGroups && viewItem == group",
+          "group": "inline"
+        },
+        {
+          "command": "promptLibrary.deleteGroup",
+          "when": "view == promptLibraryGroups && viewItem == group",
+          "group": "inline"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}

@@ -1,0 +1,288 @@
+import * as vscode from 'vscode';
+import { Group, Library, Prompt } from './model';
+
+const LIB_FILE = 'library.v2.json';
+
+function genId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+export class LibraryStore {
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
+  private get uri(): vscode.Uri {
+    return vscode.Uri.joinPath(this.context.globalStorageUri, LIB_FILE);
+  }
+
+  async ensureInitialized(): Promise<void> {
+    try {
+      await vscode.workspace.fs.stat(this.uri);
+    } catch {
+      const sharedRoot: Group = { id: 'root-shared', name: 'Shared', kind: 'shared', tags: ['ns:shared'], description: undefined, children: [], prompts: [] };
+      const unfiled: Group = { id: 'grp-unfiled', name: 'Unfiled', kind: 'private', tags: [], description: undefined, children: [], prompts: [] };
+      const privateRoot: Group = { id: 'root-private', name: 'Private', kind: 'private', tags: ['ns:private'], description: undefined, children: [unfiled], prompts: [] };
+      const seed: Library = { groups: [sharedRoot, privateRoot], privatePrompts: [] };
+      await vscode.workspace.fs.createDirectory(this.context.globalStorageUri);
+      await this.save(seed);
+    }
+  }
+
+  async load(): Promise<Library> {
+    await this.ensureInitialized();
+    const data = await vscode.workspace.fs.readFile(this.uri);
+    const lib = JSON.parse(Buffer.from(data).toString('utf8')) as Library;
+    const migrated = await this.migrateAndNormalize(lib);
+    if (migrated.changed) {
+      await this.save(migrated.library);
+      return migrated.library;
+    }
+    return lib;
+  }
+
+  async save(library: Library): Promise<void> {
+    const bytes = Buffer.from(JSON.stringify(library, null, 2), 'utf8');
+    await vscode.workspace.fs.createDirectory(this.context.globalStorageUri);
+    await vscode.workspace.fs.writeFile(this.uri, bytes);
+  }
+
+  // CRUD helpers
+  async getPrompts(groupId: string | null): Promise<Prompt[]> {
+    const lib = await this.load();
+    const group = this.findGroup(lib, groupId ?? 'grp-unfiled');
+    return group?.prompts ?? [];
+  }
+
+  async addPromptToGroup(groupId: string | null, text: string): Promise<{ ok: boolean; reason?: string; prompt?: Prompt; groupId: string }> {
+    const lib = await this.load();
+    const targetId = groupId ?? 'grp-unfiled';
+    const group = this.findGroup(lib, targetId);
+    if (!group) return { ok: false, reason: 'Group not found', groupId: targetId };
+
+    const normalizedNew = this.normalizeForCompare(text);
+    const exists = this.anyPrompt(lib, p => this.normalizeForCompare(p.text) === normalizedNew);
+    if (exists) return { ok: false, reason: 'Duplicate prompt (normalized match)', groupId: targetId };
+
+    const now = new Date().toISOString();
+    const prompt: Prompt = { id: genId('p'), text, createdAt: now, updatedAt: now, tags: [], private: group.kind === 'private' };
+    group.prompts.push(prompt);
+    await this.save(lib);
+    return { ok: true, prompt, groupId: targetId };
+  }
+
+  async deletePrompt(promptId: string): Promise<boolean> {
+    const lib = await this.load();
+    const removed = this.removePrompt(lib, promptId);
+    if (removed) await this.save(lib);
+    return removed;
+  }
+  async updatePromptText(promptId: string, newText: string): Promise<{ ok: boolean; reason?: string }> {
+    const lib = await this.load();
+    const ref = this.findPromptRef(lib, promptId);
+    if (!ref) return { ok: false, reason: 'Prompt not found' };
+    const normalized = this.normalizeForCompare(newText);
+    const exists = this.anyPrompt(lib, p => p.id !== promptId && this.normalizeForCompare(p.text) === normalized);
+    if (exists) return { ok: false, reason: 'Duplicate prompt (normalized match)' };
+    ref.group.prompts[ref.index] = { ...ref.group.prompts[ref.index], text: newText, updatedAt: new Date().toISOString() };
+    await this.save(lib);
+    return { ok: true };
+  }
+
+  async movePrompt(promptId: string, targetGroupId: string): Promise<{ ok: boolean; reason?: string }> {
+    if (targetGroupId === 'root-shared' || targetGroupId === 'root-private') {
+      return { ok: false, reason: 'Cannot move into root' };
+    }
+    const lib = await this.load();
+    const ref = this.findPromptRef(lib, promptId);
+    if (!ref) return { ok: false, reason: 'Prompt not found' };
+    const target = this.findGroup(lib, targetGroupId);
+    if (!target) return { ok: false, reason: 'Target group not found' };
+    const [prompt] = ref.group.prompts.splice(ref.index, 1);
+    prompt.private = target.kind === 'private';
+    prompt.updatedAt = new Date().toISOString();
+    target.prompts.push(prompt);
+    await this.save(lib);
+    return { ok: true };
+  }
+
+  async listMovableGroups(): Promise<Array<{ id: string; name: string }>> {
+    const lib = await this.load();
+    const out: Array<{ id: string; name: string }> = [];
+    const walk = (gs: Group[]) => {
+      for (const g of gs) {
+        if (g.id !== 'root-shared' && g.id !== 'root-private') {
+          out.push({ id: g.id, name: g.name });
+        }
+        walk(g.children);
+      }
+    };
+    walk(lib.groups);
+    return out;
+  }
+
+  private findPromptRef(lib: Library, pid: string): { group: Group; index: number } | null {
+    const walk = (gs: Group[]): { group: Group; index: number } | null => {
+      for (const g of gs) {
+        const idx = g.prompts.findIndex(p => p.id === pid);
+        if (idx >= 0) return { group: g, index: idx };
+        const c = walk(g.children); if (c) return c;
+      }
+      return null;
+    };
+    return walk(lib.groups);
+  }
+
+
+  // Internals
+  private normalizeForCompare(text: string): string {
+    const eol = text.replace(/\r\n?|\u2028|\u2029/g, '\n');
+    const collapsed = eol.replace(/[\t ]+/g, ' ');
+    return collapsed.trim().toLowerCase();
+  }
+
+  private anyPrompt(lib: Library, pred: (p: Prompt) => boolean): boolean {
+    for (const g of lib.groups) {
+      const stack: Group[] = [g];
+      while (stack.length) {
+        const cur = stack.pop()!;
+        if (cur.prompts.some(pred)) return true;
+        stack.push(...cur.children);
+      }
+    }
+    if (lib.privatePrompts?.some(pred)) return true;
+    return false;
+  }
+
+  private removePrompt(lib: Library, pid: string): boolean {
+    const walk = (gs: Group[]): boolean => {
+      for (const g of gs) {
+        const idx = g.prompts.findIndex(p => p.id === pid);
+        if (idx >= 0) { g.prompts.splice(idx, 1); return true; }
+        if (walk(g.children)) return true;
+      }
+      return false;
+    };
+    if (walk(lib.groups)) return true;
+    const i2 = lib.privatePrompts.findIndex(p => p.id === pid);
+    if (i2 >= 0) { lib.privatePrompts.splice(i2, 1); return true; }
+    return false;
+  }
+
+  private findGroup(lib: Library, id: string): Group | null {
+    const walk = (gs: Group[]): Group | null => {
+      for (const g of gs) {
+        if (g.id === id) return g;
+        const c = walk(g.children); if (c) return c;
+      }
+      return null;
+    };
+    return walk(lib.groups);
+  }
+
+  async getLibrary(): Promise<Library> {
+    return await this.load();
+  }
+
+  async importFromObject(obj: any): Promise<{ added: number; skipped: number }> {
+    const lib = await this.load();
+    const priv = lib.groups.find(g => g.id === 'root-private');
+    const unfiled = priv?.children.find(c => c.id === 'grp-unfiled') ?? null;
+    if (!unfiled) throw new Error('Unfiled group missing');
+
+    // Build set of existing normalized texts
+    const seen = new Set<string>();
+    this.anyPrompt(lib, p => { seen.add(this.normalizeForCompare(p.text)); return false; });
+
+    const texts: string[] = [];
+    const addText = (t: any) => { if (typeof t === 'string') texts.push(t); else if (t && typeof t.text === 'string') texts.push(t.text); };
+
+    const walkGroups = (gs: any[]) => {
+      for (const g of gs ?? []) {
+        for (const p of g.prompts ?? []) addText(p);
+        walkGroups(g.children ?? []);
+      }
+    };
+
+    if (Array.isArray(obj)) {
+      for (const el of obj) addText(el);
+    } else if (obj && typeof obj === 'object') {
+      // library-shaped
+      if (Array.isArray(obj.privatePrompts)) for (const p of obj.privatePrompts) addText(p);
+      if (Array.isArray(obj.groups)) walkGroups(obj.groups);
+      if (Array.isArray(obj.prompts)) for (const p of obj.prompts) addText(p); // flat
+    }
+
+    let added = 0, skipped = 0;
+    const now = new Date().toISOString();
+    for (const t of texts) {
+      const n = this.normalizeForCompare(t);
+      if (seen.has(n)) { skipped++; continue; }
+      const prompt: Prompt = { id: genId('p'), text: t, createdAt: now, updatedAt: now, tags: [], private: true };
+      unfiled.prompts.push(prompt);
+      seen.add(n);
+      added++;
+    }
+
+    if (added > 0) await this.save(lib);
+    return { added, skipped };
+  }
+
+  async deduplicate(): Promise<{ removed: number }> {
+    const lib = await this.load();
+    const seen = new Set<string>();
+    let removed = 0;
+
+    const dedupList = (arr: Prompt[]) => {
+      for (let i = 0; i < arr.length; ) {
+        const n = this.normalizeForCompare(arr[i].text);
+        if (seen.has(n)) { arr.splice(i, 1); removed++; }
+        else { seen.add(n); i++; }
+      }
+    };
+
+    const walk = (gs: Group[]) => {
+      for (const g of gs) {
+        dedupList(g.prompts);
+        walk(g.children);
+      }
+    };
+
+    walk(lib.groups);
+    dedupList(lib.privatePrompts);
+
+    if (removed > 0) await this.save(lib);
+    return { removed };
+  }
+
+  // Ensures presence of roots + Unfiled and rehomes any private-root prompts into Unfiled
+  private async migrateAndNormalize(library: Library): Promise<{ changed: boolean; library: Library }> {
+    let changed = false;
+    const ensureRoots = (): void => {
+      let shared = library.groups.find(g => g.id === 'root-shared');
+      let priv = library.groups.find(g => g.id === 'root-private');
+      if (!shared) { shared = { id: 'root-shared', name: 'Shared', kind: 'shared', tags: ['ns:shared'], description: undefined, children: [], prompts: [] }; library.groups.unshift(shared); changed = true; }
+      if (!priv) { priv = { id: 'root-private', name: 'Private', kind: 'private', tags: ['ns:private'], description: undefined, children: [], prompts: [] }; library.groups.push(priv); changed = true; }
+      // Ensure Unfiled exists and is first child
+      let unfiled = priv.children.find(c => c.id === 'grp-unfiled' || c.name.toLowerCase() === 'unfiled');
+      if (!unfiled) { unfiled = { id: 'grp-unfiled', name: 'Unfiled', kind: 'private', tags: [], description: undefined, children: [], prompts: [] }; priv.children.unshift(unfiled); changed = true; }
+      else {
+        // Pin Unfiled at index 0
+        const idx = priv.children.indexOf(unfiled);
+        if (idx > 0) { priv.children.splice(idx, 1); priv.children.unshift(unfiled); changed = true; }
+      }
+    };
+
+    ensureRoots();
+
+    // Rehome any prompts mistakenly on Private root to Unfiled
+    const priv = library.groups.find(g => g.id === 'root-private')!;
+    const unfiled = priv.children[0];
+    if (priv.prompts && priv.prompts.length > 0) {
+      unfiled.prompts.push(...priv.prompts);
+      priv.prompts = [];
+      changed = true;
+    }
+
+    return { changed, library };
+  }
+}
+

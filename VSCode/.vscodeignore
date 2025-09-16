@@ -1,0 +1,10 @@
+.vscode/**
+.vscode-test/**
+.gitignore
+**/tsconfig.json
+**/*.map
+**/*.ts
+node_modules/**
+README.md
+CHANGELOG.md
+
