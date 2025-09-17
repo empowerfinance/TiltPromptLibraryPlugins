@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.example.riderpromptlibrary</id>
     <name>Prompt Library</name>
-    <vendor email="" url="">Rider Prompt Library</vendor>
+    <vendor email="support@tilt.com" url="https://tilt.com">Tilt</vendor>
 
     <description><![CDATA[
         A simple and efficient prompt library for JetBrains Rider that helps you organize, search, and reuse text prompts.

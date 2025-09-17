@@ -81,6 +81,26 @@ function isDirEntryFile(e: [string, vscode.FileType]) { return e[1] === vscode.F
 
 export async function readSharedGroups(rootDir: vscode.Uri, promptsSubdir = 'prompts'): Promise<Group[]> {
   const entries = await safeReadDir(rootDir);
+
+  // Some repos (including Empower's) place all groups under a top-level container directory
+  // also named like the prompts subdirectory (e.g. "prompts/General/_group.yaml").
+  // If we detect that pattern, scan inside that container instead of the root.
+  const container = entries.find(([name, type]) => type === vscode.FileType.Directory && name.toLowerCase() === promptsSubdir.toLowerCase());
+  if (container) {
+    const containerUri = vscode.Uri.joinPath(rootDir, container[0]);
+    const sub = await safeReadDir(containerUri);
+    const fromContainer: Group[] = [];
+    for (const [name, type] of sub) {
+      if (type !== vscode.FileType.Directory) continue;
+      const g = await readGroupDir(vscode.Uri.joinPath(containerUri, name), promptsSubdir);
+      if (g) fromContainer.push(g);
+    }
+    if (fromContainer.length > 0) {
+      return fromContainer;
+    }
+    // If container exists but no groups were found, fall through to root scan
+  }
+
   const groups: Group[] = [];
   for (const [name, type] of entries) {
     if (type !== vscode.FileType.Directory) continue;
@@ -92,8 +112,11 @@ export async function readSharedGroups(rootDir: vscode.Uri, promptsSubdir = 'pro
 }
 
 async function readGroupDir(dir: vscode.Uri, promptsSubdir: string): Promise<Group | null> {
-  const metaUri = vscode.Uri.joinPath(dir, '_group.yaml');
-  const meta = await safeReadFile(metaUri);
+  // Support both _group.yaml and _group.yml for compatibility
+  let meta = await safeReadFile(vscode.Uri.joinPath(dir, '_group.yaml'));
+  if (!meta) {
+    meta = await safeReadFile(vscode.Uri.joinPath(dir, '_group.yml'));
+  }
   if (!meta) return null;
   const parsed = parseGroupMeta(meta);
   if (!parsed) return null;
@@ -108,7 +131,8 @@ async function readGroupDir(dir: vscode.Uri, promptsSubdir: string): Promise<Gro
         const promptFiles = await safeReadDir(vscode.Uri.joinPath(dir, name));
         for (const [pf, ptype] of promptFiles) {
           if (ptype !== vscode.FileType.File) continue;
-          if (!pf.toLowerCase().endsWith('.yaml')) continue;
+          const lower = pf.toLowerCase();
+          if (!(lower.endsWith('.yaml') || lower.endsWith('.yml'))) continue;
           const content = await safeReadFile(vscode.Uri.joinPath(dir, name, pf));
           if (!content) continue;
           const parsedP = parsePrompt(content);

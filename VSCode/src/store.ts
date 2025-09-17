@@ -45,6 +45,17 @@ export class LibraryStore {
     await vscode.workspace.fs.writeFile(this.uri, bytes);
   }
 
+  async resetAll(): Promise<void> {
+    // Recreate the initial seed library (Shared root + Private/Unfiled)
+    const sharedRoot: Group = { id: 'root-shared', name: 'Shared', kind: 'shared', tags: ['ns:shared'], description: undefined, children: [], prompts: [] };
+    const unfiled: Group = { id: 'grp-unfiled', name: 'Unfiled', kind: 'private', tags: [], description: undefined, children: [], prompts: [] };
+    const privateRoot: Group = { id: 'root-private', name: 'Private', kind: 'private', tags: ['ns:private'], description: undefined, children: [unfiled], prompts: [] };
+    const seed: Library = { groups: [sharedRoot, privateRoot], privatePrompts: [] };
+    await vscode.workspace.fs.createDirectory(this.context.globalStorageUri);
+    await this.save(seed);
+  }
+
+
   // CRUD helpers
   async getPrompts(groupId: string | null): Promise<Prompt[]> {
     const lib = await this.load();

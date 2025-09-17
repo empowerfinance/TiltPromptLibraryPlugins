@@ -1,6 +1,18 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as os from 'os';
 
 export type WriteStrategy = 'direct' | 'branchPR';
+
+/**
+ * Expands tilde (~) in paths to the user's home directory
+ */
+function expandPath(filePath: string): string {
+  if (filePath.startsWith('~/') || filePath === '~') {
+    return path.join(os.homedir(), filePath.slice(2));
+  }
+  return filePath;
+}
 
 export interface PromptLibrarySettings {
   remoteRepoUrl: string;
@@ -13,9 +25,10 @@ export interface PromptLibrarySettings {
 
 export function getSettings(): PromptLibrarySettings {
   const cfg = vscode.workspace.getConfiguration('promptLibrary');
+  const rawRepoPath = cfg.get<string>('repoPath', '');
   return {
     remoteRepoUrl: cfg.get<string>('remoteRepoUrl', ''),
-    repoPath: cfg.get<string>('repoPath', ''),
+    repoPath: rawRepoPath ? expandPath(rawRepoPath) : '',
     promptsSubdir: cfg.get<string>('promptsSubdir', 'prompts'),
     branchName: cfg.get<string>('branchName', ''),
     writeStrategy: cfg.get<WriteStrategy>('writeStrategy', 'direct'),

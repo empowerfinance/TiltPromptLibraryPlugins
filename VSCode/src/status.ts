@@ -18,6 +18,9 @@ export class StatusViewProvider implements vscode.WebviewViewProvider {
     // Subscribe to log updates
     this._sub?.dispose();
     this._sub = log.onDidChange(() => this.postEntries());
+
+    // Immediately push any existing entries so the view is not empty on first open
+    this.postEntries();
   }
 
   dispose() { this._sub?.dispose(); }

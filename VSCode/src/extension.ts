@@ -6,9 +6,13 @@ import { getSettings } from './settings';
 import { writeSharedGroups } from './sync/yamlWriter';
 import { StatusViewProvider } from './status';
 import { log } from './log';
-import { checkoutNewBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, tryBuildGithubCompareUrl, fetch as gitFetch, pull as gitPull } from './sync/git';
+import { checkoutNewBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, tryBuildGithubCompareUrl, fetch as gitFetch, pull as gitPull, clone as gitClone } from './sync/git';
 import { start as startScheduler } from './sync/scheduler';
 import { readSharedGroups } from './sync/yamlReader';
+
+import * as path from 'path';
+import * as os from 'os';
+import * as fs from 'fs';
 
 class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'promptLibraryView';
@@ -22,6 +26,10 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.options = { enableScripts: true };
     webviewView.webview.onDidReceiveMessage(msg => this.onMessage(msg));
     webviewView.webview.html = getHtml();
+    // Ensure the webview reflects the current selection even if it resolved after selection happened
+    log.info(`Webview resolved; replaying selected group: id=${this.selectedGroup.id ?? 'null'}, name=${this.selectedGroup.name ?? 'null'}`);
+    webviewView.webview.postMessage({ type: 'selectedGroup', payload: this.selectedGroup });
+    this.pushList();
   }
 
   async onMessage(msg: any) {
@@ -112,6 +120,7 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
 
   setSelectedGroup(group: { id: string | null; name: string | null }) {
     this.selectedGroup = group;
+    log.info(`Webview setSelectedGroup: id=${group.id ?? 'null'}, name=${group.name ?? 'null'}, hasView=${!!this.view}`);
     this.view?.webview.postMessage({ type: 'selectedGroup', payload: group });
     // When selection changes, refresh list for that group
     this.pushList();
@@ -132,13 +141,19 @@ export function activate(context: vscode.ExtensionContext) {
   const treeView = vscode.window.createTreeView('promptLibraryGroups', { treeDataProvider: groups, showCollapseAll: true });
   treeView.onDidChangeSelection(async e => {
     const item = e.selection[0];
-    if (!item) { provider.setSelectedGroup({ id: null, name: null }); return; }
+    if (!item) {
+      log.info('Selection cleared');
+      provider.setSelectedGroup({ id: null, name: null });
+      return;
+    }
     const id = item.groupId;
+    const name = item.label?.toString() ?? null;
+    log.info(`Selected group item: id=${id}, name=${name}`);
     // Treat roots as no specific group selection
     if (id === 'root-shared' || id === 'root-private') {
       provider.setSelectedGroup({ id: null, name: null });
     } else {
-      provider.setSelectedGroup({ id, name: item.label?.toString() ?? null });
+      provider.setSelectedGroup({ id, name });
     }
   });
 
@@ -213,6 +228,8 @@ export function activate(context: vscode.ExtensionContext) {
       try {
         log.info('Sync read started...');
         const groupsFromRepo = await readSharedGroups(vscode.Uri.file(cfg.repoPath), cfg.promptsSubdir);
+        const countPrompts = (gs: any[]): number => gs.reduce((acc, g) => acc + (Array.isArray(g.prompts) ? g.prompts.length : 0) + countPrompts(g.children || []), 0);
+        const totalPrompts = countPrompts(groupsFromRepo as any);
         const lib = await store.getLibrary();
         const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
         if (!sharedRoot) { vscode.window.showWarningMessage('Shared root not found'); log.warn('Shared root not found'); return; }
@@ -221,8 +238,8 @@ export function activate(context: vscode.ExtensionContext) {
         await store.save(lib);
         await groups.init();
         await provider.refresh();
-        vscode.window.showInformationMessage('Sync read complete: Shared library updated from repo.');
-        log.info(`Sync read complete: imported ${groupsFromRepo.length} top-level groups.`);
+        vscode.window.showInformationMessage(`Sync read complete: ${groupsFromRepo.length} groups, ${totalPrompts} prompts.`);
+        log.info(`Sync read complete: imported ${groupsFromRepo.length} top-level groups, ${totalPrompts} prompts.`);
       } catch (e: any) {
         log.error(`Sync read failed: ${e?.message || e}`);
         vscode.window.showWarningMessage('Sync read failed. See Sync Status for details.');
@@ -318,6 +335,78 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage('Pull failed. See Sync Status for details.');
       }
     }),
+    vscode.commands.registerCommand('promptLibrary.syncClonePullImport', async () => {
+      const cfg = getSettings();
+      if (!cfg.remoteRepoUrl || !cfg.remoteRepoUrl.trim()) { vscode.window.showWarningMessage('Set promptLibrary.remoteRepoUrl in settings first.'); return; }
+      try {
+        log.info('Clone/Pull+Import started...');
+        const repoNameFromUrl = (url: string): string => {
+          try {
+            if (url.startsWith('git@')) {
+              const rest = url.split(':')[1] || '';
+              const parts = rest.replace(/\.git$/, '').split('/');
+              return parts[1] || parts[0] || 'prompt-library-repo';
+            } else {
+              const u = new URL(url);
+              const parts = u.pathname.replace(/^\//, '').replace(/\.git$/, '').split('/');
+              return parts[1] || parts[0] || 'prompt-library-repo';
+            }
+          } catch { return 'prompt-library-repo'; }
+        };
+        let targetPath = cfg.repoPath;
+        const name = repoNameFromUrl(cfg.remoteRepoUrl);
+
+        // If no repoPath is configured, use the default ~/PromptLibrary
+        if (!targetPath) {
+          targetPath = path.join(os.homedir(), 'PromptLibrary');
+        }
+
+        log.info(`Target path: ${targetPath}`);
+        log.info(`Remote URL: ${cfg.remoteRepoUrl}`);
+
+        // If the target path doesn't exist or isn't a git repo, clone it
+        if (!fs.existsSync(targetPath) || !(await isGitRepo(targetPath))) {
+          const parentDir = path.dirname(targetPath);
+          const dirName = path.basename(targetPath);
+          log.info(`Cloning to parent dir: ${parentDir}, dir name: ${dirName}`);
+          try { fs.mkdirSync(parentDir, { recursive: true }); } catch {}
+          const cloneResult = await gitClone(parentDir, cfg.remoteRepoUrl, dirName);
+          if (!cloneResult.success) {
+            log.error(`Clone failed: ${cloneResult.error}`);
+            vscode.window.showWarningMessage('Clone failed. See Sync Status.');
+            return;
+          }
+          log.info(`Clone successful to: ${targetPath}`);
+        } else {
+          log.info(`Repository already exists at: ${targetPath}`);
+        }
+
+        // Update the setting to the actual path used (if it wasn't already set)
+        if (!cfg.repoPath) {
+          await vscode.workspace.getConfiguration('promptLibrary')
+            .update('repoPath', targetPath, vscode.ConfigurationTarget.Global);
+        }
+        const pulled = await gitPull(targetPath);
+        if (!pulled) { log.warn('Pull failed'); vscode.window.showWarningMessage('Pull failed. See Sync Status.'); }
+        const groupsFromRepo = await readSharedGroups(vscode.Uri.file(targetPath), cfg.promptsSubdir);
+        const countPrompts = (gs: any[]): number => gs.reduce((acc, g) => acc + (Array.isArray(g.prompts) ? g.prompts.length : 0) + countPrompts(g.children || []), 0);
+        const totalPrompts = countPrompts(groupsFromRepo as any);
+        const lib = await store.getLibrary();
+        const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
+        if (!sharedRoot) { vscode.window.showWarningMessage('Shared root not found'); log.warn('Shared root not found'); return; }
+        sharedRoot.children = groupsFromRepo.map(g => ({ ...g, kind: 'shared' }));
+        sharedRoot.prompts = [];
+        await store.save(lib);
+        await groups.init();
+        await provider.refresh();
+        vscode.window.showInformationMessage(`Sync complete: imported ${groupsFromRepo.length} groups, ${totalPrompts} prompts.`);
+        log.info(`Clone/Pull+Import complete: imported ${groupsFromRepo.length} top-level groups, ${totalPrompts} prompts.`);
+      } catch (e: any) {
+        log.error(`Clone/Pull+Import failed: ${e?.message || e}`);
+        vscode.window.showWarningMessage('Operation failed. See Sync Status for details.');
+      }
+    }),
+
     vscode.commands.registerCommand('promptLibrary.hello', () => {
       vscode.window.showInformationMessage('Prompt Library: hello from scaffold');
     }),
@@ -326,7 +415,22 @@ export function activate(context: vscode.ExtensionContext) {
       return groups.addGroup(target);
     }),
     vscode.commands.registerCommand('promptLibrary.renameGroup', (item: GroupItem) => groups.renameGroup(item.groupId)),
-    vscode.commands.registerCommand('promptLibrary.deleteGroup', (item: GroupItem) => groups.deleteGroup(item.groupId))
+    vscode.commands.registerCommand('promptLibrary.deleteGroup', (item: GroupItem) => groups.deleteGroup(item.groupId)),
+    vscode.commands.registerCommand('promptLibrary.resetAll', async () => {
+      const answer = await vscode.window.showWarningMessage('This will reset the Prompt Library to its initial state and remove all prompts and custom groups. Continue?', { modal: true }, 'Reset');
+      if (answer !== 'Reset') return;
+      try {
+        log.info('Resetting Prompt Library to initial state...');
+        await store.resetAll();
+        await groups.init();
+        await provider.refresh();
+        vscode.window.showInformationMessage('Prompt Library reset complete.');
+        log.info('Reset complete');
+      } catch (e: any) {
+        log.error(`Reset failed: ${e?.message || e}`);
+        vscode.window.showWarningMessage('Reset failed. See Sync Status for details.');
+      }
+    })
   );
 }
 
@@ -358,6 +462,7 @@ function getHtml(): string {
       <button id="importBtn" class="btn">Import JSON</button>
       <button id="exportBtn" class="btn">Export JSON</button>
       <button id="dedupeBtn" class="btn">Deduplicate</button>
+      <button id="resetBtn" class="btn">Reset</button>
       <span id="counts" class="count"></span>
     </div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
@@ -489,6 +594,8 @@ function getHtml(): string {
     document.getElementById('importBtn').addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.importJson' }));
     document.getElementById('exportBtn').addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.exportJson' }));
     document.getElementById('dedupeBtn').addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.deduplicate' }));
+    document.getElementById('resetBtn').addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.resetAll' }));
+
 
     // Add
     save.addEventListener('click', () => {

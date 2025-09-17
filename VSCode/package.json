@@ -3,33 +3,24 @@
   "displayName": "Prompt Library",
   "description": "A VS Code sidebar for managing shared/private prompt libraries with search and import/export.",
   "version": "0.0.1",
-  "publisher": "empower",
+  "publisher": "tilt",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/empowerfinance/TiltPromptLibraryPlugins.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-    "onView:promptLibraryView",
-    "onView:promptLibraryGroups",
-    "onView:promptLibraryStatus",
-    "onCommand:promptLibrary.hello",
-    "onCommand:promptLibrary.addGroup",
-    "onCommand:promptLibrary.renameGroup",
-    "onCommand:promptLibrary.deleteGroup",
-    "onCommand:promptLibrary.exportJson",
-    "onCommand:promptLibrary.importJson",
-    "onCommand:promptLibrary.deduplicate",
-    "onCommand:promptLibrary.openSettings",
-    "onCommand:promptLibrary.syncWriteNow",
-    "onCommand:promptLibrary.syncDirectCommit",
-    "onCommand:promptLibrary.syncBranchPR",
-    "onCommand:promptLibrary.syncFetch",
-    "onCommand:promptLibrary.syncPull",
-    "onCommand:promptLibrary.syncReadNow"
-  ],
+
   "main": "./out/extension.js",
+  "activationEvents": [
+    "onView:promptLibraryGroups",
+    "onView:promptLibraryView",
+    "onView:promptLibraryStatus"
+  ],
   "contributes": {
     "commands": [
       {
@@ -85,6 +76,10 @@
         "title": "Prompt Library: Sync (Pull)"
       },
       {
+        "command": "promptLibrary.syncClonePullImport",
+        "title": "Prompt Library: Sync (Clone/Pull + Import)"
+      },
+      {
         "command": "promptLibrary.syncReadNow",
         "title": "Prompt Library: Sync (Read YAML)"
       }
@@ -93,7 +88,8 @@
       "activitybar": [
         {
           "id": "promptLibrary",
-          "title": "Prompt Library"
+          "title": "Prompt Library",
+          "icon": "media/prompt-library.svg"
         }
       ]
     },
@@ -107,7 +103,7 @@
         },
         "promptLibrary.repoPath": {
           "type": "string",
-          "default": "",
+          "default": "~/PromptLibrary",
           "description": "Local path to the repo root where shared prompts YAML will be written."
         },
         "promptLibrary.promptsSubdir": {
@@ -143,15 +139,20 @@
       "promptLibrary": [
         {
           "id": "promptLibraryGroups",
-          "name": "Groups"
+          "name": "Groups",
+          "icon": "$(folder)"
         },
         {
+          "type": "webview",
           "id": "promptLibraryView",
-          "name": "Prompt Library"
+          "name": "Prompt Library",
+          "icon": "$(library)"
         },
         {
+          "type": "webview",
           "id": "promptLibraryStatus",
-          "name": "Sync Status"
+          "name": "Sync Status",
+          "icon": "$(sync)"
         }
       ]
     },
@@ -184,7 +185,10 @@
     "compile": "tsc -p ./",
     "watch": "tsc -w -p ./",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "package": "npm run compile && npx --yes @vscode/vsce package",
+    "package:local": "npm run compile && npx --yes @vscode/vsce package -o prompt-library-local.vsix",
+    "reinstall:local": "node ./scripts/reinstall.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",

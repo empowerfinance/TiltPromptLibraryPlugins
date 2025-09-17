@@ -52,6 +52,17 @@ export async function getRemoteUrl(path: string, remote = 'origin'): Promise<str
   return res.stdout.trim();
 }
 
+export async function clone(baseDir: string, remoteUrl: string, targetDirName?: string): Promise<{ success: boolean; error?: string }> {
+  const args = targetDirName ? ['clone', remoteUrl, targetDirName] : ['clone', remoteUrl];
+  const res = await runGit(baseDir, args);
+  if (res.code === 0) {
+    return { success: true };
+  } else {
+    return { success: false, error: `Git clone failed (code ${res.code}): ${res.stderr || res.stdout}` };
+  }
+}
+
+
 export async function fetch(path: string, remote = 'origin'): Promise<boolean> {
   const res = await runGit(path, ['fetch', remote]);
   return res.code === 0;
