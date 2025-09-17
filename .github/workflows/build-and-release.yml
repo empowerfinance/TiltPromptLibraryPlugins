@@ -78,10 +78,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Use Node.js 18
+      - name: Use Node.js 20.18.1
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20.18.1'
 
       - name: Setup npm cache
         uses: actions/cache@v4
