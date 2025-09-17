@@ -1,4 +1,4 @@
-rootProject.name = "RiderPromptLibraryPlugin"
+rootProject.name = "TiltPromptLibraryPlugins"
 
 
 plugins {

@@ -1,4 +1,4 @@
-﻿name: Build and Release Plugin
+﻿name: Build and Release Rider Plugin
 
 on:
   push:
@@ -86,7 +86,7 @@ jobs:
 
     - name: Set version and tag
       run: |
-        VERSION="1.0.${GITHUB_RUN_NUMBER}"
+        VERSION="0.0.${GITHUB_RUN_NUMBER}"
         echo "PLUGIN_VERSION=$VERSION" >> $GITHUB_ENV
         echo "RELEASE_TAG=rider-v$VERSION" >> $GITHUB_ENV
         echo "Release from main with tag rider-v$VERSION"
@@ -97,45 +97,6 @@ jobs:
         name: plugin-distribution-${{ env.PLUGIN_VERSION }}
         path: ./artifacts
 
-    - name: Create Release Notes
-      run: |
-        cat > release_notes.md << EOF
-        # Rider Prompt Library Plugin v${{ env.PLUGIN_VERSION }}
-
-        **Auto-generated release from build #${{ github.run_number }}**
-
-        ## 🚀 Installation
-
-        1. Download the \`Prompt-Library-${{ env.PLUGIN_VERSION }}.zip\` file below
-        2. In JetBrains Rider: **File > Settings > Plugins > ⚙️ > Install Plugin from Disk...**
-        3. Select the downloaded zip file
-        4. Restart Rider
-
-        ## ✨ Features
-
-        - 📝 Create, edit, and delete prompts with confirmation dialogs
-        - 📋 One-click copy - click any prompt to copy it to clipboard
-        - 🔍 Real-time search with case-insensitive filtering
-        - 📤 Import/Export prompts as clean JSON arrays
-        - 🚫 Duplicate detection - automatically prevents duplicate prompts
-        - 💾 Persistent storage - prompts survive IDE restarts
-        - 🎨 Theme-aware UI - adapts to light/dark Rider themes
-
-        ## 🔧 Requirements
-
-        - JetBrains Rider 2024.1 or newer
-        - Windows, macOS, or Linux
-
-        ## 📋 Usage
-
-        After installation, look for "Prompt Library" in the left sidebar tool windows.
-
-        ---
-
-        **Commit:** \`${{ github.sha }}\`
-        **Build:** #${{ github.run_number }}
-        **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-        EOF
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
@@ -143,7 +104,6 @@ jobs:
         tag_name: ${{ env.RELEASE_TAG }}
         target_commitish: ${{ github.sha }}
         name: "Rider Prompt Library v${{ env.PLUGIN_VERSION }}"
-        body_path: release_notes.md
         files: ./artifacts/*.zip
         draft: false
         prerelease: false

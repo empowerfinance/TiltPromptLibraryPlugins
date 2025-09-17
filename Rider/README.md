@@ -54,16 +54,16 @@ For details on what this looks like, please look at the files in the `docs` dire
 
 ##### For Rider 2025.2+ (Latest)
 ```bash
-git clone https://github.com/your-org/RiderPromptLibraryPlugin.git
-cd RiderPromptLibraryPlugin
+git clone https://github.com/your-org/TiltPromptLibraryPlugins.git
+cd TiltPromptLibraryPlugins
 ./gradlew buildPlugin  # Creates zip in build/distributions/
 # Windows PowerShell: .\gradlew.bat buildPlugin
 ```
 
 ##### For Rider 2024.3–2025.1 (Legacy)
 ```bash
-git clone https://github.com/your-org/RiderPromptLibraryPlugin.git
-cd RiderPromptLibraryPlugin
+git clone https://github.com/your-org/TiltPromptLibraryPlugins.git
+cd TiltPromptLibraryPlugins
 ./gradlew -b build-legacy.gradle.kts buildPlugin  # Creates legacy-compatible zip
 # Windows PowerShell: .\gradlew.bat -b build-legacy.gradle.kts buildPlugin
 ```
@@ -143,8 +143,8 @@ We welcome contributions! This project was built using an evolutionary, step-by-
 1. **Prerequisites**: JDK 21 (latest) or JDK 17 (legacy), JetBrains Rider
 2. **Clone and build**:
    ```bash
-   git clone https://github.com/your-org/RiderPromptLibraryPlugin.git
-   cd RiderPromptLibraryPlugin
+   git clone https://github.com/your-org/TiltPromptLibraryPlugins.git
+   cd TiltPromptLibraryPlugins
    ./gradlew runIde  # Windows: .\gradlew.bat runIde
    ```
 3. **Development workflow**:
