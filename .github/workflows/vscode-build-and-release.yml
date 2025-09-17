@@ -58,6 +58,8 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -92,6 +94,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to VS Code Marketplace (if token provided)
-        if: ${{ secrets.VSCE_PAT != '' }}
-        run: npx --yes @vscode/vsce publish -p ${{ secrets.VSCE_PAT }} --packagePath ./artifacts/*.vsix
+        if: ${{ env.VSCE_PAT != '' }}
+        run: npx --yes @vscode/vsce publish -p ${{ env.VSCE_PAT }} --packagePath ./artifacts/*.vsix
 
