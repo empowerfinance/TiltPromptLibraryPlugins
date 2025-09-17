@@ -1,0 +1,156 @@
+name: Build and Release Plugins
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  build_rider:
+    runs-on: ubuntu-latest
+    env:
+      RIDER_VERSION: '2024.3'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.10.2
+          cache-read-only: false
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-rider-${{ env.RIDER_VERSION }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-rider-${{ env.RIDER_VERSION }}-
+            ${{ runner.os }}-gradle-
+
+      - name: Set Rider plugin version from run number
+        run: |
+          echo "PLUGIN_VERSION=0.0.${{ github.run_number }}" >> $GITHUB_ENV
+          echo "Using Rider plugin version 0.0.${{ github.run_number }}"
+
+      - name: Ensure Gradle wrapper is executable
+        run: |
+          chmod +x Rider/gradlew
+          sed -i 's/\r$//' Rider/gradlew
+
+      - name: Warm IntelliJ Platform cache
+        run: cd Rider && ./gradlew setupDependencies --no-daemon --stacktrace
+        timeout-minutes: 25
+
+      - name: Build Rider plugin
+        run: cd Rider && ./gradlew buildPlugin --no-daemon --stacktrace -PpluginVersion=${{ env.PLUGIN_VERSION }}
+
+      - name: Verify Rider plugin artifact
+        run: |
+          ls -la Rider/build/distributions/
+
+      - name: Upload Rider plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-distribution-${{ env.PLUGIN_VERSION }}
+          path: Rider/build/distributions/*.zip
+          retention-days: 30
+
+  build_vscode:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: VSCode
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Setup npm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('VSCode/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set VS Code extension version from run number
+        run: |
+          echo "EXT_VERSION=0.1.${{ github.run_number }}" >> $GITHUB_ENV
+          echo "Using VS Code extension version 0.1.${{ github.run_number }}"
+          npm version --no-git-tag-version $EXT_VERSION
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Package VSIX
+        run: npx --yes @vscode/vsce package -o prompt-library-${{ env.EXT_VERSION }}.vsix
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-extension-${{ env.EXT_VERSION }}
+          path: VSCode/prompt-library-${{ env.EXT_VERSION }}.vsix
+          retention-days: 30
+
+  release:
+    needs: [build_rider, build_vscode]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set versions and combined tag
+        run: |
+          echo "PLUGIN_VERSION=0.0.${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
+          echo "EXT_VERSION=0.1.${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=tilt-plugins-v${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
+          echo "Releasing Rider $PLUGIN_VERSION and VS Code $EXT_VERSION as tag $RELEASE_TAG"
+
+      - name: Download Rider artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: plugin-distribution-${{ env.PLUGIN_VERSION }}
+          path: ./artifacts/rider
+
+      - name: Download VS Code artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vscode-extension-${{ env.EXT_VERSION }}
+          path: ./artifacts/vscode
+
+      - name: Create combined GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "Prompt Library Plugins #${{ github.run_number }}"
+          files: |
+            ./artifacts/**/*.zip
+            ./artifacts/**/*.vsix
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

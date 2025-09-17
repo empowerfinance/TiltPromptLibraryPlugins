@@ -1,114 +1,112 @@
-﻿name: Build and Release Rider Plugin
+﻿# name: Build and Release Rider Plugin
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+# on:
+#   pull_request:
+#     branches: [ main ]
 
-permissions:
-  contents: write
+# permissions:
+#   contents: write
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    env:
-      RIDER_VERSION: '2024.3'
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
+#     env:
+#       RIDER_VERSION: '2024.3'
 
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+#     steps:
+#     - name: Checkout code
+#       uses: actions/checkout@v4
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+#     - name: Set up JDK 17
+#       uses: actions/setup-java@v4
+#       with:
+#         java-version: '17'
+#         distribution: 'temurin'
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: 8.10.2
-        cache-read-only: false
+#     - name: Setup Gradle
+#       uses: gradle/actions/setup-gradle@v3
+#       with:
+#         gradle-version: 8.10.2
+#         cache-read-only: false
 
-    - name: Cache Gradle packages
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.gradle/caches
-          ~/.gradle/wrapper
-        key: ${{ runner.os }}-gradle-rider-${{ env.RIDER_VERSION }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-        restore-keys: |
-          ${{ runner.os }}-gradle-rider-${{ env.RIDER_VERSION }}-
-          ${{ runner.os }}-gradle-
+#     - name: Cache Gradle packages
+#       uses: actions/cache@v4
+#       with:
+#         path: |
+#           ~/.gradle/caches
+#           ~/.gradle/wrapper
+#         key: ${{ runner.os }}-gradle-rider-${{ env.RIDER_VERSION }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+#         restore-keys: |
+#           ${{ runner.os }}-gradle-rider-${{ env.RIDER_VERSION }}-
+#           ${{ runner.os }}-gradle-
 
-    - name: Set version from run number
-      run: |
-        echo "PLUGIN_VERSION=0.0.${{ github.run_number }}" >> $GITHUB_ENV
-        echo "Using version 0.0.${{ github.run_number }}"
+#     - name: Set version from run number
+#       run: |
+#         echo "PLUGIN_VERSION=0.0.${{ github.run_number }}" >> $GITHUB_ENV
+#         echo "Using version 0.0.${{ github.run_number }}"
 
 
-    - name: Ensure Gradle wrapper is executable
-      run: |
-        chmod +x Rider/gradlew
-        sed -i 's/\r$//' Rider/gradlew
+#     - name: Ensure Gradle wrapper is executable
+#       run: |
+#         chmod +x Rider/gradlew
+#         sed -i 's/\r$//' Rider/gradlew
 
-    - name: Warm IntelliJ Platform cache
-      run: cd Rider && ./gradlew setupDependencies --no-daemon --stacktrace
-      timeout-minutes: 25
+#     - name: Warm IntelliJ Platform cache
+#       run: cd Rider && ./gradlew setupDependencies --no-daemon --stacktrace
+#       timeout-minutes: 25
 
-    - name: Prepare plugin version
-      run: echo "Using -PpluginVersion=${{ env.PLUGIN_VERSION }} for build"
+#     - name: Prepare plugin version
+#       run: echo "Using -PpluginVersion=${{ env.PLUGIN_VERSION }} for build"
 
-    - name: Build plugin
-      run: cd Rider && ./gradlew buildPlugin --no-daemon --stacktrace -PpluginVersion=${{ env.PLUGIN_VERSION }}
+#     - name: Build plugin
+#       run: cd Rider && ./gradlew buildPlugin --no-daemon --stacktrace -PpluginVersion=${{ env.PLUGIN_VERSION }}
 
-    - name: Verify plugin artifact
-      run: |
-        ls -la Rider/build/distributions/
-        echo "Plugin built successfully"
+#     - name: Verify plugin artifact
+#       run: |
+#         ls -la Rider/build/distributions/
+#         echo "Plugin built successfully"
 
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: plugin-distribution-${{ env.PLUGIN_VERSION }}
-        path: Rider/build/distributions/*.zip
-        retention-days: 30
+#     - name: Upload build artifacts
+#       uses: actions/upload-artifact@v4
+#       with:
+#         name: plugin-distribution-${{ env.PLUGIN_VERSION }}
+#         path: Rider/build/distributions/*.zip
+#         retention-days: 30
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+#   release:
+#     needs: build
+#     runs-on: ubuntu-latest
+#     if: github.ref == 'refs/heads/main'
 
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+#     steps:
+#     - name: Checkout code
+#       uses: actions/checkout@v4
 
-    - name: Set version and tag
-      run: |
-        VERSION="0.0.${GITHUB_RUN_NUMBER}"
-        echo "PLUGIN_VERSION=$VERSION" >> $GITHUB_ENV
-        echo "RELEASE_TAG=rider-v$VERSION" >> $GITHUB_ENV
-        echo "Release from main with tag rider-v$VERSION"
+#     - name: Set version and tag
+#       run: |
+#         VERSION="0.0.${GITHUB_RUN_NUMBER}"
+#         echo "PLUGIN_VERSION=$VERSION" >> $GITHUB_ENV
+#         echo "RELEASE_TAG=rider-v$VERSION" >> $GITHUB_ENV
+#         echo "Release from main with tag rider-v$VERSION"
 
-    - name: Download build artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: plugin-distribution-${{ env.PLUGIN_VERSION }}
-        path: ./artifacts
+#     - name: Download build artifacts
+#       uses: actions/download-artifact@v4
+#       with:
+#         name: plugin-distribution-${{ env.PLUGIN_VERSION }}
+#         path: ./artifacts
 
 
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: ${{ env.RELEASE_TAG }}
-        target_commitish: ${{ github.sha }}
-        name: "Rider Prompt Library v${{ env.PLUGIN_VERSION }}"
-        files: ./artifacts/*.zip
-        draft: false
-        prerelease: false
-        generate_release_notes: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#     - name: Create GitHub Release
+#       uses: softprops/action-gh-release@v2
+#       with:
+#         tag_name: ${{ env.RELEASE_TAG }}
+#         target_commitish: ${{ github.sha }}
+#         name: "Rider Prompt Library v${{ env.PLUGIN_VERSION }}"
+#         files: ./artifacts/*.zip
+#         draft: false
+#         prerelease: false
+#         generate_release_notes: false
+#       env:
+#         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    # Skipping README/version commits; release notes include version. If needed, update Rider/README.md explicitly in the future.
+#     # Skipping README/version commits; release notes include version. If needed, update Rider/README.md explicitly in the future.
