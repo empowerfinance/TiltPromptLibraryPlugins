@@ -62,11 +62,16 @@ jobs:
         run: |
           ls -la Rider/build/distributions/
 
+      - name: Rename Rider artifact to standard name
+        run: |
+          mv Rider/build/distributions/*.zip Rider/build/distributions/TiltPromptLibraryPlugin-${{ env.PLUGIN_VERSION }}.zip
+          ls -la Rider/build/distributions/
+
       - name: Upload Rider plugin artifact
         uses: actions/upload-artifact@v4
         with:
           name: plugin-distribution-${{ env.PLUGIN_VERSION }}
-          path: Rider/build/distributions/*.zip
+          path: Rider/build/distributions/TiltPromptLibraryPlugin-${{ env.PLUGIN_VERSION }}.zip
           retention-days: 30
 
   build_vscode:
@@ -96,21 +101,21 @@ jobs:
 
       - name: Set VS Code extension version from run number
         run: |
-          echo "EXT_VERSION=0.1.${{ github.run_number }}" >> $GITHUB_ENV
-          echo "Using VS Code extension version 0.1.${{ github.run_number }}"
+          echo "EXT_VERSION=0.0.${{ github.run_number }}" >> $GITHUB_ENV
+          echo "Using VS Code extension version 0.0.${{ github.run_number }}"
           npm version --no-git-tag-version $EXT_VERSION
 
       - name: Compile
         run: npm run compile
 
       - name: Package VSIX
-        run: npx --yes @vscode/vsce package -o prompt-library-${{ env.EXT_VERSION }}.vsix
+        run: npx --yes @vscode/vsce package -o "Tilt-Prompt-Library-${{ env.EXT_VERSION }}.vsix"
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:
           name: vscode-extension-${{ env.EXT_VERSION }}
-          path: VSCode/prompt-library-${{ env.EXT_VERSION }}.vsix
+          path: VSCode/Tilt-Prompt-Library-${{ env.EXT_VERSION }}.vsix
           retention-days: 30
 
   release:
@@ -124,7 +129,7 @@ jobs:
       - name: Set versions and combined tag
         run: |
           echo "PLUGIN_VERSION=0.0.${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
-          echo "EXT_VERSION=0.1.${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
+          echo "EXT_VERSION=0.0.${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
           echo "RELEASE_TAG=tilt-plugins-v${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
           echo "Releasing Rider $PLUGIN_VERSION and VS Code $EXT_VERSION as tag $RELEASE_TAG"
 
@@ -144,7 +149,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: "Prompt Library Plugins #${{ github.run_number }}"
+          name: "Tilt Prompt Library Plugins 0.0.${{ github.run_number }}"
           files: |
             ./artifacts/**/*.zip
             ./artifacts/**/*.vsix
