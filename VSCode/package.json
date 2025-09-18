@@ -82,6 +82,10 @@
       {
         "command": "promptLibrary.syncReadNow",
         "title": "Prompt Library: Sync (Read YAML)"
+      },
+      {
+        "command": "promptLibrary.resetAll",
+        "title": "Prompt Library: Reset Library"
       }
     ],
     "viewsContainers": {

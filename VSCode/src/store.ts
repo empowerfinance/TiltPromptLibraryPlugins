@@ -1,3 +1,4 @@
+// store.ts
 import * as vscode from 'vscode';
 import { Group, Library, Prompt } from './model';
 
@@ -55,12 +56,18 @@ export class LibraryStore {
     await this.save(seed);
   }
 
-
   // CRUD helpers
   async getPrompts(groupId: string | null): Promise<Prompt[]> {
     const lib = await this.load();
-    const group = this.findGroup(lib, groupId ?? 'grp-unfiled');
-    return group?.prompts ?? [];
+    const targetId = groupId ?? 'grp-unfiled';
+    const group = this.findGroup(lib, targetId);
+    if (!group) return [];
+    const collect = (g: Group): Prompt[] => {
+      const out: Prompt[] = [...g.prompts];
+      for (const c of g.children) out.push(...collect(c));
+      return out;
+    };
+    return collect(group);
   }
 
   async addPromptToGroup(groupId: string | null, text: string): Promise<{ ok: boolean; reason?: string; prompt?: Prompt; groupId: string }> {
@@ -86,6 +93,7 @@ export class LibraryStore {
     if (removed) await this.save(lib);
     return removed;
   }
+
   async updatePromptText(promptId: string, newText: string): Promise<{ ok: boolean; reason?: string }> {
     const lib = await this.load();
     const ref = this.findPromptRef(lib, promptId);
@@ -141,7 +149,6 @@ export class LibraryStore {
     };
     return walk(lib.groups);
   }
-
 
   // Internals
   private normalizeForCompare(text: string): string {
@@ -296,4 +303,3 @@ export class LibraryStore {
     return { changed, library };
   }
 }
-

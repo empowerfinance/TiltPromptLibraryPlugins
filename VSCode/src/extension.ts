@@ -1,3 +1,4 @@
+// extension.ts
 import * as vscode from 'vscode';
 import { LibraryStore } from './store';
 import { GroupsProvider, GroupItem } from './groups';
@@ -25,11 +26,18 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
     this.view = webviewView;
     webviewView.webview.options = { enableScripts: true };
     webviewView.webview.onDidReceiveMessage(msg => this.onMessage(msg));
-    webviewView.webview.html = getHtml();
+    webviewView.webview.html = getHtml(webviewView.webview);
     // Ensure the webview reflects the current selection even if it resolved after selection happened
     log.info(`Webview resolved; replaying selected group: id=${this.selectedGroup.id ?? 'null'}, name=${this.selectedGroup.name ?? 'null'}`);
     webviewView.webview.postMessage({ type: 'selectedGroup', payload: this.selectedGroup });
     this.pushList();
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        webviewView.webview.postMessage({ type: 'selectedGroup', payload: this.selectedGroup });
+        this.pushList();
+      }
+    });
+
   }
 
   async onMessage(msg: any) {
@@ -106,24 +114,60 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
         await vscode.commands.executeCommand(cmd);
         break;
       }
+      case 'ready': {
+        log.info('Prompt Library webview ready');
+        // Re-send current selection and list
+        this.view?.webview.postMessage({ type: 'selectedGroup', payload: this.selectedGroup });
+        await this.pushList();
+        break;
+      }
+      case 'wv-log': {
+        try { log.info(`[webview] ${String(msg.msg ?? '')}`); } catch {}
+        break;
+      }
     }
   }
 
   async pushList() {
     if (!this.view) return;
     if (!this.selectedGroup.id) { this.view.webview.postMessage({ type: 'prompts', payload: [] }); return; }
+    log.info(`pushList: loading prompts for group=${this.selectedGroup.id}`);
     const prompts: Prompt[] = await this.store.getPrompts(this.selectedGroup.id);
+    log.info(`pushList: sending ${prompts.length} prompts`);
     this.view.webview.postMessage({ type: 'prompts', payload: prompts });
   }
 
   async refresh() { await this.pushList(); }
 
-  setSelectedGroup(group: { id: string | null; name: string | null }) {
-    this.selectedGroup = group;
-    log.info(`Webview setSelectedGroup: id=${group.id ?? 'null'}, name=${group.name ?? 'null'}, hasView=${!!this.view}`);
-    this.view?.webview.postMessage({ type: 'selectedGroup', payload: group });
+  // *** PATCH: redirect root selections to a writable child (e.g., Private -> Unfiled) ***
+  async setSelectedGroup(group: { id: string | null; name: string | null }) {
+    let effective = group;
+
+    try {
+      if (group.id === 'root-private') {
+        const lib = await this.store.getLibrary();
+        const priv = lib.groups.find(g => g.id === 'root-private');
+        const unfiled = priv?.children.find(c => c.id === 'grp-unfiled');
+        if (unfiled) {
+          effective = { id: unfiled.id, name: `${group.name} / ${unfiled.name}` };
+        }
+      } else if (group.id === 'root-shared') {
+        const lib = await this.store.getLibrary();
+        const shared = lib.groups.find(g => g.id === 'root-shared');
+        const firstChild = shared?.children[0];
+        if (firstChild) {
+          effective = { id: firstChild.id, name: `${group.name} / ${firstChild.name}` };
+        }
+      }
+    } catch (e) {
+      // fall back to original group if anything goes wrong
+    }
+
+    this.selectedGroup = effective;
+    log.info(`Webview setSelectedGroup: id=${effective.id ?? 'null'}, name=${effective.name ?? 'null'}, hasView=${!!this.view}`);
+    this.view?.webview.postMessage({ type: 'selectedGroup', payload: effective });
     // When selection changes, refresh list for that group
-    this.pushList();
+    await this.pushList();
   }
 }
 
@@ -149,13 +193,12 @@ export function activate(context: vscode.ExtensionContext) {
     const id = item.groupId;
     const name = item.label?.toString() ?? null;
     log.info(`Selected group item: id=${id}, name=${name}`);
-    // Treat roots as no specific group selection
-    if (id === 'root-shared' || id === 'root-private') {
-      provider.setSelectedGroup({ id: null, name: null });
-    } else {
-      provider.setSelectedGroup({ id, name });
-    }
+    // Treat roots as valid selections; we redirect in setSelectedGroup to show actual prompts
+    await provider.setSelectedGroup({ id, name });
   });
+
+  // *** PATCH: default selection to Unfiled so the view is immediately usable ***
+  provider.setSelectedGroup({ id: 'grp-unfiled', name: 'Unfiled' });
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(PromptLibraryViewProvider.viewType, provider),
@@ -340,21 +383,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (!cfg.remoteRepoUrl || !cfg.remoteRepoUrl.trim()) { vscode.window.showWarningMessage('Set promptLibrary.remoteRepoUrl in settings first.'); return; }
       try {
         log.info('Clone/Pull+Import started...');
-        const repoNameFromUrl = (url: string): string => {
-          try {
-            if (url.startsWith('git@')) {
-              const rest = url.split(':')[1] || '';
-              const parts = rest.replace(/\.git$/, '').split('/');
-              return parts[1] || parts[0] || 'prompt-library-repo';
-            } else {
-              const u = new URL(url);
-              const parts = u.pathname.replace(/^\//, '').replace(/\.git$/, '').split('/');
-              return parts[1] || parts[0] || 'prompt-library-repo';
-            }
-          } catch { return 'prompt-library-repo'; }
-        };
         let targetPath = cfg.repoPath;
-        const name = repoNameFromUrl(cfg.remoteRepoUrl);
 
         // If no repoPath is configured, use the default ~/PromptLibrary
         if (!targetPath) {
@@ -436,8 +465,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {}
 
-function getHtml(): string {
-  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; script-src 'unsafe-inline' 'nonce-1234'; style-src 'unsafe-inline';">`;
+function getHtml(webview: vscode.Webview): string {
+  const nonce = getNonce();
+  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">`;
   return `<!DOCTYPE html><html><head>${csp}
   <style>
     body { font-family: var(--vscode-font-family); margin: 0; }
@@ -465,7 +495,7 @@ function getHtml(): string {
       <button id="resetBtn" class="btn">Reset</button>
       <span id="counts" class="count"></span>
     </div>
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+    <div id="filterRow" style="display:none; gap:8px; align-items:center; margin-bottom:8px;">
       <input id="filter" type="text" placeholder="Filter prompts..." style="flex:1;" />
       <button id="clearFilter" class="btn">Clear</button>
     </div>
@@ -482,23 +512,33 @@ function getHtml(): string {
       <button id="save" class="btn" disabled>Add prompt</button>
     </div>
   </div>
-  <script nonce="1234">
+  <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const sel = document.getElementById('sel');
+    try { sel.textContent = 'Loading...'; } catch {}
     const filter = document.getElementById('filter');
+    // Temporarily disable filter UI
+    try {
+      filter?.setAttribute('disabled','true');
+      document.getElementById('clearFilter')?.setAttribute('disabled','true');
+      filter?.parentElement?.setAttribute('style','display:none;');
+    } catch {}
     const list = document.getElementById('list');
     const composer = document.getElementById('composer');
     const save = document.getElementById('save');
     const counts = document.getElementById('counts');
 
     let allPrompts = [];
+    // Notify extension that the webview is ready so it can (re)send selection and list
+    try { vscode.postMessage({ type: 'ready' }); vscode.postMessage({ type: 'wv-log', msg: 'boot' }); } catch {}
+
     const selected = new Set();
 
     function summarize(text){
-      const first = (text||'').split(/\r?\n/,1)[0];
-      return first.length > 120 ? first.slice(0,117) + '\u2026' : first;
+      const first = (text||'').split(/\\r?\\n/,1)[0];
+      return first.length > 120 ? first.slice(0,117) + '\\u2026' : first;
     }
-    function normalized(t){ return (t||'').replace(/\r\n|\r/g,'\n').replace(/\s+/g,' ').trim().toLowerCase(); }
+    function normalized(t){ return (t||'').replace(/\\r\\n|\\r/g,'\\n').replace(/\\s+/g, ' ').trim().toLowerCase(); }
     function renderCounts(shown){ counts.textContent = String(shown) + ' shown / ' + String(allPrompts.length) + ' total'; }
 
     function renderSelectionBar(){
@@ -515,9 +555,9 @@ function getHtml(): string {
       prompts.forEach(p => {
         const item = document.createElement('div'); item.className = 'item';
         const row = document.createElement('div'); row.style.display='flex'; row.style.gap='8px'; row.style.alignItems='center';
-        const sel = document.createElement('input'); sel.type='checkbox'; sel.onchange = () => { if (sel.checked) selected.add(p.id); else selected.delete(p.id); renderSelectionBar(); };
+        const selectCb = document.createElement('input'); selectCb.type='checkbox'; selectCb.onchange = () => { if (selectCb.checked) selected.add(p.id); else selected.delete(p.id); renderSelectionBar(); };
         const title = document.createElement('div'); title.className = 'summary'; title.textContent = summarize(p.text); title.style.flex='1';
-        row.appendChild(sel); row.appendChild(title);
+        row.appendChild(selectCb); row.appendChild(title);
         const body = document.createElement('div'); body.className = 'body'; body.textContent = p.text;
         title.onclick = () => { body.style.display = (body.style.display === 'none' || body.style.display === '') ? 'block' : 'none'; };
         const tags = document.createElement('div'); tags.className='tags'; tags.innerHTML = (p.tags||[]).map(t => '<span class="chip">'+t+'</span>').join(' ');
@@ -545,14 +585,13 @@ function getHtml(): string {
     }
 
     function applyFilter() {
-      const q = (filter.value || '').toLowerCase();
-      if (!q) { renderList(allPrompts); return; }
-      const filtered = allPrompts.filter(p => (p.text || '').toLowerCase().includes(q));
-      renderList(filtered);
+      // Filter disabled: always render full list
+      renderList(allPrompts);
     }
 
     window.addEventListener('message', (event) => {
       const msg = event.data || {};
+      try { vscode.postMessage({ type: 'wv-log', msg: 'recv ' + String(msg.type) + (Array.isArray(msg.payload) ? (' len=' + msg.payload.length) : '') }); } catch {}
       if (msg.type === 'selectedGroup') {
         const g = msg.payload;
         if (!g || !g.id) {
@@ -564,38 +603,46 @@ function getHtml(): string {
           renderList([]);
         } else {
           sel.textContent = 'Selected group: ' + (g.name || g.id);
-          composer.removeAttribute('disabled');
-          save.removeAttribute('disabled');
-          composer.setAttribute('placeholder', 'Write a new prompt for ' + (g.name || g.id) + '...');
+          // Clear filter and selection on group change
+          try { filter.value = ''; } catch {}
+          selected.clear(); renderSelectionBar();
+          // Disable composer at root; enable for subgroups
+          if (g.id === 'root-shared' || g.id === 'root-private') {
+            composer.setAttribute('disabled','true');
+            save.setAttribute('disabled','true');
+            composer.setAttribute('placeholder','Select a subgroup to add prompts');
+          } else {
+            composer.removeAttribute('disabled');
+            save.removeAttribute('disabled');
+            composer.setAttribute('placeholder', 'Write a new prompt for ' + (g.name || g.id) + '...');
+          }
           vscode.postMessage({ type: 'requestList' });
         }
       } else if (msg.type === 'prompts') {
-        allPrompts = msg.payload || [];
+        allPrompts = Array.isArray(msg.payload) ? msg.payload : [];
+        // *** PATCH: small extra client log to confirm render size ***
+        try { vscode.postMessage({ type: 'wv-log', msg: 'render prompts=' + allPrompts.length }); } catch {}
         applyFilter();
       }
     });
 
-    filter.addEventListener('input', () => applyFilter());
-    document.getElementById('clearFilter').addEventListener('click', () => { filter.value=''; applyFilter(); selected.clear(); renderSelectionBar(); });
-
     // Bulk bar actions
-    document.getElementById('bulkDelete').addEventListener('click', () => {
+    document.getElementById('bulkDelete')?.addEventListener('click', () => {
       if (selected.size === 0) return;
       vscode.postMessage({ type: 'deleteMany', ids: Array.from(selected) });
       selected.clear(); renderSelectionBar();
     });
-    document.getElementById('bulkMove').addEventListener('click', () => {
+    document.getElementById('bulkMove')?.addEventListener('click', () => {
       if (selected.size === 0) return;
       vscode.postMessage({ type: 'moveMany', ids: Array.from(selected) });
       selected.clear(); renderSelectionBar();
     });
 
     // Toolbar
-    document.getElementById('importBtn').addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.importJson' }));
-    document.getElementById('exportBtn').addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.exportJson' }));
-    document.getElementById('dedupeBtn').addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.deduplicate' }));
-    document.getElementById('resetBtn').addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.resetAll' }));
-
+    document.getElementById('importBtn')?.addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.importJson' }));
+    document.getElementById('exportBtn')?.addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.exportJson' }));
+    document.getElementById('dedupeBtn')?.addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.deduplicate' }));
+    document.getElementById('resetBtn')?.addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.resetAll' }));
 
     // Add
     save.addEventListener('click', () => {
@@ -605,8 +652,18 @@ function getHtml(): string {
       if (seen.has(normalized(text))) { alert('Duplicate prompt'); return; }
       vscode.postMessage({ type: 'addPrompt', text });
       composer.value = '';
+      try { filter.value = ''; } catch {};
     });
   </script>
 </body></html>`;
+
+function getNonce(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 32; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
 }
 
+}

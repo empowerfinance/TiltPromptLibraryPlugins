@@ -1,3 +1,4 @@
+// groups.ts
 import * as vscode from 'vscode';
 import { Group, Library, Prompt } from './model';
 import { LibraryStore } from './store';
@@ -145,4 +146,3 @@ function toItem(g: Group): GroupItem {
   const collapsible = vscode.TreeItemCollapsibleState.Collapsed;
   return new GroupItem(g.id, g.name, collapsible, ctx);
 }
-
