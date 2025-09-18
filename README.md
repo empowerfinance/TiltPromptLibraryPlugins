@@ -56,6 +56,35 @@ Build from source
   - Dev: press F5 to launch “Extension Development Host”
   - Package: `npm run package` (outputs a `.vsix`), or `npm run package:local`
 
+### VS Code extension details (current status)
+
+- Views: Activity bar container with three views
+  - Groups (tree): Shared and Private roots with child groups
+  - Prompt Library (webview): list, compose, and actions for the selected group
+  - Sync Status (webview): logs and feedback from sync operations
+- Root behavior and actions (intentional):
+  - Roots (Shared/Private) show no prompts and the composer is disabled
+  - No context-menu actions are shown on root nodes; actions are allowed only on groups
+  - The extension defaults selection to Private/Unfiled so you can add a prompt immediately
+- Prompt actions (per group): Copy, Edit (inline), Move, Delete; bulk Move/Delete with multi-select checkboxes; duplicate detection via normalized text
+- Import/Export: JSON import/export of the full library; simple string-array JSON is supported and recommended
+- GitHub Sync (Shared only) — YAML repository model:
+  - Export layout under a working copy path: <repoPath>/<promptsSubdir>/
+    - <GroupName>/_group.yaml (group metadata: id, name, kind, tags, description)
+    - <GroupName>/prompts/p-<uuid>.yaml (one file per prompt)
+    - Child groups repeat the same structure in subfolders
+  - Read YAML replaces the Shared namespace from the repo (remote‑wins)
+  - Write YAML regenerates the tree deterministically for clean diffs
+  - Direct Commit or Branch + PR flows are available; a Clone/Pull + Import one‑shot exists to bootstrap
+- Settings (File → Preferences → Settings → “Prompt Library”):
+  - promptLibrary.remoteRepoUrl: optional remote URL for Clone/Pull + Import
+  - promptLibrary.repoPath: local working copy folder (defaults to ~/PromptLibrary if unset)
+  - promptLibrary.promptsSubdir: subfolder for exported prompts (default: prompts)
+  - promptLibrary.writeStrategy: direct or branchPR; promptLibrary.branchName for branchPR
+  - Optional auto-fetch interval (future-facing)
+
+Tip: To add prompts, select a child group (e.g., Private/Unfiled). The composer is disabled at the Shared/Private roots by design.
+
 ---
 
 ## Using the Prompt Library
@@ -134,4 +163,4 @@ Guidelines
 
 MIT — see [LICENSE](Rider/LICENSE) and [LICENSE](VSCode/LICENSE).
 
-— Built with ❤️ using evolutionary development by Paul Gradie + Augment
+— Built with ❤️ using evolutionary development with Augment
