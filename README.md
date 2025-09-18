@@ -1,7 +1,6 @@
 # Tilt Prompt Library Plugins
 
-[![Rider Build & Release](https://github.com/empowerfinance/TiltPromptLibraryPlugins/actions/workflows/build-and-release.yml/badge.svg?branch=main)](https://github.com/empowerfinance/TiltPromptLibraryPlugins/actions/workflows/build-and-release.yml)
-[![VS Code Build & Release](https://github.com/empowerfinance/TiltPromptLibraryPlugins/actions/workflows/vscode-build-and-release.yml/badge.svg?branch=main)](https://github.com/empowerfinance/TiltPromptLibraryPlugins/actions/workflows/vscode-build-and-release.yml)
+[![Build & Release](https://github.com/empowerfinance/TiltPromptLibraryPlugins/actions/workflows/build-and-release.yml/badge.svg?branch=main)](https://github.com/empowerfinance/TiltPromptLibraryPlugins/actions/workflows/build-and-release.yml)
 
 This repo hosts both plugin implementations:
 
