@@ -29,15 +29,15 @@
       },
       {
         "command": "promptLibrary.addGroup",
-        "title": "Prompt Library: Add Group"
+        "title": "Add Group"
       },
       {
         "command": "promptLibrary.renameGroup",
-        "title": "Prompt Library: Rename Group"
+        "title": "Rename Group"
       },
       {
         "command": "promptLibrary.deleteGroup",
-        "title": "Prompt Library: Delete Group"
+        "title": "Delete Group"
       },
       {
         "command": "promptLibrary.exportJson",
@@ -162,16 +162,7 @@
     },
     "menus": {
       "view/item/context": [
-        {
-          "command": "promptLibrary.addGroup",
-          "when": "view == promptLibraryGroups && viewItem == root-shared",
-          "group": "inline"
-        },
-        {
-          "command": "promptLibrary.addGroup",
-          "when": "view == promptLibraryGroups && viewItem == root-private",
-          "group": "inline"
-        },
+
         {
           "command": "promptLibrary.renameGroup",
           "when": "view == promptLibraryGroups && viewItem == group",
