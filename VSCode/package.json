@@ -178,6 +178,12 @@
           "group": "inline"
         },
         {
+          "command": "promptLibrary.renameGroup",
+          "when": "view == promptLibraryGroups && viewItem == group-shared",
+          "group": "inline"
+        },
+
+        {
           "command": "promptLibrary.deleteGroup",
           "when": "view == promptLibraryGroups && viewItem == group",
           "group": "inline"

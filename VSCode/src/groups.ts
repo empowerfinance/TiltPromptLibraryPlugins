@@ -84,6 +84,12 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem> {
 
   async deleteGroup(groupId: string) {
     if (!this.library) this.library = await this.store.load();
+    const target = this.findGroup(groupId);
+    if (!target) return;
+    if (target.kind === 'shared') {
+      vscode.window.showWarningMessage('Shared groups cannot be deleted.');
+      return;
+    }
     if (groupId === 'root-shared' || groupId === 'root-private' || groupId === 'grp-unfiled') {
       vscode.window.showWarningMessage('This group cannot be deleted.');
       return;
@@ -142,7 +148,8 @@ function toItem(g: Group): GroupItem {
   const isRootShared = g.id === 'root-shared';
   const isRootPrivate = g.id === 'root-private';
   const isUnfiled = g.id === 'grp-unfiled';
-  const ctx = isRootShared ? 'root-shared' : isRootPrivate ? 'root-private' : isUnfiled ? 'group-unfiled' : 'group';
+  const isSharedChild = g.kind === 'shared' && !isRootShared;
+  const ctx = isRootShared ? 'root-shared' : isRootPrivate ? 'root-private' : isUnfiled ? 'group-unfiled' : (isSharedChild ? 'group-shared' : 'group');
   const collapsible = vscode.TreeItemCollapsibleState.Collapsed;
   return new GroupItem(g.id, g.name, collapsible, ctx);
 }
