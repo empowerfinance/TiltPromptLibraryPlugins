@@ -2,6 +2,8 @@
 import * as vscode from 'vscode';
 import { Group, Library, Prompt } from './model';
 import { LibraryStore } from './store';
+import { getSettings } from './settings';
+import { getRemoteUrl, isGitRepo } from './sync/git';
 
 function genId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -12,12 +14,46 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem> {
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   private library: Library | null = null;
+  private repoLabel: string | null = null;
 
   constructor(private readonly store: LibraryStore) {}
 
   async init() {
     this.library = await this.store.load();
+    await this.computeRepoLabel();
     this.refresh();
+  }
+
+  private async computeRepoLabel() {
+    try {
+      const cfg = getSettings();
+      let remoteUrl: string | null = null;
+      if (cfg?.remoteRepoUrl && String(cfg.remoteRepoUrl).trim()) {
+        remoteUrl = String(cfg.remoteRepoUrl).trim();
+      } else if (cfg?.repoPath && await isGitRepo(cfg.repoPath)) {
+        remoteUrl = await getRemoteUrl(cfg.repoPath, 'origin');
+      }
+      if (!remoteUrl) { this.repoLabel = null; return; }
+      const urlStr = String(remoteUrl);
+      // Extract repo name (last path segment without .git)
+      let repoName: string | null = null;
+      const m = urlStr.match(/[\/:]([^\/:]+)\/([^\/:]+?)(?:\.git)?$/);
+      if (m) {
+        repoName = m[2]?.replace(/\.git$/,'') || null;
+      } else {
+        const seg = urlStr.split('/').pop() || '';
+        repoName = seg.replace(/\.git$/,'') || null;
+      }
+      if (repoName && /github\.com/i.test(urlStr)) {
+        this.repoLabel = `GitHub: ${repoName}`;
+      } else if (repoName) {
+        this.repoLabel = `Remote: ${repoName}`;
+      } else {
+        this.repoLabel = null;
+      }
+    } catch {
+      this.repoLabel = null;
+    }
   }
 
   refresh(): void {
@@ -32,11 +68,11 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem> {
     }
     if (!element) {
       // roots are top-level groups in library
-      return (this.library?.groups ?? []).map(g => toItem(g));
+      return (this.library?.groups ?? []).map(g => toItem(g, this.repoLabel));
     }
     const group = this.findGroup(element.groupId);
     if (!group) return [];
-    return group.children.map(g => toItem(g));
+    return group.children.map(g => toItem(g, this.repoLabel));
   }
 
   getGroupById(id: string): Group | null {
@@ -145,7 +181,7 @@ export class GroupItem extends vscode.TreeItem {
   }
 }
 
-function toItem(g: Group): GroupItem {
+function toItem(g: Group, repoLabel?: string | null): GroupItem {
   const isRootShared = g.id === 'root-shared';
   const isRootPrivate = g.id === 'root-private';
   const isUnfiled = g.id === 'grp-unfiled';
@@ -154,5 +190,9 @@ function toItem(g: Group): GroupItem {
   const collapsible = (g.children && g.children.length > 0)
     ? vscode.TreeItemCollapsibleState.Expanded
     : vscode.TreeItemCollapsibleState.None;
-  return new GroupItem(g.id, g.name, collapsible, ctx);
+  const label = isRootShared && repoLabel ? repoLabel : g.name;
+  const item = new GroupItem(g.id, label, collapsible, ctx);
+  // Icons: GitHub for shared root, lock for private root, repo for shared children, folder otherwise
+  item.iconPath = new vscode.ThemeIcon(isRootShared ? 'github' : isRootPrivate ? 'lock' : isSharedChild ? 'repo' : 'folder');
+  return item;
 }
