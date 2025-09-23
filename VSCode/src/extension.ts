@@ -5,11 +5,11 @@ import { GroupsProvider, GroupItem } from './groups';
 import { Prompt } from './model';
 import { getSettings } from './settings';
 import { writeSharedGroups } from './sync/yamlWriter';
-import { StatusViewProvider } from './status';
 import { log } from './log';
 import { checkoutNewBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, tryBuildGithubCompareUrl, fetch as gitFetch, pull as gitPull, clone as gitClone } from './sync/git';
 import { start as startScheduler } from './sync/scheduler';
 import { readSharedGroups } from './sync/yamlReader';
+import { SyncOpsPanel } from './syncOps';
 
 import * as path from 'path';
 import * as os from 'os';
@@ -177,8 +177,6 @@ export function activate(context: vscode.ExtensionContext) {
   const groups = new GroupsProvider(store);
   groups.init();
 
-  const statusProvider = new StatusViewProvider();
-
   // Start auto-fetch scheduler
   startScheduler(context);
 
@@ -197,13 +195,52 @@ export function activate(context: vscode.ExtensionContext) {
     await provider.setSelectedGroup({ id, name });
   });
 
+  // Keep groups permanently expanded: if user collapses, immediately re-expand
+  treeView.onDidCollapseElement(e => {
+    try { treeView.reveal(e.element, { expand: 10 }); } catch {}
+  });
+  // Also ensure expand cascades to deeper levels when user expands a node
+  treeView.onDidExpandElement(e => {
+    try { treeView.reveal(e.element, { expand: 10 }); } catch {}
+  });
+
+
   // *** PATCH: default selection to Unfiled so the view is immediately usable ***
   provider.setSelectedGroup({ id: 'grp-unfiled', name: 'Unfiled' });
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(PromptLibraryViewProvider.viewType, provider),
-    vscode.window.registerWebviewViewProvider(StatusViewProvider.viewType, statusProvider),
+
     treeView,
+    vscode.commands.registerCommand('promptLibrary.syncOps', () => {
+      SyncOpsPanel.show(context);
+    }),
+    vscode.commands.registerCommand('promptLibrary.syncPullAndImport', async () => {
+      const cfg = getSettings();
+      if (!cfg.repoPath) { vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.'); return; }
+      try {
+        log.info('Pull & Sync started...');
+        const pulled = await gitPull(cfg.repoPath);
+        if (!pulled) { log.warn('Pull failed'); vscode.window.showWarningMessage('Pull failed. See Sync Ops for details.'); }
+        const groupsFromRepo = await readSharedGroups(vscode.Uri.file(cfg.repoPath), cfg.promptsSubdir);
+        const countPrompts = (gs: any[]): number => gs.reduce((acc, g) => acc + (Array.isArray(g.prompts) ? g.prompts.length : 0) + countPrompts(g.children || []), 0);
+        const totalPrompts = countPrompts(groupsFromRepo as any);
+        const lib = await store.getLibrary();
+        const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
+        if (!sharedRoot) { vscode.window.showWarningMessage('Shared root not found'); log.warn('Shared root not found'); return; }
+        sharedRoot.children = groupsFromRepo.map(g => ({ ...g, kind: 'shared' }));
+        sharedRoot.prompts = [];
+        await store.save(lib);
+        await groups.init();
+        await provider.refresh();
+        vscode.window.showInformationMessage(`Pull & Sync complete: ${groupsFromRepo.length} groups, ${totalPrompts} prompts.`);
+        log.info(`Pull & Sync complete: imported ${groupsFromRepo.length} top-level groups, ${totalPrompts} prompts.`);
+      } catch (e: any) {
+        log.error(`Pull & Sync failed: ${e?.message || e}`);
+        vscode.window.showWarningMessage('Pull & Sync failed. See Sync Ops for details.');
+      }
+    }),
+
     vscode.commands.registerCommand('promptLibrary.exportJson', async () => {
       try {
         const lib = await store.getLibrary();
@@ -473,17 +510,22 @@ function getHtml(webview: vscode.Webview): string {
     body { font-family: var(--vscode-font-family); margin: 0; }
     .container { padding: 12px; }
     .toolbar { display:flex; gap:8px; align-items:center; margin-bottom: 8px; }
-    .btn { padding: 4px 8px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 0; border-radius: 3px; cursor: pointer; }
-    .btn:hover { background: var(--vscode-button-hoverBackground); }
+    /* Compact, neutral buttons (no big blue buttons) */
+    .btn { padding: 2px 6px; background: transparent; color: var(--vscode-foreground); border: 1px solid var(--vscode-widget-border); border-radius: 3px; cursor: pointer; }
+    .btn:hover { background: var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.06)); }
+    /* Icon-sized buttons for per-item actions on the right */
+    .iconbtn { padding: 0 4px; background: transparent; color: var(--vscode-foreground); border: none; cursor: pointer; opacity: 0.8; }
+    .iconbtn:hover { opacity: 1; }
     .muted { color: var(--vscode-descriptionForeground); }
     .count { margin-left:auto; font-size: 12px; }
     .list { display:flex; flex-direction:column; gap:8px; }
     .item { border: 1px solid var(--vscode-widget-border); border-radius:4px; padding:8px; }
-    .summary { cursor:pointer; font-weight:600; }
+    .summary { cursor:pointer; font-weight:600; user-select:none; }
+    .summary:hover { text-decoration: underline; }
     .tags { margin-top:6px; display:flex; flex-wrap:wrap; gap:4px; }
     .chip { font-size:11px; padding:1px 6px; border-radius:10px; background: var(--vscode-editorCodeLens-foreground); color: var(--vscode-editor-foreground); }
     .body { display:none; margin-top:6px; white-space:pre-wrap; }
-    .actions { display:flex; gap:6px; margin-top:6px; }
+    .rowActions { margin-left:auto; display:flex; gap:4px; align-items:center; }
   </style></head><body>
   <div class="container">
     <h3>Prompt Library</h3>
@@ -493,6 +535,8 @@ function getHtml(webview: vscode.Webview): string {
       <button id="exportBtn" class="btn">Export JSON</button>
       <button id="dedupeBtn" class="btn">Deduplicate</button>
       <button id="resetBtn" class="btn">Reset</button>
+      <button id="syncOpsBtn" class="btn">Sync Ops</button>
+
       <span id="counts" class="count"></span>
     </div>
     <div id="filterRow" style="display:none; gap:8px; align-items:center; margin-bottom:8px;">
@@ -556,15 +600,21 @@ function getHtml(webview: vscode.Webview): string {
         const item = document.createElement('div'); item.className = 'item';
         const row = document.createElement('div'); row.style.display='flex'; row.style.gap='8px'; row.style.alignItems='center';
         const selectCb = document.createElement('input'); selectCb.type='checkbox'; selectCb.onchange = () => { if (selectCb.checked) selected.add(p.id); else selected.delete(p.id); renderSelectionBar(); };
-        const title = document.createElement('div'); title.className = 'summary'; title.textContent = summarize(p.text); title.style.flex='1';
-        row.appendChild(selectCb); row.appendChild(title);
+        const title = document.createElement('div'); title.className = 'summary'; title.textContent = summarize(p.text); title.style.flex='1'; title.title='Click to copy';
+        // Clicking the prompt title copies the text
+        title.onclick = () => vscode.postMessage({ type: 'copyPrompt', text: p.text });
+
+        // Right-aligned inline actions
+        const actions = document.createElement('div'); actions.className = 'rowActions';
         const body = document.createElement('div'); body.className = 'body'; body.textContent = p.text;
-        title.onclick = () => { body.style.display = (body.style.display === 'none' || body.style.display === '') ? 'block' : 'none'; };
-        const tags = document.createElement('div'); tags.className='tags'; tags.innerHTML = (p.tags||[]).map(t => '<span class="chip">'+t+'</span>').join(' ');
-        const actions = document.createElement('div'); actions.className = 'actions';
-        const copy = document.createElement('button'); copy.className='btn'; copy.textContent = 'Copy'; copy.onclick = () => vscode.postMessage({ type: 'copyPrompt', text: p.text });
-        const edit = document.createElement('button'); edit.className='btn'; edit.textContent = 'Edit';
-        edit.onclick = () => {
+        const expandBtn = document.createElement('button'); expandBtn.className='iconbtn'; expandBtn.title='Show/Hide details'; expandBtn.textContent='▾';
+        expandBtn.onclick = () => { body.style.display = (body.style.display === 'none' || body.style.display === '') ? 'block' : 'none'; };
+
+        const copyBtn = document.createElement('button'); copyBtn.className='iconbtn'; copyBtn.title='Copy'; copyBtn.textContent='📋';
+        copyBtn.onclick = () => vscode.postMessage({ type: 'copyPrompt', text: p.text });
+
+        const editBtn = document.createElement('button'); editBtn.className='iconbtn'; editBtn.title='Edit'; editBtn.textContent='✏️';
+        editBtn.onclick = () => {
           body.style.display = 'block';
           const ta = document.createElement('textarea'); ta.style.width='100%'; ta.rows=6; ta.value = p.text;
           const row2 = document.createElement('div'); row2.style.display='flex'; row2.style.gap='6px'; row2.style.marginTop='6px';
@@ -574,10 +624,17 @@ function getHtml(webview: vscode.Webview): string {
           cancelBtn.onclick = () => { vscode.postMessage({ type: 'requestList' }); };
           body.innerHTML=''; body.appendChild(ta); row2.append(saveBtn, cancelBtn); body.appendChild(row2);
         };
-        const move = document.createElement('button'); move.className='btn'; move.textContent = 'Move'; move.onclick = () => vscode.postMessage({ type: 'movePrompt', id: p.id });
-        const del = document.createElement('button'); del.className='btn'; del.textContent = 'Delete'; del.onclick = () => vscode.postMessage({ type: 'deletePrompt', id: p.id });
-        actions.append(copy, edit, move, del);
-        item.append(row, body, tags, actions);
+
+        const moveBtn = document.createElement('button'); moveBtn.className='iconbtn'; moveBtn.title='Move'; moveBtn.textContent='⇄';
+        moveBtn.onclick = () => vscode.postMessage({ type: 'movePrompt', id: p.id });
+
+        const delBtn = document.createElement('button'); delBtn.className='iconbtn'; delBtn.title='Delete'; delBtn.textContent='🗑';
+        delBtn.onclick = () => vscode.postMessage({ type: 'deletePrompt', id: p.id });
+
+        actions.append(expandBtn, copyBtn, editBtn, moveBtn, delBtn);
+        row.append(selectCb, title, actions);
+        const tags = document.createElement('div'); tags.className='tags'; tags.innerHTML = (p.tags||[]).map(t => '<span class="chip">'+t+'</span>').join(' ');
+        item.append(row, body, tags);
         list.appendChild(item);
       });
       renderCounts(prompts.length);
@@ -641,6 +698,8 @@ function getHtml(webview: vscode.Webview): string {
     // Toolbar
     document.getElementById('importBtn')?.addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.importJson' }));
     document.getElementById('exportBtn')?.addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.exportJson' }));
+    document.getElementById('syncOpsBtn')?.addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.syncOps' }));
+
     document.getElementById('dedupeBtn')?.addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.deduplicate' }));
     document.getElementById('resetBtn')?.addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.resetAll' }));
 

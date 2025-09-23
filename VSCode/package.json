@@ -19,7 +19,8 @@
   "activationEvents": [
     "onView:promptLibraryGroups",
     "onView:promptLibraryView",
-    "onView:promptLibraryStatus"
+    "onCommand:promptLibrary.syncOps",
+    "onCommand:promptLibrary.syncPullAndImport"
   ],
   "contributes": {
     "commands": [
@@ -86,7 +87,16 @@
       {
         "command": "promptLibrary.resetAll",
         "title": "Prompt Library: Reset Library"
+},
+      {
+        "command": "promptLibrary.syncOps",
+        "title": "Prompt Library: Sync Ops"
+      },
+      {
+        "command": "promptLibrary.syncPullAndImport",
+        "title": "Prompt Library: Pull & Sync Repo"
       }
+
     ],
     "viewsContainers": {
       "activitybar": [
@@ -151,12 +161,6 @@
           "id": "promptLibraryView",
           "name": "Prompt Library",
           "icon": "$(library)"
-        },
-        {
-          "type": "webview",
-          "id": "promptLibraryStatus",
-          "name": "Sync Status",
-          "icon": "$(sync)"
         }
       ]
     },

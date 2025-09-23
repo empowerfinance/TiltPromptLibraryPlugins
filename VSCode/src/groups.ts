@@ -151,6 +151,8 @@ function toItem(g: Group): GroupItem {
   const isUnfiled = g.id === 'grp-unfiled';
   const isSharedChild = g.kind === 'shared' && !isRootShared;
   const ctx = isRootShared ? 'root-shared' : isRootPrivate ? 'root-private' : isUnfiled ? 'group-unfiled' : (isSharedChild ? 'group-shared' : 'group');
-  const collapsible = vscode.TreeItemCollapsibleState.Collapsed;
+  const collapsible = (g.children && g.children.length > 0)
+    ? vscode.TreeItemCollapsibleState.Expanded
+    : vscode.TreeItemCollapsibleState.None;
   return new GroupItem(g.id, g.name, collapsible, ctx);
 }
