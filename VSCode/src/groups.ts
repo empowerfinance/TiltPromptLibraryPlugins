@@ -75,7 +75,12 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
     const group = this.findGroup(element.groupId);
     if (!group) return [];
     const groupItems = group.children.map(g => toItem(g, this.repoLabel));
-    const promptItems = group.prompts.map(p => new PromptItem(p.id, (p.title && p.title.trim()) ? p.title : (p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim() || 'Prompt', 'comment'));
+    const promptItems = group.prompts.map(p => new PromptItem(
+      p.id,
+      group.id,
+      (p.title && p.title.trim()) ? p.title : (p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim() || 'Prompt',
+      'comment'
+    ));
     return [...groupItems, ...promptItems];
   }
 
@@ -179,7 +184,12 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
 }
 
 export class PromptItem extends vscode.TreeItem {
-  constructor(public readonly promptId: string, label: string, icon: string = 'comment') {
+  constructor(
+    public readonly promptId: string,
+    public readonly groupId: string,
+    label: string,
+    icon: string = 'comment'
+  ) {
     super(label, vscode.TreeItemCollapsibleState.None);
     this.contextValue = 'prompt';
     this.iconPath = new vscode.ThemeIcon(icon);

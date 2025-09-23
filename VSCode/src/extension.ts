@@ -36,7 +36,7 @@ class PromptDetailViewProvider implements vscode.WebviewViewProvider {
 
   private render() {
     if (!this.view) return;
-    const esc = (s: string) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const esc = (s: string) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const title = esc(this.lastTitle || 'Prompt');
     const body = esc(this.lastText);
     const html = `<!DOCTYPE html><html><head>
@@ -63,7 +63,7 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private selectedGroup: { id: string | null; name: string | null } = { id: null, name: null };
 
-  constructor(private readonly store: LibraryStore) {}
+  constructor(private readonly store: LibraryStore) { }
 
   resolveWebviewView(webviewView: vscode.WebviewView) {
     this.view = webviewView;
@@ -71,8 +71,14 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(msg => this.onMessage(msg));
     webviewView.webview.html = getHtml(webviewView.webview);
     // Ensure the webview reflects the current selection even if it resolved after selection happened
-    log.info(`Webview resolved; replaying selected group: id=${this.selectedGroup.id ?? 'null'}, name=${this.selectedGroup.name ?? 'null'}`);
-    webviewView.webview.postMessage({ type: 'selectedGroup', payload: this.selectedGroup });
+    let replay = this.selectedGroup;
+    if (!replay.id) {
+      // Default to Unfiled so the composer is usable on first load
+      replay = { id: 'grp-unfiled', name: 'Unfiled' };
+      this.selectedGroup = replay;
+    }
+    log.info(`Webview resolved; replaying selected group: id=${replay.id ?? 'null'}, name=${replay.name ?? 'null'}`);
+    webviewView.webview.postMessage({ type: 'selectedGroup', payload: replay });
     this.pushList();
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
@@ -97,7 +103,7 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
         if (!res.ok) { vscode.window.showWarningMessage(res.reason ?? 'Could not add prompt'); return; }
         vscode.window.showInformationMessage('Prompt added');
         await this.pushList();
-        try { await vscode.commands.executeCommand('promptLibrary.refreshGroups'); } catch {}
+        try { await vscode.commands.executeCommand('promptLibrary.refreshGroups'); } catch { }
         break;
       }
       case 'deletePrompt': {
@@ -167,7 +173,7 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
         break;
       }
       case 'wv-log': {
-        try { log.info(`[webview] ${String(msg.msg ?? '')}`); } catch {}
+        try { log.info(`[webview] ${String(msg.msg ?? '')}`); } catch { }
         break;
       }
     }
@@ -242,10 +248,16 @@ export function activate(context: vscode.ExtensionContext) {
         const p = await store.getPromptById(pid);
         if (p) {
           await vscode.env.clipboard.writeText(p.text || '');
-          const title = (p.title && p.title.trim()) ? p.title : (p.text || '').replace(/\r\n?|\n/g,' ').slice(0,20).trim() || 'Prompt';
+          const title = (p.title && p.title.trim()) ? p.title : (p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim() || 'Prompt';
           detailProvider.showPrompt(title, p.text || '');
+          // Also switch the Prompt Library context to the prompt's group so composer is enabled
+          const gid = (item as any).groupId as (string | undefined);
+          if (gid) {
+            const g = groups.getGroupById(gid);
+            await provider.setSelectedGroup({ id: gid, name: g?.name ?? gid });
+          }
           // Bring container into focus
-          try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch {}
+          try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch { }
           vscode.window.setStatusBarMessage('Prompt copied to clipboard', 1500);
         }
       } catch (err) {
@@ -264,11 +276,11 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Keep groups permanently expanded: if user collapses, immediately re-expand
   treeView.onDidCollapseElement(e => {
-    try { treeView.reveal(e.element, { expand: 10 }); } catch {}
+    try { treeView.reveal(e.element, { expand: 10 }); } catch { }
   });
   // Also ensure expand cascades to deeper levels when user expands a node
   treeView.onDidExpandElement(e => {
-    try { treeView.reveal(e.element, { expand: 10 }); } catch {}
+    try { treeView.reveal(e.element, { expand: 10 }); } catch { }
   });
 
 
@@ -288,9 +300,9 @@ export function activate(context: vscode.ExtensionContext) {
         const p = await store.getPromptById(pid);
         if (!p) return;
         await vscode.env.clipboard.writeText(p.text || '');
-        const title = (p.title && p.title.trim()) ? p.title : (p.text || '').replace(/\r\n?|\n/g,' ').slice(0,20).trim() || 'Prompt';
+        const title = (p.title && p.title.trim()) ? p.title : (p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim() || 'Prompt';
         detailProvider.showPrompt(title, p.text || '');
-        try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch {}
+        try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch { }
         vscode.window.setStatusBarMessage('Prompt copied to clipboard', 1500);
       } catch (e) { log.warn('openPrompt failed: ' + String((e as any)?.message || e)); }
     }),
@@ -305,7 +317,7 @@ export function activate(context: vscode.ExtensionContext) {
       const pid: string | undefined = (item as any)?.promptId;
       if (!pid) return;
       const p = await store.getPromptById(pid); if (!p) return;
-      const fallback = (p.text || '').replace(/\r\n?|\n/g,' ').slice(0,20).trim();
+      const fallback = (p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim();
       const newTitle = await vscode.window.showInputBox({
         title: 'Edit Prompt Title',
         value: (p.title && p.title.trim()) ? p.title : fallback,
@@ -491,7 +503,7 @@ export function activate(context: vscode.ExtensionContext) {
       const repoPath = cfg.repoPath;
       if (!(await isGitRepo(repoPath))) { vscode.window.showWarningMessage('repoPath is not a Git repository'); log.warn('repoPath is not a Git repository'); return; }
       // Prefer configured branchName; fallback to timestamped branch
-      const branch = cfg.branchName && cfg.branchName.trim() ? cfg.branchName.trim() : `prompt-sync/${new Date().toISOString().replace(/[:T]/g,'-').slice(0,16)}`;
+      const branch = cfg.branchName && cfg.branchName.trim() ? cfg.branchName.trim() : `prompt-sync/${new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16)}`;
       try {
         log.info(`Branch+PR: creating branch ${branch}...`);
         const cur = await getCurrentBranch(repoPath);
@@ -571,7 +583,7 @@ export function activate(context: vscode.ExtensionContext) {
           const parentDir = path.dirname(targetPath);
           const dirName = path.basename(targetPath);
           log.info(`Cloning to parent dir: ${parentDir}, dir name: ${dirName}`);
-          try { fs.mkdirSync(parentDir, { recursive: true }); } catch {}
+          try { fs.mkdirSync(parentDir, { recursive: true }); } catch { }
           const cloneResult = await gitClone(parentDir, cfg.remoteRepoUrl, dirName);
           if (!cloneResult.success) {
             log.error(`Clone failed: ${cloneResult.error}`);
@@ -636,20 +648,25 @@ export function activate(context: vscode.ExtensionContext) {
   );
 }
 
-export function deactivate() {}
-
+export function deactivate() { }
 function getHtml(webview: vscode.Webview): string {
   const nonce = getNonce();
-  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">`;
-  return `<!DOCTYPE html><html><head>${csp}
+  const csp = `<meta http-equiv="Content-Security-Policy"
+    content="default-src 'none';
+             img-src ${webview.cspSource} https: data:;
+             style-src ${webview.cspSource} 'unsafe-inline';
+             script-src 'nonce-${nonce}';">`;
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  ${csp}
   <style>
     body { font-family: var(--vscode-font-family); margin: 0; }
     .container { padding: 12px; }
     .toolbar { display:flex; gap:8px; align-items:center; margin-bottom: 8px; }
-    /* Compact, neutral buttons (no big blue buttons) */
     .btn { padding: 2px 6px; background: transparent; color: var(--vscode-foreground); border: 1px solid var(--vscode-widget-border); border-radius: 3px; cursor: pointer; }
     .btn:hover { background: var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.06)); }
-    /* Icon-sized buttons for per-item actions on the right */
     .iconbtn { padding: 0 4px; background: transparent; color: var(--vscode-foreground); border: none; cursor: pointer; opacity: 0.8; }
     .iconbtn:hover { opacity: 1; }
     .muted { color: var(--vscode-descriptionForeground); }
@@ -662,17 +679,21 @@ function getHtml(webview: vscode.Webview): string {
     .chip { font-size:11px; padding:1px 6px; border-radius:10px; background: var(--vscode-editorCodeLens-foreground); color: var(--vscode-editor-foreground); }
     .body { display:none; margin-top:6px; white-space:pre-wrap; }
     .rowActions { margin-left:auto; display:flex; gap:4px; align-items:center; }
-  </style></head><body>
+    /* Boot banner */
+    #boot { position: sticky; top: 0; font-size: 11px; opacity: .6; padding: 4px 8px; }
+  </style>
+</head>
+<body>
+  <div id="boot">booting…</div>
   <div class="container">
     <h3>Prompt Library</h3>
-    <div id="sel" class="muted">No group selected</div>
+    <div id="sel" class="muted">Loading…</div>
     <div class="toolbar">
       <button id="importBtn" class="btn">Import JSON</button>
       <button id="exportBtn" class="btn">Export JSON</button>
       <button id="dedupeBtn" class="btn">Deduplicate</button>
       <button id="resetBtn" class="btn">Reset</button>
       <button id="syncOpsBtn" class="btn">Sync Ops</button>
-
       <span id="counts" class="count"></span>
     </div>
     <div id="filterRow" style="display:none; gap:8px; align-items:center; margin-bottom:8px;">
@@ -688,16 +709,25 @@ function getHtml(webview: vscode.Webview): string {
     <div id="list" class="list" style="display:none;"></div>
     <hr/>
     <div>
+      <label for="titleBox" class="muted" style="display:block;margin-bottom:4px;">Title (optional)</label>
+      <input id="titleBox" type="text" style="width:100%;margin-bottom:6px;" placeholder="Defaults to first 20 characters of the prompt" disabled />
       <textarea id="composer" rows="4" style="width:100%;" placeholder="Select a group to enable the composer" disabled></textarea>
       <button id="save" class="btn" disabled>Add prompt</button>
     </div>
   </div>
+
   <script nonce="${nonce}">
-    const vscode = acquireVsCodeApi();
+  (function(){
+    // ---- Boot diagnostics & error bridge ----
+    const vscode = acquireVsCodeApi?.();
+    const boot = document.getElementById('boot');
+    try { if (boot) boot.textContent = 'script running'; } catch{}
+    window.onerror = function(message, source, lineno, colno, error){
+      try { vscode?.postMessage({ type: 'wv-log', msg: 'ERR: ' + String(message) }); } catch {}
+    };
+
     const sel = document.getElementById('sel');
-    try { sel.textContent = 'Loading...'; } catch {}
     const filter = document.getElementById('filter');
-    // Temporarily disable filter UI
     try {
       filter?.setAttribute('disabled','true');
       document.getElementById('clearFilter')?.setAttribute('disabled','true');
@@ -706,66 +736,83 @@ function getHtml(webview: vscode.Webview): string {
     const list = document.getElementById('list');
     const composer = document.getElementById('composer');
     const save = document.getElementById('save');
+    const titleBox = document.getElementById('titleBox');
     const counts = document.getElementById('counts');
 
+    function first20(s){ return (String(s||'')).replace(/\\r\\n?|\\n/g,' ').slice(0,20).trim(); }
+
+    // Optimistically enable inputs so they can receive focus immediately
+    try {
+      composer?.removeAttribute('disabled');
+      save?.removeAttribute('disabled');
+      titleBox?.removeAttribute('disabled');
+    } catch {}
+
+    // Auto-suggest title from first 20 chars if empty
+    composer?.addEventListener('input', () => {
+      if (!titleBox) return;
+      if (!titleBox.value || !titleBox.value.trim()) {
+        titleBox.value = first20(composer.value || '');
+      }
+    });
+
     let allPrompts = [];
-    // Notify extension that the webview is ready so it can (re)send selection and list
-    try { vscode.postMessage({ type: 'ready' }); vscode.postMessage({ type: 'wv-log', msg: 'boot' }); } catch {}
+    try { vscode?.postMessage({ type: 'ready' }); vscode?.postMessage({ type: 'wv-log', msg: 'boot' }); } catch {}
 
     const selected = new Set();
-
     function summarize(text){
       const first = (text||'').split(/\\r?\\n/,1)[0];
       return first.length > 120 ? first.slice(0,117) + '\\u2026' : first;
     }
-    function normalized(t){ return (t||'').replace(/\\r\\n|\\r/g,'\\n').replace(/\\s+/g, ' ').trim().toLowerCase(); }
-    function renderCounts(shown){ counts.textContent = String(shown) + ' shown / ' + String(allPrompts.length) + ' total'; }
+    function normalized(t){ return (t||'').replace(/\\r\\n|\\r/g,'\\n').replace(/\\s+/g,' ').trim().toLowerCase(); }
+    function renderCounts(shown){ if (counts) counts.textContent = String(shown) + ' shown / ' + String(allPrompts.length) + ' total'; }
 
     function renderSelectionBar(){
       const bulkbar = document.getElementById('bulkbar');
       const bulkcount = document.getElementById('bulkcount');
       const n = selected.size;
+      if (!bulkbar || !bulkcount) return;
       if (n > 0) { bulkbar.style.display = 'flex'; bulkcount.textContent = n + ' selected'; }
       else { bulkbar.style.display = 'none'; }
     }
 
-    function renderList(prompts) {
+    function renderList(prompts){
+      if (!list) return;
       list.innerHTML = '';
       if (!prompts || prompts.length === 0) { list.textContent = 'No prompts in this group yet.'; renderCounts(0); renderSelectionBar(); return; }
+      list.style.display = 'flex';
       prompts.forEach(p => {
         const item = document.createElement('div'); item.className = 'item';
         const row = document.createElement('div'); row.style.display='flex'; row.style.gap='8px'; row.style.alignItems='center';
         const selectCb = document.createElement('input'); selectCb.type='checkbox'; selectCb.onchange = () => { if (selectCb.checked) selected.add(p.id); else selected.delete(p.id); renderSelectionBar(); };
         const title = document.createElement('div'); title.className = 'summary'; title.textContent = summarize(p.text); title.style.flex='1'; title.title='Click to copy';
-        // Clicking the prompt title copies the text
-        title.onclick = () => vscode.postMessage({ type: 'copyPrompt', text: p.text });
+        title.onclick = () => vscode?.postMessage({ type: 'copyPrompt', text: p.text });
 
-        // Right-aligned inline actions
         const actions = document.createElement('div'); actions.className = 'rowActions';
         const body = document.createElement('div'); body.className = 'body'; body.textContent = p.text;
         const expandBtn = document.createElement('button'); expandBtn.className='iconbtn'; expandBtn.title='Show/Hide details'; expandBtn.textContent='▾';
         expandBtn.onclick = () => { body.style.display = (body.style.display === 'none' || body.style.display === '') ? 'block' : 'none'; };
 
         const copyBtn = document.createElement('button'); copyBtn.className='iconbtn'; copyBtn.title='Copy'; copyBtn.textContent='📋';
-        copyBtn.onclick = () => vscode.postMessage({ type: 'copyPrompt', text: p.text });
+        copyBtn.onclick = () => vscode?.postMessage({ type: 'copyPrompt', text: p.text });
 
         const editBtn = document.createElement('button'); editBtn.className='iconbtn'; editBtn.title='Edit'; editBtn.textContent='✏️';
         editBtn.onclick = () => {
           body.style.display = 'block';
           const ta = document.createElement('textarea'); ta.style.width='100%'; ta.rows=6; ta.value = p.text;
           const row2 = document.createElement('div'); row2.style.display='flex'; row2.style.gap='6px'; row2.style.marginTop='6px';
-          const saveBtn = document.createElement('button'); saveBtn.className='btn'; saveBtn.textContent='Save';
+          const saveBtn2 = document.createElement('button'); saveBtn2.className='btn'; saveBtn2.textContent='Save';
           const cancelBtn = document.createElement('button'); cancelBtn.className='btn'; cancelBtn.textContent='Cancel';
-          saveBtn.onclick = () => { vscode.postMessage({ type: 'editPrompt', id: p.id, text: ta.value }); };
-          cancelBtn.onclick = () => { vscode.postMessage({ type: 'requestList' }); };
-          body.innerHTML=''; body.appendChild(ta); row2.append(saveBtn, cancelBtn); body.appendChild(row2);
+          saveBtn2.onclick = () => { vscode?.postMessage({ type: 'editPrompt', id: p.id, text: ta.value }); };
+          cancelBtn.onclick = () => { vscode?.postMessage({ type: 'requestList' }); };
+          body.innerHTML=''; body.appendChild(ta); row2.append(saveBtn2, cancelBtn); body.appendChild(row2);
         };
 
         const moveBtn = document.createElement('button'); moveBtn.className='iconbtn'; moveBtn.title='Move'; moveBtn.textContent='⇄';
-        moveBtn.onclick = () => vscode.postMessage({ type: 'movePrompt', id: p.id });
+        moveBtn.onclick = () => vscode?.postMessage({ type: 'movePrompt', id: p.id });
 
         const delBtn = document.createElement('button'); delBtn.className='iconbtn'; delBtn.title='Delete'; delBtn.textContent='🗑';
-        delBtn.onclick = () => vscode.postMessage({ type: 'deletePrompt', id: p.id });
+        delBtn.onclick = () => vscode?.postMessage({ type: 'deletePrompt', id: p.id });
 
         actions.append(expandBtn, copyBtn, editBtn, moveBtn, delBtn);
         row.append(selectCb, title, actions);
@@ -777,81 +824,80 @@ function getHtml(webview: vscode.Webview): string {
       renderSelectionBar();
     }
 
-    function applyFilter() {
-      // Filter disabled: always render full list
-      renderList(allPrompts);
-    }
+    function applyFilter(){ renderList(allPrompts); } // filtering disabled
 
     window.addEventListener('message', (event) => {
       const msg = event.data || {};
-      try { vscode.postMessage({ type: 'wv-log', msg: 'recv ' + String(msg.type) + (Array.isArray(msg.payload) ? (' len=' + msg.payload.length) : '') }); } catch {}
+      try { vscode?.postMessage({ type: 'wv-log', msg: 'recv ' + String(msg.type) + (Array.isArray(msg.payload) ? (' len=' + msg.payload.length) : '') }); } catch {}
       if (msg.type === 'selectedGroup') {
         const g = msg.payload;
         if (!g || !g.id) {
-          sel.textContent = 'No group selected';
-          composer.setAttribute('disabled','true');
-          save.setAttribute('disabled','true');
-          composer.setAttribute('placeholder','Select a group to enable the composer');
+          sel && (sel.textContent = 'No group selected');
+          composer?.setAttribute('disabled','true');
+          save?.setAttribute('disabled','true');
+          titleBox?.setAttribute('disabled','true');
+          composer && composer.setAttribute('placeholder','Select a group to enable the composer');
           allPrompts = [];
           renderList([]);
         } else {
-          sel.textContent = 'Selected group: ' + (g.name || g.id);
-          // Clear filter and selection on group change
-          try { filter.value = ''; } catch {}
+          sel && (sel.textContent = 'Selected group: ' + (g.name || g.id));
+          try { if (filter) filter.value = ''; } catch {}
           selected.clear(); renderSelectionBar();
-          // Disable composer at root; enable for subgroups
           if (g.id === 'root-shared' || g.id === 'root-private') {
-            composer.setAttribute('disabled','true');
-            save.setAttribute('disabled','true');
-            composer.setAttribute('placeholder','Select a subgroup to add prompts');
+            composer?.setAttribute('disabled','true');
+            save?.setAttribute('disabled','true');
+            titleBox?.setAttribute('disabled','true');
+            composer && composer.setAttribute('placeholder','Select a subgroup to add prompts');
           } else {
-            composer.removeAttribute('disabled');
-            save.removeAttribute('disabled');
-            composer.setAttribute('placeholder', 'Write a new prompt for ' + (g.name || g.id) + '...');
+            composer?.removeAttribute('disabled');
+            save?.removeAttribute('disabled');
+            titleBox?.removeAttribute('disabled');
+            composer && composer.setAttribute('placeholder', 'Write a new prompt for ' + (g.name || g.id) + '...');
           }
-          // prompt list moved to Groups tree; no longer request list from extension
         }
       } else if (msg.type === 'prompts') {
         allPrompts = Array.isArray(msg.payload) ? msg.payload : [];
-        // *** PATCH: small extra client log to confirm render size ***
-        try { vscode.postMessage({ type: 'wv-log', msg: 'render prompts=' + allPrompts.length }); } catch {}
+        try { vscode?.postMessage({ type: 'wv-log', msg: 'render prompts=' + allPrompts.length }); } catch {}
         applyFilter();
       }
     });
 
-    // Bulk bar actions
     document.getElementById('bulkDelete')?.addEventListener('click', () => {
       if (selected.size === 0) return;
-      vscode.postMessage({ type: 'deleteMany', ids: Array.from(selected) });
+      vscode?.postMessage({ type: 'deleteMany', ids: Array.from(selected) });
       selected.clear(); renderSelectionBar();
     });
     document.getElementById('bulkMove')?.addEventListener('click', () => {
       if (selected.size === 0) return;
-      vscode.postMessage({ type: 'moveMany', ids: Array.from(selected) });
+      vscode?.postMessage({ type: 'moveMany', ids: Array.from(selected) });
       selected.clear(); renderSelectionBar();
     });
 
-    // Toolbar
-    document.getElementById('importBtn')?.addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.importJson' }));
-    document.getElementById('exportBtn')?.addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.exportJson' }));
-    document.getElementById('syncOpsBtn')?.addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.syncOps' }));
+    document.getElementById('importBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.importJson' }));
+    document.getElementById('exportBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.exportJson' }));
+    document.getElementById('syncOpsBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.syncOps' }));
+    document.getElementById('dedupeBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.deduplicate' }));
+    document.getElementById('resetBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.resetAll' }));
 
-    document.getElementById('dedupeBtn')?.addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.deduplicate' }));
-    document.getElementById('resetBtn')?.addEventListener('click', () => vscode.postMessage({ type: 'runCmd', command: 'promptLibrary.resetAll' }));
-
-    // Add
-    save.addEventListener('click', () => {
-      const text = composer.value || '';
+    save?.addEventListener('click', () => {
+      const text = composer?.value || '';
       if (!text.trim()) return;
       const seen = new Set(allPrompts.map(p => normalized(p.text)));
       if (seen.has(normalized(text))) { alert('Duplicate prompt'); return; }
-      const title = prompt('Enter a title for this prompt (optional):') || '';
-      vscode.postMessage({ type: 'addPrompt', text, title });
-      composer.value = '';
-      try { filter.value = ''; } catch {};
+      const rawTitle = (titleBox && titleBox.value) ? titleBox.value.trim() : '';
+      const fallback = first20(text);
+      const title = rawTitle || fallback;
+      vscode?.postMessage({ type: 'addPrompt', text, title });
+      if (composer) composer.value = '';
+      if (titleBox) titleBox.value = '';
+      try { if (filter) filter.value = ''; } catch {};
     });
+  })();
   </script>
-</body></html>`;
+</body>
+</html>`;
+}
+
 
 function getNonce(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -862,4 +908,4 @@ function getNonce(): string {
   return result;
 }
 
-}
+
