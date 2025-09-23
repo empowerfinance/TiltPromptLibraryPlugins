@@ -1,7 +1,7 @@
 // extension.ts
 import * as vscode from 'vscode';
 import { LibraryStore } from './store';
-import { GroupsProvider, GroupItem } from './groups';
+import { GroupsProvider, GroupItem, PromptItem } from './groups';
 import { Prompt } from './model';
 import { getSettings } from './settings';
 import { writeSharedGroups } from './sync/yamlWriter';
@@ -14,6 +14,49 @@ import { SyncOpsPanel } from './syncOps';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
+
+
+class PromptDetailViewProvider implements vscode.WebviewViewProvider {
+  public static readonly viewType = 'promptDetailView';
+  private view?: vscode.WebviewView;
+  private lastTitle: string = '';
+  private lastText: string = '';
+
+  resolveWebviewView(webviewView: vscode.WebviewView) {
+    this.view = webviewView;
+    webviewView.webview.options = { enableScripts: true };
+    this.render();
+  }
+
+  showPrompt(title: string, text: string) {
+    this.lastTitle = title;
+    this.lastText = text;
+    this.render();
+  }
+
+  private render() {
+    if (!this.view) return;
+    const esc = (s: string) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const title = esc(this.lastTitle || 'Prompt');
+    const body = esc(this.lastText);
+    const html = `<!DOCTYPE html><html><head>
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+      <style>
+        body { font-family: var(--vscode-font-family); margin: 0; }
+        .container { padding: 12px; display:flex; flex-direction:column; gap:8px; }
+        .title { font-weight: 600; }
+        .pre { white-space: pre-wrap; }
+        .btn { padding: 4px 8px; background: transparent; color: var(--vscode-foreground); border: 1px solid var(--vscode-widget-border); border-radius: 3px; cursor: pointer; }
+      </style>
+    </head><body>
+      <div class="container">
+        <div class="title">${title}</div>
+        <div class="pre">${body}</div>
+      </div>
+    </body></html>`;
+    this.view.webview.html = html;
+  }
+}
 
 class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'promptLibraryView';
@@ -48,11 +91,13 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
       }
       case 'addPrompt': {
         const text: string = String(msg.text || '');
+        const title: string | undefined = typeof msg.title === 'string' ? msg.title : undefined;
         if (!this.selectedGroup.id) { vscode.window.showWarningMessage('Select a group first'); return; }
-        const res = await this.store.addPromptToGroup(this.selectedGroup.id, text);
+        const res = await this.store.addPromptToGroup(this.selectedGroup.id, text, title);
         if (!res.ok) { vscode.window.showWarningMessage(res.reason ?? 'Could not add prompt'); return; }
         vscode.window.showInformationMessage('Prompt added');
         await this.pushList();
+        try { await vscode.commands.executeCommand('promptLibrary.refreshGroups'); } catch {}
         break;
       }
       case 'deletePrompt': {
@@ -174,6 +219,7 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
 export function activate(context: vscode.ExtensionContext) {
   const store = new LibraryStore(context);
   const provider = new PromptLibraryViewProvider(store);
+  const detailProvider = new PromptDetailViewProvider();
   const groups = new GroupsProvider(store);
   groups.init();
 
@@ -182,13 +228,34 @@ export function activate(context: vscode.ExtensionContext) {
 
   const treeView = vscode.window.createTreeView('promptLibraryGroups', { treeDataProvider: groups, showCollapseAll: true });
   treeView.onDidChangeSelection(async e => {
-    const item = e.selection[0];
+    const item = e.selection[0] as (GroupItem | PromptItem | undefined);
     if (!item) {
       log.info('Selection cleared');
       provider.setSelectedGroup({ id: null, name: null });
       return;
     }
-    const id = item.groupId;
+
+    // If a prompt is selected: open Prompt view and copy to clipboard
+    if (item instanceof PromptItem || (item as any).contextValue === 'prompt') {
+      try {
+        const pid = (item as any).promptId as string;
+        const p = await store.getPromptById(pid);
+        if (p) {
+          await vscode.env.clipboard.writeText(p.text || '');
+          const title = (p.title && p.title.trim()) ? p.title : (p.text || '').replace(/\r\n?|\n/g,' ').slice(0,20).trim() || 'Prompt';
+          detailProvider.showPrompt(title, p.text || '');
+          // Bring container into focus
+          try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch {}
+          vscode.window.setStatusBarMessage('Prompt copied to clipboard', 1500);
+        }
+      } catch (err) {
+        log.warn('Failed to open prompt: ' + String((err as any)?.message || err));
+      }
+      return;
+    }
+
+    // Otherwise treat it as a group selection
+    const id = (item as GroupItem).groupId;
     const name = item.label?.toString() ?? null;
     log.info(`Selected group item: id=${id}, name=${name}`);
     // Treat roots as valid selections; we redirect in setSelectedGroup to show actual prompts
@@ -210,8 +277,77 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(PromptLibraryViewProvider.viewType, provider),
+    vscode.window.registerWebviewViewProvider(PromptDetailViewProvider.viewType, detailProvider),
 
     treeView,
+    // Prompt item commands (used by inline actions in the Groups tree)
+    vscode.commands.registerCommand('promptLibrary.openPrompt', async (arg?: any) => {
+      try {
+        const pid: string | undefined = typeof arg === 'string' ? arg : arg?.promptId;
+        if (!pid) return;
+        const p = await store.getPromptById(pid);
+        if (!p) return;
+        await vscode.env.clipboard.writeText(p.text || '');
+        const title = (p.title && p.title.trim()) ? p.title : (p.text || '').replace(/\r\n?|\n/g,' ').slice(0,20).trim() || 'Prompt';
+        detailProvider.showPrompt(title, p.text || '');
+        try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch {}
+        vscode.window.setStatusBarMessage('Prompt copied to clipboard', 1500);
+      } catch (e) { log.warn('openPrompt failed: ' + String((e as any)?.message || e)); }
+    }),
+    vscode.commands.registerCommand('promptLibrary.copyPrompt', async (item?: any) => {
+      const pid: string | undefined = (item as any)?.promptId;
+      if (!pid) return;
+      const p = await store.getPromptById(pid); if (!p) return;
+      await vscode.env.clipboard.writeText(p.text || '');
+      vscode.window.setStatusBarMessage('Prompt copied', 1000);
+    }),
+    vscode.commands.registerCommand('promptLibrary.editPrompt', async (item?: any) => {
+      const pid: string | undefined = (item as any)?.promptId;
+      if (!pid) return;
+      const p = await store.getPromptById(pid); if (!p) return;
+      const fallback = (p.text || '').replace(/\r\n?|\n/g,' ').slice(0,20).trim();
+      const newTitle = await vscode.window.showInputBox({
+        title: 'Edit Prompt Title',
+        value: (p.title && p.title.trim()) ? p.title : fallback,
+        prompt: 'Leave blank to use first 20 characters of the content'
+      });
+      const doc = await vscode.workspace.openTextDocument({ content: p.text || '', language: 'markdown' });
+      await vscode.window.showTextDocument(doc, { preview: false });
+      const sub = vscode.workspace.onDidSaveTextDocument(async (saved) => {
+        if (saved === doc) {
+          sub.dispose();
+          const text = saved.getText();
+          const res1 = await store.updatePromptText(pid, text);
+          if (!res1.ok) { vscode.window.showWarningMessage(res1.reason ?? 'Could not edit prompt'); return; }
+          const res2 = await store.updatePromptTitle(pid, newTitle);
+          if (!res2.ok) { vscode.window.showWarningMessage(res2.reason ?? 'Could not update title'); return; }
+          await provider.refresh();
+          await groups.init();
+        }
+      });
+    }),
+    vscode.commands.registerCommand('promptLibrary.movePrompt', async (item?: any) => {
+      const pid: string | undefined = (item as any)?.promptId;
+      if (!pid) return;
+      const groupsList = await store.listMovableGroups();
+      const pick = await vscode.window.showQuickPick(groupsList.map(g => ({ label: g.name, description: g.id })), { placeHolder: 'Move to group...' });
+      if (!pick) return;
+      const targetId = pick.description || groupsList.find(g => g.name === pick.label)?.id || '';
+      if (!targetId) return;
+      const res = await store.movePrompt(pid, targetId);
+      if (!res.ok) { vscode.window.showWarningMessage(res.reason ?? 'Could not move prompt'); return; }
+      await provider.refresh();
+      await groups.init();
+    }),
+    vscode.commands.registerCommand('promptLibrary.deletePrompt', async (item?: any) => {
+      const pid: string | undefined = (item as any)?.promptId;
+      if (!pid) return;
+      const ok = await vscode.window.showWarningMessage('Delete this prompt?', { modal: true }, 'Delete');
+      if (ok !== 'Delete') return;
+      const done = await store.deletePrompt(pid);
+      if (done) { await provider.refresh(); await groups.init(); }
+    }),
+    vscode.commands.registerCommand('promptLibrary.refreshGroups', async () => { await groups.init(); }),
     vscode.commands.registerCommand('promptLibrary.syncOps', () => {
       SyncOpsPanel.show(context);
     }),
@@ -549,7 +685,7 @@ function getHtml(webview: vscode.Webview): string {
       <button id="bulkMove" class="btn">Move Selected</button>
       <button id="bulkDelete" class="btn">Delete Selected</button>
     </div>
-    <div id="list" class="list"></div>
+    <div id="list" class="list" style="display:none;"></div>
     <hr/>
     <div>
       <textarea id="composer" rows="4" style="width:100%;" placeholder="Select a group to enable the composer" disabled></textarea>
@@ -673,7 +809,7 @@ function getHtml(webview: vscode.Webview): string {
             save.removeAttribute('disabled');
             composer.setAttribute('placeholder', 'Write a new prompt for ' + (g.name || g.id) + '...');
           }
-          vscode.postMessage({ type: 'requestList' });
+          // prompt list moved to Groups tree; no longer request list from extension
         }
       } else if (msg.type === 'prompts') {
         allPrompts = Array.isArray(msg.payload) ? msg.payload : [];
@@ -709,7 +845,8 @@ function getHtml(webview: vscode.Webview): string {
       if (!text.trim()) return;
       const seen = new Set(allPrompts.map(p => normalized(p.text)));
       if (seen.has(normalized(text))) { alert('Duplicate prompt'); return; }
-      vscode.postMessage({ type: 'addPrompt', text });
+      const title = prompt('Enter a title for this prompt (optional):') || '';
+      vscode.postMessage({ type: 'addPrompt', text, title });
       composer.value = '';
       try { filter.value = ''; } catch {};
     });

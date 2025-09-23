@@ -9,7 +9,7 @@ function genId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-export class GroupsProvider implements vscode.TreeDataProvider<GroupItem> {
+export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | PromptItem> {
   private _onDidChangeTreeData = new vscode.EventEmitter<GroupItem | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
@@ -60,9 +60,9 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem> {
     this._onDidChangeTreeData.fire();
   }
 
-  getTreeItem(element: GroupItem): vscode.TreeItem { return element; }
+  getTreeItem(element: GroupItem | PromptItem): vscode.TreeItem { return element; }
 
-  async getChildren(element?: GroupItem): Promise<GroupItem[]> {
+  async getChildren(element?: GroupItem | PromptItem): Promise<Array<GroupItem | PromptItem>> {
     if (!this.library) {
       this.library = await this.store.load();
     }
@@ -70,9 +70,13 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem> {
       // roots are top-level groups in library
       return (this.library?.groups ?? []).map(g => toItem(g, this.repoLabel));
     }
+    // If the selected element is a prompt, it has no children
+    if (element instanceof PromptItem || element.contextValue === 'prompt') return [];
     const group = this.findGroup(element.groupId);
     if (!group) return [];
-    return group.children.map(g => toItem(g, this.repoLabel));
+    const groupItems = group.children.map(g => toItem(g, this.repoLabel));
+    const promptItems = group.prompts.map(p => new PromptItem(p.id, (p.title && p.title.trim()) ? p.title : (p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim() || 'Prompt', 'comment'));
+    return [...groupItems, ...promptItems];
   }
 
   getGroupById(id: string): Group | null {
@@ -140,6 +144,7 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem> {
       return;
     }
 
+
     const collectPrompts = (g: Group): Prompt[] => {
       const acc: Prompt[] = [...g.prompts];
       for (const c of g.children) acc.push(...collectPrompts(c));
@@ -173,6 +178,21 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem> {
   }
 }
 
+export class PromptItem extends vscode.TreeItem {
+  constructor(public readonly promptId: string, label: string, icon: string = 'comment') {
+    super(label, vscode.TreeItemCollapsibleState.None);
+    this.contextValue = 'prompt';
+    this.iconPath = new vscode.ThemeIcon(icon);
+    this.tooltip = label;
+    this.command = {
+      command: 'promptLibrary.openPrompt',
+      title: 'Open Prompt',
+      arguments: [this.promptId]
+    };
+  }
+}
+
+
 export class GroupItem extends vscode.TreeItem {
   constructor(public readonly groupId: string, label: string, collapsible: vscode.TreeItemCollapsibleState, ctx: string) {
     super(label, collapsible);
@@ -187,7 +207,8 @@ function toItem(g: Group, repoLabel?: string | null): GroupItem {
   const isUnfiled = g.id === 'grp-unfiled';
   const isSharedChild = g.kind === 'shared' && !isRootShared;
   const ctx = isRootShared ? 'root-shared' : isRootPrivate ? 'root-private' : isUnfiled ? 'group-unfiled' : (isSharedChild ? 'group-shared' : 'group');
-  const collapsible = (g.children && g.children.length > 0)
+  const hasChildren = (g.children && g.children.length > 0) || (g.prompts && g.prompts.length > 0);
+  const collapsible = hasChildren
     ? vscode.TreeItemCollapsibleState.Expanded
     : vscode.TreeItemCollapsibleState.None;
   const label = isRootShared && repoLabel ? repoLabel : g.name;

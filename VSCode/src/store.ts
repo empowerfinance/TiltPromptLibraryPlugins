@@ -70,7 +70,7 @@ export class LibraryStore {
     return collect(group);
   }
 
-  async addPromptToGroup(groupId: string | null, text: string): Promise<{ ok: boolean; reason?: string; prompt?: Prompt; groupId: string }> {
+  async addPromptToGroup(groupId: string | null, text: string, title?: string): Promise<{ ok: boolean; reason?: string; prompt?: Prompt; groupId: string }> {
     const lib = await this.load();
     const targetId = groupId ?? 'grp-unfiled';
     const group = this.findGroup(lib, targetId);
@@ -81,10 +81,31 @@ export class LibraryStore {
     if (exists) return { ok: false, reason: 'Duplicate prompt (normalized match)', groupId: targetId };
 
     const now = new Date().toISOString();
-    const prompt: Prompt = { id: genId('p'), text, createdAt: now, updatedAt: now, tags: [], private: group.kind === 'private' };
+    const fallbackTitle = (text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim();
+    const finalTitle = (title && title.trim()) ? title.trim() : fallbackTitle;
+    const prompt: Prompt = { id: genId('p'), text, title: finalTitle || undefined, createdAt: now, updatedAt: now, tags: [], private: group.kind === 'private' };
     group.prompts.push(prompt);
     await this.save(lib);
     return { ok: true, prompt, groupId: targetId };
+  }
+
+  async getPromptById(promptId: string): Promise<Prompt | null> {
+    const lib = await this.load();
+    let found: Prompt | null = null;
+    const walk = (gs: Group[]): void => {
+      for (const g of gs) {
+        const p = g.prompts.find(x => x.id === promptId);
+        if (p) { found = p; return; }
+        walk(g.children);
+        if (found) return;
+      }
+    };
+    walk(lib.groups);
+    if (!found && lib.privatePrompts) {
+      const p2 = lib.privatePrompts.find(x => x.id === promptId) || null;
+      if (p2) found = p2;
+    }
+    return found;
   }
 
   async deletePrompt(promptId: string): Promise<boolean> {
@@ -105,6 +126,19 @@ export class LibraryStore {
     await this.save(lib);
     return { ok: true };
   }
+
+  async updatePromptTitle(promptId: string, newTitle?: string): Promise<{ ok: boolean; reason?: string }> {
+    const lib = await this.load();
+    const ref = this.findPromptRef(lib, promptId);
+    if (!ref) return { ok: false, reason: 'Prompt not found' };
+    const cur = ref.group.prompts[ref.index];
+    const fallback = (cur.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim();
+    const finalTitle = (newTitle && newTitle.trim()) ? newTitle.trim() : fallback || undefined;
+    ref.group.prompts[ref.index] = { ...cur, title: finalTitle, updatedAt: new Date().toISOString() };
+    await this.save(lib);
+    return { ok: true };
+  }
+
 
   async movePrompt(promptId: string, targetGroupId: string): Promise<{ ok: boolean; reason?: string }> {
     if (targetGroupId === 'root-shared' || targetGroupId === 'root-private') {

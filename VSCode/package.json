@@ -19,6 +19,7 @@
   "activationEvents": [
     "onView:promptLibraryGroups",
     "onView:promptLibraryView",
+    "onView:promptDetailView",
     "onCommand:promptLibrary.syncOps",
     "onCommand:promptLibrary.syncPullAndImport"
   ],
@@ -95,6 +96,32 @@
       {
         "command": "promptLibrary.syncPullAndImport",
         "title": "Prompt Library: Pull & Sync Repo"
+      },
+      {
+        "command": "promptLibrary.openPrompt",
+        "title": "Open Prompt",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "promptLibrary.copyPrompt",
+        "title": "Copy Prompt",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "promptLibrary.editPrompt",
+        "title": "Edit Prompt",
+        "icon": "$(pencil)"
+      },
+      {
+        "command": "promptLibrary.movePrompt",
+        "title": "Move Prompt",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "promptLibrary.deletePrompt",
+        "title": "Delete Prompt",
+        "icon": "$(trash)"
+
       }
 
     ],
@@ -158,6 +185,12 @@
         },
         {
           "type": "webview",
+          "id": "promptDetailView",
+          "name": "Prompt",
+          "icon": "$(comment)"
+        },
+        {
+          "type": "webview",
           "id": "promptLibraryView",
           "name": "Prompt Library",
           "icon": "$(library)"
@@ -182,6 +215,27 @@
           "command": "promptLibrary.deleteGroup",
           "when": "view == promptLibraryGroups && viewItem == group",
           "group": "inline"
+        }
+,
+        {
+          "command": "promptLibrary.copyPrompt",
+          "when": "view == promptLibraryGroups && viewItem == prompt",
+          "group": "inline@1"
+        },
+        {
+          "command": "promptLibrary.editPrompt",
+          "when": "view == promptLibraryGroups && viewItem == prompt",
+          "group": "inline@2"
+        },
+        {
+          "command": "promptLibrary.movePrompt",
+          "when": "view == promptLibraryGroups && viewItem == prompt",
+          "group": "inline@3"
+        },
+        {
+          "command": "promptLibrary.deletePrompt",
+          "when": "view == promptLibraryGroups && viewItem == prompt",
+          "group": "inline@4"
         }
       ]
     }
