@@ -232,10 +232,70 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
     this.view?.webview.postMessage({ type: 'populateComposer', payload });
   }
 
+
+
+}
+
+
+class PromptTreeDragAndDrop implements vscode.TreeDragAndDropController<GroupItem | PromptItem> {
+  readonly dragMimeTypes = ['application/vnd.tilt.prompt'];
+  readonly dropMimeTypes = ['application/vnd.tilt.prompt'];
+  private readonly mime = 'application/vnd.tilt.prompt';
+
+  constructor(
+    private readonly store: LibraryStore,
+    private readonly groups: GroupsProvider,
+    private readonly provider: PromptLibraryViewProvider,
+  ) {}
+
+  handleDrag(source: readonly (GroupItem | PromptItem)[], dataTransfer: vscode.DataTransfer, token: vscode.CancellationToken): void | Thenable<void> {
+    try {
+      const promptItems = source.filter(s => (s as any).promptId) as PromptItem[];
+      if (!promptItems.length) return;
+      const payload = {
+        promptIds: promptItems.map(p => (p as any).promptId as string),
+        fromGroupId: (promptItems[0] as any).groupId as string | undefined,
+      };
+      dataTransfer.set(this.mime, new vscode.DataTransferItem(JSON.stringify(payload)));
+    } catch {}
+  }
+
+  async handleDrop(target: GroupItem | PromptItem | undefined, dataTransfer: vscode.DataTransfer, token: vscode.CancellationToken): Promise<void> {
+    try {
+      const item = dataTransfer.get(this.mime);
+      if (!item) return;
+      const raw = await item.asString();
+      const data = JSON.parse(raw || '{}') as { promptIds?: string[] };
+      const ids = Array.isArray(data.promptIds) ? data.promptIds : [];
+      if (ids.length === 0) return;
+
+      // Determine target group id
+      let targetGroupId: string | undefined;
+      if (target) {
+        if ((target as any).groupId) targetGroupId = (target as any).groupId as string;
+      }
+      if (!targetGroupId) return;
+      if (targetGroupId === 'root-shared' || targetGroupId === 'root-private') {
+        vscode.window.showWarningMessage('Drop onto a subgroup to move prompts.');
+        return;
+      }
+
+      for (const pid of ids) {
+        const res = await this.store.movePrompt(pid, targetGroupId);
+        if (!res.ok) { vscode.window.showWarningMessage(res.reason ?? 'Could not move prompt'); return; }
+      }
+      await this.provider.refresh();
+      await this.groups.init();
+    } catch {}
+  }
+
+  dispose() {}
 }
 
 export function activate(context: vscode.ExtensionContext) {
   const store = new LibraryStore(context);
+
+
   const provider = new PromptLibraryViewProvider(store);
   const detailProvider = new PromptDetailViewProvider();
   const groups = new GroupsProvider(store);
@@ -244,7 +304,8 @@ export function activate(context: vscode.ExtensionContext) {
   // Start auto-fetch scheduler
   startScheduler(context);
 
-  const treeView = vscode.window.createTreeView('promptLibraryGroups', { treeDataProvider: groups, showCollapseAll: true });
+  const dnd = new PromptTreeDragAndDrop(store, groups, provider);
+  const treeView = vscode.window.createTreeView('promptLibraryGroups', { treeDataProvider: groups, showCollapseAll: true, dragAndDropController: dnd });
   treeView.onDidChangeSelection(async e => {
     const item = e.selection[0] as (GroupItem | PromptItem | undefined);
     if (!item) {
@@ -286,6 +347,8 @@ export function activate(context: vscode.ExtensionContext) {
     await provider.setSelectedGroup({ id, name });
   });
 
+
+
   // Keep groups permanently expanded: if user collapses, immediately re-expand
   treeView.onDidCollapseElement(e => {
     try { treeView.reveal(e.element, { expand: 10 }); } catch { }
@@ -303,6 +366,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.registerWebviewViewProvider(PromptLibraryViewProvider.viewType, provider),
     vscode.window.registerWebviewViewProvider(PromptDetailViewProvider.viewType, detailProvider),
 
+    dnd,
     treeView,
     // Prompt item commands (used by inline actions in the Groups tree)
     vscode.commands.registerCommand('promptLibrary.openPrompt', async (arg?: any) => {
@@ -312,7 +376,7 @@ export function activate(context: vscode.ExtensionContext) {
         const p = await store.getPromptById(pid);
         if (!p) return;
         await vscode.env.clipboard.writeText(p.text || '');
-        const title = (p.title && p.title.trim()) ? p.title : (p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim() || 'Prompt';
+        const title = (() => { const t = (p.title ?? '').trim(); return t && !/^(null|undefined|~)$/i.test(t) ? t : ((p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim() || 'Prompt'); })();
         detailProvider.showPrompt(title, p.text || '');
         try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch { }
         vscode.window.setStatusBarMessage('Prompt copied to clipboard', 1500);

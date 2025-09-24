@@ -82,7 +82,7 @@ export class LibraryStore {
 
     const now = new Date().toISOString();
     const fallbackTitle = (text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim();
-    const finalTitle = (title && title.trim()) ? title.trim() : fallbackTitle;
+    const finalTitle = (((title ?? '').trim()) && !/^(null|undefined|~)$/i.test((title ?? '').trim())) ? (title as string).trim() : fallbackTitle;
     const prompt: Prompt = { id: genId('p'), text, title: finalTitle || undefined, createdAt: now, updatedAt: now, tags: [], private: group.kind === 'private' };
     group.prompts.push(prompt);
     await this.save(lib);
@@ -133,7 +133,7 @@ export class LibraryStore {
     if (!ref) return { ok: false, reason: 'Prompt not found' };
     const cur = ref.group.prompts[ref.index];
     const fallback = (cur.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim();
-    const finalTitle = (newTitle && newTitle.trim()) ? newTitle.trim() : fallback || undefined;
+    const finalTitle = (((newTitle ?? '').trim()) && !/^(null|undefined|~)$/i.test((newTitle ?? '').trim())) ? (newTitle as string).trim() : fallback || undefined;
     ref.group.prompts[ref.index] = { ...cur, title: finalTitle, updatedAt: new Date().toISOString() };
     await this.save(lib);
     return { ok: true };

@@ -78,7 +78,7 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
     const promptItems = group.prompts.map(p => new PromptItem(
       p.id,
       group.id,
-      (p.title && p.title.trim()) ? p.title : (p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim() || 'Prompt',
+      (((p.title ?? '').trim()) && !/^(null|undefined|~)$/i.test((p.title ?? '').trim())) ? (p.title as string).trim() : ((p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim() || 'Prompt'),
       'comment'
     ));
     return [...groupItems, ...promptItems];

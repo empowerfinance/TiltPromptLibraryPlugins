@@ -73,7 +73,9 @@ function parsePrompt(content: string): Omit<Prompt, 'createdAt' | 'updatedAt' | 
   }
   if (!id) id = `p-${Math.random().toString(36).slice(2,8)}`;
   if (!text) return null;
-  return { id, title, text, tags } as any;
+  const tnorm = (title ?? '').trim();
+  const safeTitle = tnorm && !/^(null|undefined|~)$/i.test(tnorm) ? tnorm : undefined;
+  return { id, title: safeTitle, text, tags } as any;
 }
 
 function isDirEntryDir(e: [string, vscode.FileType]) { return e[1] === vscode.FileType.Directory; }
