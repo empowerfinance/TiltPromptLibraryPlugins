@@ -192,7 +192,7 @@ export class PromptItem extends vscode.TreeItem {
   ) {
     super(label, vscode.TreeItemCollapsibleState.None);
     this.contextValue = 'prompt';
-    this.iconPath = new vscode.ThemeIcon(icon);
+
     this.tooltip = label;
     this.command = {
       command: 'promptLibrary.openPrompt',

@@ -125,7 +125,13 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
         if (!id) return;
         const res = await this.store.updatePromptText(id, text);
         if (!res.ok) { vscode.window.showWarningMessage(res.reason ?? 'Could not edit prompt'); return; }
+        const title: string | undefined = typeof msg.title === 'string' ? msg.title : undefined;
+        if (typeof title !== 'undefined') {
+          const res2 = await this.store.updatePromptTitle(id, title);
+          if (!res2.ok) { vscode.window.showWarningMessage(res2.reason ?? 'Could not update title'); return; }
+        }
         await this.pushList();
+        try { await vscode.commands.executeCommand('promptLibrary.refreshGroups'); } catch {}
         break;
       }
       case 'movePrompt': {
@@ -220,6 +226,12 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
     // When selection changes, refresh list for that group
     await this.pushList();
   }
+
+  // Populate the composer inputs with an existing prompt (id/title/text)
+  populateComposer(payload: { id: string; title?: string; text: string }) {
+    this.view?.webview.postMessage({ type: 'populateComposer', payload });
+  }
+
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -315,28 +327,15 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('promptLibrary.editPrompt', async (item?: any) => {
       const pid: string | undefined = (item as any)?.promptId;
+      const gid: string | undefined = (item as any)?.groupId;
       if (!pid) return;
       const p = await store.getPromptById(pid); if (!p) return;
-      const fallback = (p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim();
-      const newTitle = await vscode.window.showInputBox({
-        title: 'Edit Prompt Title',
-        value: (p.title && p.title.trim()) ? p.title : fallback,
-        prompt: 'Leave blank to use first 20 characters of the content'
-      });
-      const doc = await vscode.workspace.openTextDocument({ content: p.text || '', language: 'markdown' });
-      await vscode.window.showTextDocument(doc, { preview: false });
-      const sub = vscode.workspace.onDidSaveTextDocument(async (saved) => {
-        if (saved === doc) {
-          sub.dispose();
-          const text = saved.getText();
-          const res1 = await store.updatePromptText(pid, text);
-          if (!res1.ok) { vscode.window.showWarningMessage(res1.reason ?? 'Could not edit prompt'); return; }
-          const res2 = await store.updatePromptTitle(pid, newTitle);
-          if (!res2.ok) { vscode.window.showWarningMessage(res2.reason ?? 'Could not update title'); return; }
-          await provider.refresh();
-          await groups.init();
-        }
-      });
+      const title = (p.title && p.title.trim()) ? p.title : (p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim();
+      // Ensure the Prompt Library view is focused and set to the prompt's group so composer is enabled
+      try { if (gid) { const g = groups.getGroupById(gid); await provider.setSelectedGroup({ id: gid, name: g?.name ?? gid }); } } catch {}
+      try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch {}
+      // Populate the composer with this prompt's content
+      provider.populateComposer({ id: pid, title, text: p.text || '' });
     }),
     vscode.commands.registerCommand('promptLibrary.movePrompt', async (item?: any) => {
       const pid: string | undefined = (item as any)?.promptId;
@@ -739,6 +738,9 @@ function getHtml(webview: vscode.Webview): string {
     const titleBox = document.getElementById('titleBox');
     const counts = document.getElementById('counts');
 
+
+	    let editingId = null;
+
     function first20(s){ return (String(s||'')).replace(/\\r\\n?|\\n/g,' ').slice(0,20).trim(); }
 
     // Optimistically enable inputs so they can receive focus immediately
@@ -859,6 +861,12 @@ function getHtml(webview: vscode.Webview): string {
         allPrompts = Array.isArray(msg.payload) ? msg.payload : [];
         try { vscode?.postMessage({ type: 'wv-log', msg: 'render prompts=' + allPrompts.length }); } catch {}
         applyFilter();
+      } else if (msg.type === 'populateComposer') {
+        const p = msg.payload || {};
+        if (titleBox) titleBox.value = String(p.title || '');
+        if (composer) { composer.value = String(p.text || ''); try { composer.focus(); } catch {} }
+        editingId = (p.id ? String(p.id) : null);
+        if (save) save.textContent = 'Save changes';
       }
     });
 
@@ -882,12 +890,18 @@ function getHtml(webview: vscode.Webview): string {
     save?.addEventListener('click', () => {
       const text = composer?.value || '';
       if (!text.trim()) return;
-      const seen = new Set(allPrompts.map(p => normalized(p.text)));
-      if (seen.has(normalized(text))) { alert('Duplicate prompt'); return; }
       const rawTitle = (titleBox && titleBox.value) ? titleBox.value.trim() : '';
       const fallback = first20(text);
       const title = rawTitle || fallback;
-      vscode?.postMessage({ type: 'addPrompt', text, title });
+      if (editingId) {
+        vscode?.postMessage({ type: 'editPrompt', id: editingId, text, title });
+        editingId = null;
+        if (save) save.textContent = 'Add prompt';
+      } else {
+        const seen = new Set(allPrompts.map(p => normalized(p.text)));
+        if (seen.has(normalized(text))) { alert('Duplicate prompt'); return; }
+        vscode?.postMessage({ type: 'addPrompt', text, title });
+      }
       if (composer) composer.value = '';
       if (titleBox) titleBox.value = '';
       try { if (filter) filter.value = ''; } catch {};
