@@ -179,6 +179,12 @@
     "views": {
       "promptLibrary": [
         {
+          "type": "webview",
+          "id": "promptLibraryView",
+          "name": "Prompt Library",
+          "icon": "$(library)"
+        },
+        {
           "id": "promptLibraryGroups",
           "name": "Groups",
           "icon": "$(folder)"
@@ -188,12 +194,6 @@
           "id": "promptDetailView",
           "name": "Prompt",
           "icon": "$(comment)"
-        },
-        {
-          "type": "webview",
-          "id": "promptLibraryView",
-          "name": "Prompt Library",
-          "icon": "$(library)"
         }
       ]
     },
