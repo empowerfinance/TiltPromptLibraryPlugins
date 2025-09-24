@@ -201,22 +201,26 @@
       "view/item/context": [
 
         {
-          "command": "promptLibrary.renameGroup",
-          "when": "view == promptLibraryGroups && viewItem == group",
-          "group": "inline"
+          "command": "promptLibrary.addGroup",
+          "when": "view == promptLibraryGroups && viewItem == root-private",
+          "group": "inline@1"
+        },
+        {
+          "command": "promptLibrary.addGroup",
+          "when": "view == promptLibraryGroups && viewItem == root-shared",
+          "group": "inline@1"
         },
         {
           "command": "promptLibrary.renameGroup",
-          "when": "view == promptLibraryGroups && viewItem == group-shared",
-          "group": "inline"
+          "when": "view == promptLibraryGroups && viewItem == group",
+          "group": "inline@2"
         },
-
         {
           "command": "promptLibrary.deleteGroup",
           "when": "view == promptLibraryGroups && viewItem == group",
-          "group": "inline"
-        }
-,
+          "group": "inline@3"
+        },
+
         {
           "command": "promptLibrary.copyPrompt",
           "when": "view == promptLibraryGroups && viewItem == prompt",

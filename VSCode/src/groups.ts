@@ -116,8 +116,8 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
     if (!this.library) this.library = await this.store.load();
     const g = this.findGroup(groupId);
     if (!g) return;
-    // Do not allow renaming root groups or 'Unfiled'
-    if (g.id === 'root-shared' || g.id === 'root-private' || g.id === 'grp-unfiled') {
+    // Do not allow renaming Shared (GitHub) groups, root groups, or 'Unfiled'
+    if (g.kind === 'shared' || g.id === 'root-shared' || g.id === 'root-private' || g.id === 'grp-unfiled') {
       vscode.window.showWarningMessage('Cannot rename this group.');
       return;
     }
