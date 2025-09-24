@@ -349,13 +349,20 @@ export function activate(context: vscode.ExtensionContext) {
 
 
 
-  // Keep groups permanently expanded: if user collapses, immediately re-expand
+  // Keep only ROOTS permanently expanded (GitHub/Shared and Private). Allow inner folders to collapse.
+  const isRootElement = (el: any) => {
+    try { const ctx = (el as any)?.contextValue; return ctx === 'root-shared' || ctx === 'root-private'; } catch { return false; }
+  };
   treeView.onDidCollapseElement(e => {
-    try { treeView.reveal(e.element, { expand: 10 }); } catch { }
+    if (isRootElement(e.element)) {
+      try { setTimeout(() => treeView.reveal(e.element, { expand: 10 }), 0); } catch { }
+    }
   });
-  // Also ensure expand cascades to deeper levels when user expands a node
+  // Optionally cascade expand for roots so their immediate children show up
   treeView.onDidExpandElement(e => {
-    try { treeView.reveal(e.element, { expand: 10 }); } catch { }
+    if (isRootElement(e.element)) {
+      try { treeView.reveal(e.element, { expand: 10 }); } catch { }
+    }
   });
 
 
@@ -831,7 +838,7 @@ function getHtml(webview: vscode.Webview): string {
       return first.length > 120 ? first.slice(0,117) + '\\u2026' : first;
     }
     function normalized(t){ return (t||'').replace(/\\r\\n|\\r/g,'\\n').replace(/\\s+/g,' ').trim().toLowerCase(); }
-    function renderCounts(shown){ if (counts) counts.textContent = String(shown) + ' shown / ' + String(allPrompts.length) + ' total'; }
+    function renderCounts(shown){ if (counts) counts.textContent = ''; }
 
     function renderSelectionBar(){
       const bulkbar = document.getElementById('bulkbar');
@@ -845,49 +852,9 @@ function getHtml(webview: vscode.Webview): string {
     function renderList(prompts){
       if (!list) return;
       list.innerHTML = '';
-      if (!prompts || prompts.length === 0) { list.textContent = 'No prompts in this group yet.'; renderCounts(0); renderSelectionBar(); return; }
-      list.style.display = 'flex';
-      prompts.forEach(p => {
-        const item = document.createElement('div'); item.className = 'item';
-        const row = document.createElement('div'); row.style.display='flex'; row.style.gap='8px'; row.style.alignItems='center';
-        const selectCb = document.createElement('input'); selectCb.type='checkbox'; selectCb.onchange = () => { if (selectCb.checked) selected.add(p.id); else selected.delete(p.id); renderSelectionBar(); };
-        const title = document.createElement('div'); title.className = 'summary'; title.textContent = summarize(p.text); title.style.flex='1'; title.title='Click to copy';
-        title.onclick = () => vscode?.postMessage({ type: 'copyPrompt', text: p.text });
-
-        const actions = document.createElement('div'); actions.className = 'rowActions';
-        const body = document.createElement('div'); body.className = 'body'; body.textContent = p.text;
-        const expandBtn = document.createElement('button'); expandBtn.className='iconbtn'; expandBtn.title='Show/Hide details'; expandBtn.textContent='▾';
-        expandBtn.onclick = () => { body.style.display = (body.style.display === 'none' || body.style.display === '') ? 'block' : 'none'; };
-
-        const copyBtn = document.createElement('button'); copyBtn.className='iconbtn'; copyBtn.title='Copy'; copyBtn.textContent='📋';
-        copyBtn.onclick = () => vscode?.postMessage({ type: 'copyPrompt', text: p.text });
-
-        const editBtn = document.createElement('button'); editBtn.className='iconbtn'; editBtn.title='Edit'; editBtn.textContent='✏️';
-        editBtn.onclick = () => {
-          body.style.display = 'block';
-          const ta = document.createElement('textarea'); ta.style.width='100%'; ta.rows=6; ta.value = p.text;
-          const row2 = document.createElement('div'); row2.style.display='flex'; row2.style.gap='6px'; row2.style.marginTop='6px';
-          const saveBtn2 = document.createElement('button'); saveBtn2.className='btn'; saveBtn2.textContent='Save';
-          const cancelBtn = document.createElement('button'); cancelBtn.className='btn'; cancelBtn.textContent='Cancel';
-          saveBtn2.onclick = () => { vscode?.postMessage({ type: 'editPrompt', id: p.id, text: ta.value }); };
-          cancelBtn.onclick = () => { vscode?.postMessage({ type: 'requestList' }); };
-          body.innerHTML=''; body.appendChild(ta); row2.append(saveBtn2, cancelBtn); body.appendChild(row2);
-        };
-
-        const moveBtn = document.createElement('button'); moveBtn.className='iconbtn'; moveBtn.title='Move'; moveBtn.textContent='⇄';
-        moveBtn.onclick = () => vscode?.postMessage({ type: 'movePrompt', id: p.id });
-
-        const delBtn = document.createElement('button'); delBtn.className='iconbtn'; delBtn.title='Delete'; delBtn.textContent='🗑';
-        delBtn.onclick = () => vscode?.postMessage({ type: 'deletePrompt', id: p.id });
-
-        actions.append(expandBtn, copyBtn, editBtn, moveBtn, delBtn);
-        row.append(selectCb, title, actions);
-        const tags = document.createElement('div'); tags.className='tags'; tags.innerHTML = (p.tags||[]).map(t => '<span class="chip">'+t+'</span>').join(' ');
-        item.append(row, body, tags);
-        list.appendChild(item);
-      });
-      renderCounts(prompts.length);
-      renderSelectionBar();
+      list.style.display = 'none';
+      renderCounts(0);
+      const bulkbar = document.getElementById('bulkbar'); if (bulkbar) bulkbar.style.display = 'none';
     }
 
     function applyFilter(){ renderList(allPrompts); } // filtering disabled
