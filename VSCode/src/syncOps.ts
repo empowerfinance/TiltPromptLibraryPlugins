@@ -66,7 +66,11 @@ export class SyncOpsPanel {
     <style>
       body { font-family: var(--vscode-font-family); margin:0; }
       .container { padding: 12px; }
-      .grid { display: grid; grid-template-columns: 320px 1fr; gap: 12px; }
+      .grid { display: grid; grid-template-columns: var(--left-col, 360px) 6px minmax(0, 1fr); gap: 12px; width: 100%; align-items: start; }
+      .gutter { background: var(--vscode-widget-border); width: 6px; cursor: col-resize; }
+      .gutter:hover { background: var(--vscode-editorWidget-border, var(--vscode-widget-border)); }
+      .kv b { word-break: break-all; overflow-wrap: anywhere; }
+
       .card { border: 1px solid var(--vscode-widget-border); border-radius: 4px; }
       .card h4 { margin: 0; padding: 8px 10px; border-bottom: 1px solid var(--vscode-widget-border); }
       .card .body { padding: 10px; }
@@ -100,6 +104,7 @@ export class SyncOpsPanel {
               </div>
             </div>
           </div>
+          <div id="gutter" class="gutter"></div>
           <div class="card">
             <h4>Logs</h4>
             <div class="body">
@@ -114,6 +119,28 @@ export class SyncOpsPanel {
         document.getElementById('openSettings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
         const ps = document.getElementById('pullSync'); if (ps) ps.addEventListener('click', () => vscode.postMessage({ type: 'pullSync' }));
         document.getElementById('clear').addEventListener('click', () => vscode.postMessage({ type: 'clear' }));
+        // Resizable columns via gutter drag
+        const grid = document.querySelector('.grid');
+        const gutter = document.getElementById('gutter');
+        let dragging = false;
+        if (gutter && grid) {
+          gutter.addEventListener('mousedown', (e) => { dragging = true; e.preventDefault(); });
+          window.addEventListener('mouseup', () => { dragging = false; });
+          window.addEventListener('mousemove', (e) => {
+            if (!dragging) return;
+            const rect = grid.getBoundingClientRect();
+            let x = e.clientX - rect.left; // position within grid
+            const min = 220; // min width for left column
+            const max = rect.width - 220; // min width for right column
+            if (x < min) x = min;
+            if (x > max) x = max;
+            grid.style.gridTemplateColumns = x + 'px 6px minmax(0, 1fr)';
+          });
+          gutter.addEventListener('dblclick', () => {
+            grid.style.gridTemplateColumns = '';
+          });
+        }
+
         window.addEventListener('message', (event) => {
           const msg = event.data || {};
           if (msg.type === 'entries') {
