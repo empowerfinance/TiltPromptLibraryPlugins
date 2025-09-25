@@ -827,6 +827,11 @@ function getHtml(webview: vscode.Webview): string {
     }
     .toolbar .spacer { flex: 1; }
 
+
+    .headerRow { display:flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .headerRow .leftCol { display:flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+    .headerRow .rightCol { display:flex; align-items: flex-start; }
+
     .btn {
       padding: 6px 10px;
       border-radius: 8px;
@@ -892,13 +897,15 @@ function getHtml(webview: vscode.Webview): string {
   <div id="boot">booting…</div>
   <div class="container">
     <div class="card">
-      <div class="toolbar" style="margin-bottom: 6px;">
-        <div class="spacer"></div>
-        <button id="syncOpsBtn" class="btn">Sync Ops</button>
+      <div class="headerRow">
+        <div class="leftCol">
+          <h3 class="title">Prompt Library</h3>
+          <div id="sel" class="muted">Loading…</div>
+        </div>
+        <div class="rightCol">
+          <button id="syncOpsBtn" class="btn">Sync Ops</button>
+        </div>
       </div>
-
-      <h3 class="title">Prompt Library</h3>
-      <div id="sel" class="muted">Loading…</div>
       <div class="toolbar">
         <span id="counts" class="count"></span>
         <div class="spacer"></div>
