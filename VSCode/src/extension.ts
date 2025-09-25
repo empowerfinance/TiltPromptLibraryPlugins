@@ -892,12 +892,16 @@ function getHtml(webview: vscode.Webview): string {
   <div id="boot">booting…</div>
   <div class="container">
     <div class="card">
+      <div class="toolbar" style="margin-bottom: 6px;">
+        <div class="spacer"></div>
+        <button id="syncOpsBtn" class="btn">Sync Ops</button>
+      </div>
+
       <h3 class="title">Prompt Library</h3>
       <div id="sel" class="muted">Loading…</div>
       <div class="toolbar">
         <span id="counts" class="count"></span>
         <div class="spacer"></div>
-        <button id="syncOpsBtn" class="btn">Sync Ops</button>
       </div>
     </div>
 
@@ -921,7 +925,10 @@ function getHtml(webview: vscode.Webview): string {
       <div style="height:8px;"></div>
       <textarea id="composer" rows="4" placeholder="Select a group to enable the composer" disabled></textarea>
       <div style="height:10px;"></div>
-      <button id="save" class="btn btn-primary" disabled>Add prompt</button>
+      <div class="toolbar" style="gap:8px; padding:0;">
+        <button id="save" class="btn btn-primary" disabled>Add prompt</button>
+        <button id="cancelEdit" class="btn" style="display:none;">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -947,6 +954,8 @@ function getHtml(webview: vscode.Webview): string {
     const save = document.getElementById('save');
     const titleBox = document.getElementById('titleBox');
     const counts = document.getElementById('counts');
+    const cancelBtn = document.getElementById('cancelEdit');
+
 
 
 	    let editingId = null;
@@ -1002,6 +1011,11 @@ function getHtml(webview: vscode.Webview): string {
       const msg = event.data || {};
       try { vscode?.postMessage({ type: 'wv-log', msg: 'recv ' + String(msg.type) + (Array.isArray(msg.payload) ? (' len=' + msg.payload.length) : '') }); } catch {}
       if (msg.type === 'selectedGroup') {
+        // Leaving edit mode when switching groups to avoid overwriting an existing prompt
+        editingId = null;
+        if (save) save.textContent = 'Add prompt';
+        if (cancelBtn) cancelBtn.style.display = 'none';
+
         const g = msg.payload;
         if (!g || !g.id) {
           sel && (sel.textContent = 'No group selected');
@@ -1037,6 +1051,7 @@ function getHtml(webview: vscode.Webview): string {
         if (composer) { composer.value = String(p.text || ''); try { composer.focus(); } catch {} }
         editingId = (p.id ? String(p.id) : null);
         if (save) save.textContent = 'Save changes';
+        if (cancelBtn) cancelBtn.style.display = 'inline-block';
       }
     });
 
@@ -1062,7 +1077,7 @@ function getHtml(webview: vscode.Webview): string {
       if (editingId) {
         vscode?.postMessage({ type: 'editPrompt', id: editingId, text, title });
         editingId = null;
-        if (save) save.textContent = 'Add prompt';
+        if (save) save.textContent = 'Add prompt'; if (cancelBtn) cancelBtn.style.display = 'none';
       } else {
         const seen = new Set(allPrompts.map(p => normalized(p.text)));
         if (seen.has(normalized(text))) { alert('Duplicate prompt'); return; }
@@ -1072,6 +1087,16 @@ function getHtml(webview: vscode.Webview): string {
       if (titleBox) titleBox.value = '';
       try { if (filter) filter.value = ''; } catch {};
     });
+    // Cancel editing: restore add mode and clear fields
+    cancelBtn?.addEventListener('click', () => {
+      editingId = null;
+      if (save) save.textContent = 'Add prompt';
+      if (cancelBtn) cancelBtn.style.display = 'none';
+      if (composer) composer.value = '';
+      if (titleBox) titleBox.value = '';
+      try { if (filter) filter.value = ''; } catch {};
+    });
+
   })();
   </script>
 </body>
@@ -1081,6 +1106,7 @@ function getHtml(webview: vscode.Webview): string {
 
 function getNonce(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
   let result = '';
   for (let i = 0; i < 32; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
