@@ -223,7 +223,7 @@ function toItem(g: Group, repoLabel?: string | null): GroupItem {
     : vscode.TreeItemCollapsibleState.None;
   const label = isRootShared && repoLabel ? repoLabel : g.name;
   const item = new GroupItem(g.id, label, collapsible, ctx);
-  // Icons: GitHub for shared root, lock for private root, repo for shared children, folder otherwise
-  item.iconPath = new vscode.ThemeIcon(isRootShared ? 'github' : isRootPrivate ? 'lock' : isSharedChild ? 'repo' : 'folder');
+  // Icons: GitHub for shared root, lock for private root, repo for all child groups (shared and private)
+  item.iconPath = new vscode.ThemeIcon(isRootShared ? 'github' : isRootPrivate ? 'lock' : 'repo');
   return item;
 }
