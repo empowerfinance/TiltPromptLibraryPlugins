@@ -109,6 +109,8 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
       case 'deletePrompt': {
         const id: string = String(msg.id || '');
         if (!id) return;
+        const p = await this.store.getPromptById(id);
+        if (p && !p.private) { vscode.window.showWarningMessage('Cannot delete prompts from the GitHub collection.'); return; }
         const ok = await this.store.deletePrompt(id);
         if (ok) { await this.pushList(); }
         break;
@@ -149,7 +151,14 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
       }
       case 'deleteMany': {
         const ids: string[] = Array.isArray(msg.ids) ? msg.ids : [];
-        for (const id of ids) { await this.store.deletePrompt(String(id)); }
+        const deletable: string[] = [];
+        for (const raw of ids) {
+          const id = String(raw);
+          const p = await this.store.getPromptById(id);
+          if (p && p.private) deletable.push(id);
+        }
+        if (deletable.length === 0) { vscode.window.showInformationMessage('No deletable prompts (GitHub collection prompts cannot be deleted).'); return; }
+        for (const id of deletable) { await this.store.deletePrompt(id); }
         await this.pushList();
         break;
       }
@@ -424,6 +433,8 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('promptLibrary.deletePrompt', async (item?: any) => {
       const pid: string | undefined = (item as any)?.promptId;
       if (!pid) return;
+      const p = await store.getPromptById(pid);
+      if (p && !p.private) { vscode.window.showWarningMessage('Cannot delete prompts from the GitHub collection.'); return; }
       const ok = await vscode.window.showWarningMessage('Delete this prompt?', { modal: true }, 'Delete');
       if (ok !== 'Delete') return;
       const done = await store.deletePrompt(pid);
@@ -461,13 +472,13 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('promptLibrary.exportJson', async () => {
       try {
-        const lib = await store.getLibrary();
-        const uri = await vscode.window.showSaveDialog({ filters: { 'JSON': ['json'] }, saveLabel: 'Export' });
+        const arr = await store.exportPrivateAsStringArray();
+        const uri = await vscode.window.showSaveDialog({ filters: { 'JSON': ['json'] }, saveLabel: 'Export Private Prompts' });
         if (!uri) return;
-        const bytes = Buffer.from(JSON.stringify(lib, null, 2), 'utf8');
+        const bytes = Buffer.from(JSON.stringify(arr, null, 2), 'utf8');
         await vscode.workspace.fs.writeFile(uri, bytes);
-        vscode.window.showInformationMessage('Prompt Library exported');
-        log.info(`Exported library to ${uri.fsPath}`);
+        vscode.window.showInformationMessage('Exported private prompts.');
+        log.info(`Exported ${arr.length} private prompts to ${uri.fsPath}`);
       } catch (e: any) {
         log.error(`Export failed: ${e?.message || e}`);
       }
@@ -478,9 +489,13 @@ export function activate(context: vscode.ExtensionContext) {
         if (!picks || picks.length === 0) return;
         const data = await vscode.workspace.fs.readFile(picks[0]);
         const obj = JSON.parse(Buffer.from(data).toString('utf8'));
-        const res = await store.importFromObject(obj);
-        vscode.window.showInformationMessage(`Imported ${res.added} prompts (${res.skipped} skipped as duplicates) into Private/Unfiled.`);
-        log.info(`Imported ${res.added} prompts (${res.skipped} skipped) from ${picks[0].fsPath}`);
+        if (!Array.isArray(obj) || obj.some(x => typeof x !== 'string')) {
+          vscode.window.showWarningMessage('Expected a JSON array of strings (one prompt per string).');
+          return;
+        }
+        const res = await store.importStringArrayToUnfiled(obj as string[]);
+        vscode.window.showInformationMessage(res.added ? `Imported ${res.added} prompts to Unfiled (${res.skipped} skipped).` : 'No new prompts to import.');
+        log.info(res.added ? `Imported ${res.added} prompts to Unfiled (${res.skipped} skipped).` : 'Import: nothing new');
         await groups.init();
         await provider.refresh();
       } catch (e: any) {
@@ -759,10 +774,6 @@ function getHtml(webview: vscode.Webview): string {
     <h3>Prompt Library</h3>
     <div id="sel" class="muted">Loading…</div>
     <div class="toolbar">
-      <button id="importBtn" class="btn">Import JSON</button>
-      <button id="exportBtn" class="btn">Export JSON</button>
-      <button id="dedupeBtn" class="btn">Deduplicate</button>
-      <button id="resetBtn" class="btn">Reset</button>
       <button id="syncOpsBtn" class="btn">Sync Ops</button>
       <span id="counts" class="count"></span>
     </div>
@@ -912,11 +923,7 @@ function getHtml(webview: vscode.Webview): string {
       selected.clear(); renderSelectionBar();
     });
 
-    document.getElementById('importBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.importJson' }));
-    document.getElementById('exportBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.exportJson' }));
     document.getElementById('syncOpsBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.syncOps' }));
-    document.getElementById('dedupeBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.deduplicate' }));
-    document.getElementById('resetBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.resetAll' }));
 
     save?.addEventListener('click', () => {
       const text = composer?.value || '';

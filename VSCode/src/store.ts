@@ -234,6 +234,45 @@ export class LibraryStore {
     return await this.load();
   }
 
+  async exportPrivateAsStringArray(): Promise<string[]> {
+    const lib = await this.load();
+    const texts: string[] = [];
+    const add = (t?: string) => { if (typeof t === 'string') texts.push(t); };
+    // Walk groups under Private root
+    const priv = lib.groups.find(g => g.id === 'root-private');
+    const walk = (g: Group) => { g.prompts.forEach(p => add(p.text)); g.children.forEach(walk); };
+    if (priv) walk(priv);
+    // Legacy privatePrompts bucket
+    for (const p of lib.privatePrompts ?? []) add(p.text);
+    return texts;
+  }
+
+  async importStringArrayToUnfiled(arr: string[]): Promise<{ added: number; skipped: number }> {
+    if (!Array.isArray(arr)) throw new Error('Expected an array');
+    const lib = await this.load();
+    const priv = lib.groups.find(g => g.id === 'root-private');
+    const unfiled = priv?.children.find(c => c.id === 'grp-unfiled') ?? null;
+    if (!unfiled) throw new Error('Unfiled group missing');
+
+    // Build set of existing normalized texts
+    const seen = new Set<string>();
+    this.anyPrompt(lib, p => { seen.add(this.normalizeForCompare(p.text)); return false; });
+
+    let added = 0, skipped = 0;
+    const now = new Date().toISOString();
+    for (const t of arr) {
+      if (typeof t !== 'string') { skipped++; continue; }
+      const n = this.normalizeForCompare(t);
+      if (seen.has(n)) { skipped++; continue; }
+      const prompt: Prompt = { id: genId('p'), text: t, createdAt: now, updatedAt: now, tags: [], private: true };
+      unfiled.prompts.push(prompt);
+      seen.add(n);
+      added++;
+    }
+    if (added > 0) await this.save(lib);
+    return { added, skipped };
+  }
+
   async importFromObject(obj: any): Promise<{ added: number; skipped: number }> {
     const lib = await this.load();
     const priv = lib.groups.find(g => g.id === 'root-private');

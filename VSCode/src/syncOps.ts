@@ -49,6 +49,18 @@ export class SyncOpsPanel {
       case 'pullSync':
         vscode.commands.executeCommand('promptLibrary.syncPullAndImport');
         break;
+      case 'importJson':
+        vscode.commands.executeCommand('promptLibrary.importJson');
+        break;
+      case 'exportJson':
+        vscode.commands.executeCommand('promptLibrary.exportJson');
+        break;
+      case 'deduplicate':
+        vscode.commands.executeCommand('promptLibrary.deduplicate');
+        break;
+      case 'resetAll':
+        vscode.commands.executeCommand('promptLibrary.resetAll');
+        break;
     }
   }
 
@@ -66,9 +78,7 @@ export class SyncOpsPanel {
     <style>
       body { font-family: var(--vscode-font-family); margin:0; }
       .container { padding: 12px; }
-      .grid { display: grid; grid-template-columns: var(--left-col, 360px) 6px minmax(0, 1fr); gap: 12px; width: 100%; align-items: start; }
-      .gutter { background: var(--vscode-widget-border); width: 6px; cursor: col-resize; }
-      .gutter:hover { background: var(--vscode-editorWidget-border, var(--vscode-widget-border)); }
+      .rows { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 12px; width: 100%; align-items: start; }
       .kv b { word-break: break-all; overflow-wrap: anywhere; }
 
       .card { border: 1px solid var(--vscode-widget-border); border-radius: 4px; }
@@ -87,15 +97,19 @@ export class SyncOpsPanel {
     </style>
     </head><body>
       <div class="container">
-        <div class="grid">
+        <div class="rows">
           <div class="card">
             <h4>Actions</h4>
             <div class="body">
               ${!s.repoPath ? `<div class="banner">Set promptLibrary.repoPath in settings to enable Pull & Sync.</div>` : ''}
-              <div style="display:flex; gap:8px; margin-bottom: 8px;">
+              <div style="display:flex; gap:8px; margin-bottom: 8px; white-space: nowrap; overflow:auto;">
                 <button id="pullSync" class="btn" ${disabledAttr}>Pull & Sync Repo</button>
+                <button id="importJson" class="btn">Import JSON</button>
+                <button id="exportJson" class="btn">Export JSON</button>
+                <button id="dedupe" class="btn">Deduplicate</button>
                 <button id="openSettings" class="btn">Open Settings</button>
                 <button id="clear" class="btn">Clear Logs</button>
+                <button id="resetLib" class="btn">Reset Library</button>
               </div>
               <div class="kv">
                 <div>repoPath: <b>${s.repoPath || '(not set)'}</b></div>
@@ -104,7 +118,6 @@ export class SyncOpsPanel {
               </div>
             </div>
           </div>
-          <div id="gutter" class="gutter"></div>
           <div class="card">
             <h4>Logs</h4>
             <div class="body">
@@ -115,32 +128,17 @@ export class SyncOpsPanel {
       </div>
       <script>
         const vscode = acquireVsCodeApi();
+        const resetBtn = document.getElementById('resetLib'); if (resetBtn) resetBtn.addEventListener('click', () => vscode.postMessage({ type: 'resetAll' }));
+
         const logEl = document.getElementById('log');
         document.getElementById('openSettings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
+        const importBtn = document.getElementById('importJson'); if (importBtn) importBtn.addEventListener('click', () => vscode.postMessage({ type: 'importJson' }));
+        const dedupeBtn = document.getElementById('dedupe'); if (dedupeBtn) dedupeBtn.addEventListener('click', () => vscode.postMessage({ type: 'deduplicate' }));
+
+        const exportBtn = document.getElementById('exportJson'); if (exportBtn) exportBtn.addEventListener('click', () => vscode.postMessage({ type: 'exportJson' }));
+
         const ps = document.getElementById('pullSync'); if (ps) ps.addEventListener('click', () => vscode.postMessage({ type: 'pullSync' }));
         document.getElementById('clear').addEventListener('click', () => vscode.postMessage({ type: 'clear' }));
-        // Resizable columns via gutter drag
-        const grid = document.querySelector('.grid');
-        const gutter = document.getElementById('gutter');
-        let dragging = false;
-        if (gutter && grid) {
-          gutter.addEventListener('mousedown', (e) => { dragging = true; e.preventDefault(); });
-          window.addEventListener('mouseup', () => { dragging = false; });
-          window.addEventListener('mousemove', (e) => {
-            if (!dragging) return;
-            const rect = grid.getBoundingClientRect();
-            let x = e.clientX - rect.left; // position within grid
-            const min = 220; // min width for left column
-            const max = rect.width - 220; // min width for right column
-            if (x < min) x = min;
-            if (x > max) x = max;
-            grid.style.gridTemplateColumns = x + 'px 6px minmax(0, 1fr)';
-          });
-          gutter.addEventListener('dblclick', () => {
-            grid.style.gridTemplateColumns = '';
-          });
-        }
-
         window.addEventListener('message', (event) => {
           const msg = event.data || {};
           if (msg.type === 'entries') {
