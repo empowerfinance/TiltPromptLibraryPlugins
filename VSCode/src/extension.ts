@@ -895,9 +895,9 @@ function getHtml(webview: vscode.Webview): string {
       <h3 class="title">Prompt Library</h3>
       <div id="sel" class="muted">Loading…</div>
       <div class="toolbar">
-        <button id="syncOpsBtn" class="btn">Sync Ops</button>
         <span id="counts" class="count"></span>
         <div class="spacer"></div>
+        <button id="syncOpsBtn" class="btn">Sync Ops</button>
       </div>
     </div>
 
