@@ -74,6 +74,25 @@ export async function pull(path: string, remote = 'origin', branch?: string): Pr
   return res.code === 0;
 }
 
+export async function resetHardToRemote(path: string, remote = 'origin', branch?: string): Promise<boolean> {
+  let target = branch;
+  if (!target) {
+    const cur = await getCurrentBranch(path);
+    if (!cur) return false;
+    target = cur;
+  }
+  const okFetch = await fetch(path, remote);
+  if (!okFetch) return false;
+  const res = await runGit(path, ['reset', '--hard', `${remote}/${target}`]);
+  return res.code === 0;
+}
+
+export async function cleanUntracked(path: string): Promise<boolean> {
+  const res = await runGit(path, ['clean', '-fd']);
+  return res.code === 0;
+}
+
+
 export function tryBuildGithubCompareUrl(remoteUrl: string, branch: string): vscode.Uri | null {
   // Supports https://github.com/org/repo.git and git@github.com:org/repo.git
   try {

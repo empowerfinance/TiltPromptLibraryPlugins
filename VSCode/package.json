@@ -21,7 +21,8 @@
     "onView:promptLibraryView",
     "onView:promptDetailView",
     "onCommand:promptLibrary.syncOps",
-    "onCommand:promptLibrary.syncPullAndImport"
+    "onCommand:promptLibrary.syncPullAndImport",
+    "onCommand:promptLibrary.syncPullOverwriteAndImport"
   ],
   "contributes": {
     "commands": [
@@ -97,6 +98,11 @@
         "command": "promptLibrary.syncPullAndImport",
         "title": "Prompt Library: Pull & Sync Repo"
       },
+      {
+        "command": "promptLibrary.syncPullOverwriteAndImport",
+        "title": "Prompt Library: Pull (Overwrite) & Sync Repo"
+      },
+
       {
         "command": "promptLibrary.openPrompt",
         "title": "Open Prompt",

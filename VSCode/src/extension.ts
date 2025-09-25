@@ -6,7 +6,7 @@ import { Prompt } from './model';
 import { getSettings } from './settings';
 import { writeSharedGroups } from './sync/yamlWriter';
 import { log } from './log';
-import { checkoutNewBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, tryBuildGithubCompareUrl, fetch as gitFetch, pull as gitPull, clone as gitClone } from './sync/git';
+import { checkoutNewBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, tryBuildGithubCompareUrl, fetch as gitFetch, pull as gitPull, clone as gitClone, resetHardToRemote, cleanUntracked } from './sync/git';
 import { start as startScheduler } from './sync/scheduler';
 import { readSharedGroups } from './sync/yamlReader';
 import { SyncOpsPanel } from './syncOps';
@@ -42,16 +42,20 @@ class PromptDetailViewProvider implements vscode.WebviewViewProvider {
     const html = `<!DOCTYPE html><html><head>
       <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
       <style>
-        body { font-family: var(--vscode-font-family); margin: 0; }
-        .container { padding: 12px; display:flex; flex-direction:column; gap:8px; }
-        .title { font-weight: 600; }
-        .pre { white-space: pre-wrap; }
-        .btn { padding: 4px 8px; background: transparent; color: var(--vscode-foreground); border: 1px solid var(--vscode-widget-border); border-radius: 3px; cursor: pointer; }
+        :root { --accent: var(--vscode-focusBorder); --border: var(--vscode-widget-border); --card-bg: var(--vscode-editorWidget-background); }
+        * { box-sizing: border-box; }
+        body { font-family: var(--vscode-font-family); margin: 0; color: var(--vscode-foreground); }
+        .container { padding: 16px; }
+        .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px; box-shadow: 0 1px 0 rgba(0,0,0,.2), 0 8px 24px rgba(0,0,0,.08); }
+        .title { font-weight: 700; font-size: 13px; margin: 0 0 8px 0; }
+        .pre { white-space: pre-wrap; line-height: 1.5; font-family: var(--vscode-editor-font-family, Consolas, Menlo, monospace); font-size: 12px; }
       </style>
     </head><body>
       <div class="container">
-        <div class="title">${title}</div>
-        <div class="pre">${body}</div>
+        <div class="card">
+          <div class="title">${title}</div>
+          <div class="pre">${body}</div>
+        </div>
       </div>
     </body></html>`;
     this.view.webview.html = html;
@@ -61,9 +65,11 @@ class PromptDetailViewProvider implements vscode.WebviewViewProvider {
 class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'promptLibraryView';
   private view?: vscode.WebviewView;
-  private selectedGroup: { id: string | null; name: string | null } = { id: null, name: null };
+  private selectedGroup: { id: string | null; name: string | null };
 
-  constructor(private readonly store: LibraryStore) { }
+  constructor(private readonly store: LibraryStore, private readonly memento: vscode.Memento) {
+    this.selectedGroup = (this.memento.get<{ id: string | null; name: string | null }>('promptLibrary.lastSelectedGroup')) ?? { id: null, name: null };
+  }
 
   resolveWebviewView(webviewView: vscode.WebviewView) {
     this.view = webviewView;
@@ -204,6 +210,8 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
   }
 
   async refresh() { await this.pushList(); }
+  getSelectedGroup() { return this.selectedGroup; }
+
 
   // *** PATCH: redirect root selections to a writable child (e.g., Private -> Unfiled) ***
   async setSelectedGroup(group: { id: string | null; name: string | null }) {
@@ -230,6 +238,7 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
     }
 
     this.selectedGroup = effective;
+    try { await this.memento.update('promptLibrary.lastSelectedGroup', effective); } catch {}
     log.info(`Webview setSelectedGroup: id=${effective.id ?? 'null'}, name=${effective.name ?? 'null'}, hasView=${!!this.view}`);
     this.view?.webview.postMessage({ type: 'selectedGroup', payload: effective });
     // When selection changes, refresh list for that group
@@ -305,7 +314,7 @@ export function activate(context: vscode.ExtensionContext) {
   const store = new LibraryStore(context);
 
 
-  const provider = new PromptLibraryViewProvider(store);
+  const provider = new PromptLibraryViewProvider(store, context.globalState);
   const detailProvider = new PromptDetailViewProvider();
   const groups = new GroupsProvider(store);
   groups.init();
@@ -314,7 +323,7 @@ export function activate(context: vscode.ExtensionContext) {
   startScheduler(context);
 
   const dnd = new PromptTreeDragAndDrop(store, groups, provider);
-  const treeView = vscode.window.createTreeView('promptLibraryGroups', { treeDataProvider: groups, showCollapseAll: true, dragAndDropController: dnd });
+  const treeView = vscode.window.createTreeView('promptLibraryGroups', { treeDataProvider: groups, showCollapseAll: false, dragAndDropController: dnd });
   treeView.onDidChangeSelection(async e => {
     const item = e.selection[0] as (GroupItem | PromptItem | undefined);
     if (!item) {
@@ -358,25 +367,28 @@ export function activate(context: vscode.ExtensionContext) {
 
 
 
-  // Keep only ROOTS permanently expanded (GitHub/Shared and Private). Allow inner folders to collapse.
-  const isRootElement = (el: any) => {
-    try { const ctx = (el as any)?.contextValue; return ctx === 'root-shared' || ctx === 'root-private'; } catch { return false; }
+  // Keep ALL groups permanently expanded
+  const isGroupElement = (el: any) => {
+    try {
+      const ctx = (el as any)?.contextValue;
+      return typeof ctx === 'string' && (ctx.startsWith('root-') || ctx.startsWith('group'));
+    } catch { return false; }
   };
   treeView.onDidCollapseElement(e => {
-    if (isRootElement(e.element)) {
+    if (isGroupElement(e.element)) {
       try { setTimeout(() => treeView.reveal(e.element, { expand: 10 }), 0); } catch { }
     }
   });
-  // Optionally cascade expand for roots so their immediate children show up
   treeView.onDidExpandElement(e => {
-    if (isRootElement(e.element)) {
+    if (isGroupElement(e.element)) {
       try { treeView.reveal(e.element, { expand: 10 }); } catch { }
     }
   });
 
 
-  // *** PATCH: default selection to Unfiled so the view is immediately usable ***
-  provider.setSelectedGroup({ id: 'grp-unfiled', name: 'Unfiled' });
+  // Default selection: restore last group if available, otherwise Unfiled
+  const __lastSel = provider.getSelectedGroup?.() as any;
+  if (!__lastSel || !__lastSel.id) { provider.setSelectedGroup({ id: 'grp-unfiled', name: 'Unfiled' }); }
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(PromptLibraryViewProvider.viewType, provider),
@@ -467,6 +479,37 @@ export function activate(context: vscode.ExtensionContext) {
       } catch (e: any) {
         log.error(`Pull & Sync failed: ${e?.message || e}`);
         vscode.window.showWarningMessage('Pull & Sync failed. See Sync Ops for details.');
+      }
+    }),
+
+    vscode.commands.registerCommand('promptLibrary.syncPullOverwriteAndImport', async () => {
+      const cfg = getSettings();
+      if (!cfg.repoPath) { vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.'); return; }
+      const confirm = await vscode.window.showWarningMessage(
+        'This will discard local changes and reset to the remote branch (remote-wins). Continue?',
+        { modal: true }, 'Overwrite & Sync'
+      );
+      if (confirm !== 'Overwrite & Sync') return;
+      try {
+        log.info('Overwrite Pull & Sync started...');
+        const ok = await resetHardToRemote(cfg.repoPath);
+        if (!ok) { log.warn('Overwrite pull failed'); vscode.window.showWarningMessage('Overwrite pull failed. See Sync Ops for details.'); return; }
+        const groupsFromRepo = await readSharedGroups(vscode.Uri.file(cfg.repoPath), cfg.promptsSubdir);
+        const countPrompts = (gs: any[]): number => gs.reduce((acc, g) => acc + (Array.isArray(g.prompts) ? g.prompts.length : 0) + countPrompts(g.children || []), 0);
+        const totalPrompts = countPrompts(groupsFromRepo as any);
+        const lib = await store.getLibrary();
+        const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
+        if (!sharedRoot) { vscode.window.showWarningMessage('Shared root not found'); log.warn('Shared root not found'); return; }
+        sharedRoot.children = groupsFromRepo.map(g => ({ ...g, kind: 'shared' }));
+        sharedRoot.prompts = [];
+        await store.save(lib);
+        await groups.init();
+        await provider.refresh();
+        vscode.window.showInformationMessage(`Overwrite Pull & Sync complete: ${groupsFromRepo.length} groups, ${totalPrompts} prompts.`);
+        log.info(`Overwrite Pull & Sync complete: imported ${groupsFromRepo.length} top-level groups, ${totalPrompts} prompts.`);
+      } catch (e: any) {
+        log.error(`Overwrite Pull & Sync failed: ${e?.message || e}`);
+        vscode.window.showWarningMessage('Overwrite Pull & Sync failed. See Sync Ops for details.');
       }
     }),
 
@@ -747,53 +790,138 @@ function getHtml(webview: vscode.Webview): string {
 <head>
   ${csp}
   <style>
-    body { font-family: var(--vscode-font-family); margin: 0; }
-    .container { padding: 12px; }
-    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom: 8px; }
-    .btn { padding: 2px 6px; background: transparent; color: var(--vscode-foreground); border: 1px solid var(--vscode-widget-border); border-radius: 3px; cursor: pointer; }
-    .btn:hover { background: var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.06)); }
-    .iconbtn { padding: 0 4px; background: transparent; color: var(--vscode-foreground); border: none; cursor: pointer; opacity: 0.8; }
-    .iconbtn:hover { opacity: 1; }
-    .muted { color: var(--vscode-descriptionForeground); }
-    .count { margin-left:auto; font-size: 12px; }
+    :root {
+      --accent: var(--vscode-focusBorder);
+      --card-bg: var(--vscode-editorWidget-background);
+      --panel-bg: var(--vscode-sideBar-background);
+      --border: var(--vscode-widget-border);
+      --muted: var(--vscode-descriptionForeground);
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: var(--vscode-font-family);
+      color: var(--vscode-foreground);
+      background: transparent;
+      margin: 0;
+      line-height: 1.5;
+    }
+    .container { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+
+    h3.title {
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: .2px;
+      margin: 0 0 4px 0;
+    }
+    .muted { color: var(--muted); }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      box-shadow: 0 1px 0 rgba(0,0,0,.2), 0 8px 24px rgba(0,0,0,.08);
+    }
+    .toolbar {
+      display:flex; gap:8px; align-items:center; flex-wrap: wrap;
+    }
+    .toolbar .spacer { flex: 1; }
+
+    .btn {
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+      color: var(--vscode-foreground);
+      cursor: pointer;
+      transition: background .15s ease, transform .02s ease, border-color .15s ease, box-shadow .15s ease;
+    }
+    .btn:hover { background: rgba(255,255,255,0.06); }
+    .btn:active { transform: translateY(1px); }
+    .btn[disabled] { opacity: .6; cursor: not-allowed; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: var(--vscode-button-foreground, #000);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 0 rgba(0,0,0,0);
+    }
+    .btn-primary:hover { filter: brightness(1.1); }
+    .btn-primary:focus { outline: none; box-shadow: 0 0 0 2px rgba(255,255,255,.08), 0 0 0 3px var(--accent); }
+
+    input[type="text"], textarea {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--vscode-input-background);
+      color: var(--vscode-input-foreground, var(--vscode-foreground));
+      padding: 10px 12px;
+      outline: none;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    input[type="text"]::placeholder, textarea::placeholder { color: var(--muted); }
+    input[type="text"]:focus, textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(56,189,248,0.15);
+    }
+
     .list { display:flex; flex-direction:column; gap:8px; }
-    .item { border: 1px solid var(--vscode-widget-border); border-radius:4px; padding:8px; }
+    .item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.02);
+      transition: background .15s ease, border-color .15s ease;
+    }
+    .item:hover { background: rgba(255,255,255,0.04); border-color: var(--accent); }
     .summary { cursor:pointer; font-weight:600; user-select:none; }
     .summary:hover { text-decoration: underline; }
-    .tags { margin-top:6px; display:flex; flex-wrap:wrap; gap:4px; }
-    .chip { font-size:11px; padding:1px 6px; border-radius:10px; background: var(--vscode-editorCodeLens-foreground); color: var(--vscode-editor-foreground); }
-    .body { display:none; margin-top:6px; white-space:pre-wrap; }
-    .rowActions { margin-left:auto; display:flex; gap:4px; align-items:center; }
-    /* Boot banner */
-    #boot { position: sticky; top: 0; font-size: 11px; opacity: .6; padding: 4px 8px; }
+
+    .tags { margin-top:6px; display:flex; flex-wrap:wrap; gap:6px; }
+    .chip {
+      font-size:11px; padding:2px 8px; border-radius:999px;
+      background: rgba(255,255,255,0.06); color: var(--vscode-foreground); border: 1px solid var(--border);
+    }
+
+    .rowActions { margin-left:auto; display:flex; gap:6px; align-items:center; }
+
+    #boot { position: sticky; top: 0; font-size: 11px; opacity: .5; padding: 4px 8px; }
   </style>
 </head>
 <body>
   <div id="boot">booting…</div>
   <div class="container">
-    <h3>Prompt Library</h3>
-    <div id="sel" class="muted">Loading…</div>
-    <div class="toolbar">
-      <button id="syncOpsBtn" class="btn">Sync Ops</button>
-      <span id="counts" class="count"></span>
+    <div class="card">
+      <h3 class="title">Prompt Library</h3>
+      <div id="sel" class="muted">Loading…</div>
+      <div class="toolbar">
+        <button id="syncOpsBtn" class="btn">Sync Ops</button>
+        <span id="counts" class="count"></span>
+        <div class="spacer"></div>
+      </div>
     </div>
-    <div id="filterRow" style="display:none; gap:8px; align-items:center; margin-bottom:8px;">
-      <input id="filter" type="text" placeholder="Filter prompts..." style="flex:1;" />
-      <button id="clearFilter" class="btn">Clear</button>
+
+    <div class="card">
+      <div id="filterRow" style="display:none; gap:8px; align-items:center; margin-bottom:8px;">
+        <input id="filter" type="text" placeholder="Filter prompts..." />
+        <button id="clearFilter" class="btn">Clear</button>
+      </div>
+      <div id="bulkbar" class="toolbar" style="display:none;">
+        <span id="bulkcount" class="muted">0 selected</span>
+        <div class="spacer"></div>
+        <button id="bulkMove" class="btn">Move Selected</button>
+        <button id="bulkDelete" class="btn">Delete Selected</button>
+      </div>
+      <div id="list" class="list card" style="display:none;"></div>
     </div>
-    <div id="bulkbar" class="toolbar" style="display:none;">
-      <span id="bulkcount" class="muted">0 selected</span>
-      <div style="margin-left:auto;"></div>
-      <button id="bulkMove" class="btn">Move Selected</button>
-      <button id="bulkDelete" class="btn">Delete Selected</button>
-    </div>
-    <div id="list" class="list" style="display:none;"></div>
-    <hr/>
-    <div>
-      <label for="titleBox" class="muted" style="display:block;margin-bottom:4px;">Title (optional)</label>
-      <input id="titleBox" type="text" style="width:100%;margin-bottom:6px;" placeholder="Defaults to first 20 characters of the prompt" disabled />
-      <textarea id="composer" rows="4" style="width:100%;" placeholder="Select a group to enable the composer" disabled></textarea>
-      <button id="save" class="btn" disabled>Add prompt</button>
+
+    <div class="card">
+      <label for="titleBox" class="muted" style="display:block;margin-bottom:6px;">Title (optional)</label>
+      <input id="titleBox" type="text" placeholder="Defaults to first 20 characters of the prompt" disabled />
+      <div style="height:8px;"></div>
+      <textarea id="composer" rows="4" placeholder="Select a group to enable the composer" disabled></textarea>
+      <div style="height:10px;"></div>
+      <button id="save" class="btn btn-primary" disabled>Add prompt</button>
     </div>
   </div>
 
