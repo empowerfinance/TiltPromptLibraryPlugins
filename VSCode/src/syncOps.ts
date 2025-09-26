@@ -120,7 +120,6 @@ export class SyncOpsPanel {
 
                 <button id="exportJson" class="btn">Export JSON</button>
                 <button id="dedupe" class="btn">Deduplicate</button>
-                <button id="openSettings" class="btn">Open Settings</button>
                 <button id="clear" class="btn">Clear Logs</button>
                 <button id="resetLib" class="btn">Reset Library</button>
               </div>
@@ -144,7 +143,7 @@ export class SyncOpsPanel {
         const resetBtn = document.getElementById('resetLib'); if (resetBtn) resetBtn.addEventListener('click', () => vscode.postMessage({ type: 'resetAll' }));
 
         const logEl = document.getElementById('log');
-        document.getElementById('openSettings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
+
         const importBtn = document.getElementById('importJson'); if (importBtn) importBtn.addEventListener('click', () => vscode.postMessage({ type: 'importJson' }));
         const dedupeBtn = document.getElementById('dedupe'); if (dedupeBtn) dedupeBtn.addEventListener('click', () => vscode.postMessage({ type: 'deduplicate' }));
 

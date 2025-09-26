@@ -924,7 +924,10 @@ function getHtml(webview: vscode.Webview): string {
           <div id="sel" class="muted">Loading…</div>
         </div>
         <div class="rightCol">
-          <button id="syncOpsBtn" class="btn">Sync Ops</button>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <button id="syncOpsBtn" class="btn">Sync Ops</button>
+            <button id="openSettingsBtn" class="btn">Open Settings</button>
+          </div>
         </div>
       </div>
       <div class="toolbar">
@@ -1095,6 +1098,7 @@ function getHtml(webview: vscode.Webview): string {
     });
 
     document.getElementById('syncOpsBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.syncOps' }));
+    document.getElementById('openSettingsBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.openSettings' }));
 
     save?.addEventListener('click', () => {
       const text = composer?.value || '';
