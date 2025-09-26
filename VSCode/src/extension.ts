@@ -71,7 +71,7 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
     this.selectedGroup = (this.memento.get<{ id: string | null; name: string | null }>('promptLibrary.lastSelectedGroup')) ?? { id: null, name: null };
   }
 
-  resolveWebviewView(webviewView: vscode.WebviewView) {
+  async resolveWebviewView(webviewView: vscode.WebviewView) {
     this.view = webviewView;
     webviewView.webview.options = { enableScripts: true };
     webviewView.webview.onDidReceiveMessage(msg => this.onMessage(msg));
@@ -79,8 +79,19 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
     // Ensure the webview reflects the current selection even if it resolved after selection happened
     let replay = this.selectedGroup;
     if (!replay.id) {
-      // Default to Unfiled so the composer is usable on first load
-      replay = { id: 'grp-unfiled', name: 'Unfiled' };
+      // Default to the actual Unfiled group id (do not assume a fixed id)
+      try {
+        const lib = await this.store.getLibrary();
+        const priv = lib.groups.find(g => g.id === 'root-private');
+        const unfiled = priv?.children.find(c => c.id === 'grp-unfiled' || (c.name || '').toLowerCase() === 'unfiled');
+        if (unfiled) {
+          replay = { id: unfiled.id, name: unfiled.name };
+        } else {
+          replay = { id: 'grp-unfiled', name: 'Unfiled' };
+        }
+      } catch {
+        replay = { id: 'grp-unfiled', name: 'Unfiled' };
+      }
       this.selectedGroup = replay;
     }
     log.info(`Webview resolved; replaying selected group: id=${replay.id ?? 'null'}, name=${replay.name ?? 'null'}`);
@@ -388,7 +399,17 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Default selection: restore last group if available, otherwise Unfiled
   const __lastSel = provider.getSelectedGroup?.() as any;
-  if (!__lastSel || !__lastSel.id) { provider.setSelectedGroup({ id: 'grp-unfiled', name: 'Unfiled' }); }
+  if (!__lastSel || !__lastSel.id) {
+    (async () => {
+      try {
+        const lib = await store.getLibrary();
+        const priv = lib.groups.find(g => g.id === 'root-private');
+        const unfiled = priv?.children.find(c => c.id === 'grp-unfiled' || (c.name || '').toLowerCase() === 'unfiled');
+        if (unfiled) await provider.setSelectedGroup({ id: unfiled.id, name: unfiled.name });
+        else await provider.setSelectedGroup({ id: 'grp-unfiled', name: 'Unfiled' });
+      } catch { await provider.setSelectedGroup({ id: 'grp-unfiled', name: 'Unfiled' }); }
+    })();
+  }
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(PromptLibraryViewProvider.viewType, provider),
