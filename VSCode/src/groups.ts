@@ -24,6 +24,18 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
     this.refresh();
   }
 
+  async refreshFromStore() {
+    // Refresh the tree view by reloading from store
+    // This method ensures we get the latest data from the store
+    this.library = await this.store.load();
+    this.refresh();
+  }
+
+  setLibrary(library: Library) {
+    this.library = library;
+    this.refresh();
+  }
+
   private async computeRepoLabel() {
     try {
       const cfg = getSettings();

@@ -67,7 +67,7 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private selectedGroup: { id: string | null; name: string | null };
 
-  constructor(private readonly store: LibraryStore, private readonly memento: vscode.Memento) {
+  constructor(private readonly store: LibraryStore, private readonly memento: vscode.Memento, private readonly groups: GroupsProvider) {
     this.selectedGroup = (this.memento.get<{ id: string | null; name: string | null }>('promptLibrary.lastSelectedGroup')) ?? { id: null, name: null };
   }
 
@@ -120,7 +120,7 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
         if (!res.ok) { vscode.window.showWarningMessage(res.reason ?? 'Could not add prompt'); return; }
         vscode.window.showInformationMessage('Prompt added');
         await this.pushList();
-        try { await vscode.commands.executeCommand('promptLibrary.refreshGroups'); } catch { }
+        try { const lib = await this.store.getLibrary(); this.groups.setLibrary(lib); } catch {}
         break;
       }
       case 'deletePrompt': {
@@ -150,7 +150,7 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
           if (!res2.ok) { vscode.window.showWarningMessage(res2.reason ?? 'Could not update title'); return; }
         }
         await this.pushList();
-        try { await vscode.commands.executeCommand('promptLibrary.refreshGroups'); } catch {}
+        try { const lib = await this.store.getLibrary(); this.groups.setLibrary(lib); } catch {}
         break;
       }
       case 'movePrompt': {
@@ -325,10 +325,10 @@ export function activate(context: vscode.ExtensionContext) {
   const store = new LibraryStore(context);
 
 
-  const provider = new PromptLibraryViewProvider(store, context.globalState);
-  const detailProvider = new PromptDetailViewProvider();
   const groups = new GroupsProvider(store);
   groups.init();
+  const provider = new PromptLibraryViewProvider(store, context.globalState, groups);
+  const detailProvider = new PromptDetailViewProvider();
 
   // Start auto-fetch scheduler
   startScheduler(context);
