@@ -15,6 +15,7 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
 
   private library: Library | null = null;
   private repoLabel: string | null = null;
+  private showShared: boolean = true;
 
   constructor(private readonly store: LibraryStore) {}
 
@@ -40,11 +41,15 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
     try {
       const cfg = getSettings();
       let remoteUrl: string | null = null;
+      let sharing = false;
       if (cfg?.remoteRepoUrl && String(cfg.remoteRepoUrl).trim()) {
         remoteUrl = String(cfg.remoteRepoUrl).trim();
+        sharing = true;
       } else if (cfg?.repoPath && await isGitRepo(cfg.repoPath)) {
         remoteUrl = await getRemoteUrl(cfg.repoPath, 'origin');
+        sharing = true;
       }
+      this.showShared = !!sharing;
       if (!remoteUrl) { this.repoLabel = null; return; }
       const urlStr = String(remoteUrl);
       // Extract repo name (last path segment without .git)
@@ -65,6 +70,7 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
       }
     } catch {
       this.repoLabel = null;
+      this.showShared = false;
     }
   }
 
@@ -79,8 +85,10 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
       this.library = await this.store.load();
     }
     if (!element) {
-      // roots are top-level groups in library
-      return (this.library?.groups ?? []).map(g => toItem(g, this.repoLabel));
+      // roots are top-level groups in library; hide Shared when sharing isn't configured
+      let roots = (this.library?.groups ?? []);
+      if (!this.showShared) roots = roots.filter(g => g.id !== 'root-shared');
+      return roots.map(g => toItem(g, this.repoLabel));
     }
     // If the selected element is a prompt, it has no children
     if (element instanceof PromptItem || element.contextValue === 'prompt') return [];

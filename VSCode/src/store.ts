@@ -11,6 +11,11 @@ function genId(prefix: string): string {
 export class LibraryStore {
   constructor(private readonly context: vscode.ExtensionContext) {}
 
+  // Notify listeners whenever the library changes
+  private _onDidChange = new vscode.EventEmitter<void>();
+  public readonly onDidChange: vscode.Event<void> = this._onDidChange.event;
+
+
   private get uri(): vscode.Uri {
     return vscode.Uri.joinPath(this.context.globalStorageUri, LIB_FILE);
   }
@@ -44,6 +49,7 @@ export class LibraryStore {
     const bytes = Buffer.from(JSON.stringify(library, null, 2), 'utf8');
     await vscode.workspace.fs.createDirectory(this.context.globalStorageUri);
     await vscode.workspace.fs.writeFile(this.uri, bytes);
+    try { this._onDidChange.fire(); } catch {}
   }
 
   async resetAll(): Promise<void> {

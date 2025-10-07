@@ -52,6 +52,12 @@ export class SyncOpsPanel {
       case 'pullSyncOverwrite':
         vscode.commands.executeCommand('promptLibrary.syncPullOverwriteAndImport');
         break;
+      case 'syncDirectCommit':
+        vscode.commands.executeCommand('promptLibrary.syncDirectCommit');
+        break;
+      case 'syncBranchPR':
+        vscode.commands.executeCommand('promptLibrary.syncBranchPR');
+        break;
 
       case 'importJson':
         vscode.commands.executeCommand('promptLibrary.importJson');
@@ -97,6 +103,9 @@ export class SyncOpsPanel {
       .btn-primary { background: var(--accent); color: var(--vscode-button-foreground, #000); border-color: var(--accent); }
       .btn-primary:hover { filter: brightness(1.1); }
       .kv { color: var(--muted); font-size: 12px; }
+      .btn-row { display:flex; gap:8px; margin-bottom: 8px; flex-wrap: wrap; }
+      .btn-rows { overflow:auto; }
+
       .banner { padding: 8px 12px; background: var(--vscode-editorWarning-background, #5e4300); color: var(--vscode-editorWarning-foreground, #fff); border-left: 3px solid #c8a600; margin-bottom: 8px; border-radius: 6px; }
       .log { padding: 8px; max-height: 70vh; overflow:auto; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 8px; }
       .entry { font-size: 12px; margin-bottom: 4px; }
@@ -104,6 +113,7 @@ export class SyncOpsPanel {
       .lvl-warn { color: #c8a600; }
       .lvl-error { color: #cc241d; }
       .time { opacity: 0.7; }
+
     </style>
     </head><body>
       <div class="container">
@@ -113,15 +123,21 @@ export class SyncOpsPanel {
 
             <div class="body">
               ${!s.repoPath ? `<div class="banner">Set promptLibrary.repoPath in settings to enable Pull & Sync.</div>` : ''}
-              <div style="display:flex; gap:8px; margin-bottom: 8px; white-space: nowrap; overflow:auto;">
-                <button id="pullSync" class="btn btn-primary" ${disabledAttr}>Pull & Sync Repo</button>
-                <button id="importJson" class="btn">Import JSON</button>
-                <button id="pullSyncOverwrite" class="btn btn-primary" ${disabledAttr} title="Discard local changes and reset to remote before syncing">Pull (Overwrite) & Sync Repo</button>
-
-                <button id="exportJson" class="btn">Export JSON</button>
-                <button id="dedupe" class="btn">Deduplicate</button>
-                <button id="clear" class="btn">Clear Logs</button>
-                <button id="resetLib" class="btn">Reset Library</button>
+              <div class="btn-rows">
+                <div class="btn-row">
+                  <button id="pullSync" class="btn btn-primary" ${disabledAttr}>Pull & Sync Repo</button>
+                  <button id="pullSyncOverwrite" class="btn btn-primary" ${disabledAttr} title="Discard local changes and reset to remote before syncing">Pull (Overwrite) & Sync Repo</button>
+                  <button id="syncDirectCommitBtn" class="btn" title="Write YAML, commit, and push to the current branch">Sync to GitHub: Direct Commit</button>
+                  <button id="syncBranchPRBtn" class="btn" title="Write YAML to a branch and open a PR on GitHub">Sync to GitHub: Branch + PR</button>
+                </div>
+                <div class="btn-row">
+                  <button id="openSettings" class="btn">Open Settings</button>
+                  <button id="importJson" class="btn">Import JSON</button>
+                  <button id="exportJson" class="btn">Export JSON</button>
+                  <button id="dedupe" class="btn">Deduplicate</button>
+                  <button id="clear" class="btn">Clear Logs</button>
+                  <button id="resetLib" class="btn">Reset Library</button>
+                </div>
               </div>
               <div class="kv">
                 <div>repoPath: <b>${s.repoPath || '(not set)'}</b></div>
@@ -142,6 +158,8 @@ export class SyncOpsPanel {
         const vscode = acquireVsCodeApi();
         const resetBtn = document.getElementById('resetLib'); if (resetBtn) resetBtn.addEventListener('click', () => vscode.postMessage({ type: 'resetAll' }));
 
+        const osBtn = document.getElementById('openSettings'); if (osBtn) osBtn.addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
+
         const logEl = document.getElementById('log');
 
         const importBtn = document.getElementById('importJson'); if (importBtn) importBtn.addEventListener('click', () => vscode.postMessage({ type: 'importJson' }));
@@ -151,6 +169,9 @@ export class SyncOpsPanel {
 
         const ps = document.getElementById('pullSync'); if (ps) ps.addEventListener('click', () => vscode.postMessage({ type: 'pullSync' }));
         const ps2 = document.getElementById('pullSyncOverwrite'); if (ps2) ps2.addEventListener('click', () => vscode.postMessage({ type: 'pullSyncOverwrite' }));
+
+        const sd2 = document.getElementById('syncDirectCommitBtn'); if (sd2) sd2.addEventListener('click', () => vscode.postMessage({ type: 'syncDirectCommit' }));
+        const sb2 = document.getElementById('syncBranchPRBtn'); if (sb2) sb2.addEventListener('click', () => vscode.postMessage({ type: 'syncBranchPR' }));
 
         document.getElementById('clear').addEventListener('click', () => vscode.postMessage({ type: 'clear' }));
         window.addEventListener('message', (event) => {

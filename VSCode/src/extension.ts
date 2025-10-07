@@ -330,6 +330,14 @@ export function activate(context: vscode.ExtensionContext) {
   const provider = new PromptLibraryViewProvider(store, context.globalState, groups);
   const detailProvider = new PromptDetailViewProvider();
 
+
+  // Auto-refresh tree + webview whenever the library changes
+  const storeSub = store.onDidChange(async () => {
+    try { await groups.refreshFromStore(); } catch {}
+    try { await provider.refresh(); } catch {}
+  });
+  context.subscriptions.push(storeSub);
+
   // Start auto-fetch scheduler
   startScheduler(context);
 
@@ -507,7 +515,7 @@ export function activate(context: vscode.ExtensionContext) {
       const cfg = getSettings();
       if (!cfg.repoPath) { vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.'); return; }
       const confirm = await vscode.window.showWarningMessage(
-        'This will discard local changes and reset to the remote branch (remote-wins). Continue?',
+        'This will discard local changes (including untracked files) and reset to the remote branch (remote-wins). Continue?',
         { modal: true }, 'Overwrite & Sync'
       );
       if (confirm !== 'Overwrite & Sync') return;
@@ -515,6 +523,11 @@ export function activate(context: vscode.ExtensionContext) {
         log.info('Overwrite Pull & Sync started...');
         const ok = await resetHardToRemote(cfg.repoPath);
         if (!ok) { log.warn('Overwrite pull failed'); vscode.window.showWarningMessage('Overwrite pull failed. See Sync Ops for details.'); return; }
+        // Also remove untracked files so local-only changes don't linger
+        try {
+          const cleaned = await cleanUntracked(cfg.repoPath);
+          if (!cleaned) { log.warn('git clean -fd failed; some untracked files may remain.'); }
+        } catch {}
         const groupsFromRepo = await readSharedGroups(vscode.Uri.file(cfg.repoPath), cfg.promptsSubdir);
         const countPrompts = (gs: any[]): number => gs.reduce((acc, g) => acc + (Array.isArray(g.prompts) ? g.prompts.length : 0) + countPrompts(g.children || []), 0);
         const totalPrompts = countPrompts(groupsFromRepo as any);
