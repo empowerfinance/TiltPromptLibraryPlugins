@@ -14,7 +14,6 @@
   "categories": [
     "Other"
   ],
-
   "main": "./out/extension.js",
   "activationEvents": [
     "onView:promptLibraryGroups",
@@ -89,7 +88,7 @@
       {
         "command": "promptLibrary.resetAll",
         "title": "Prompt Library: Reset Library"
-},
+      },
       {
         "command": "promptLibrary.syncOps",
         "title": "Prompt Library: Sync Ops"
@@ -102,7 +101,6 @@
         "command": "promptLibrary.syncPullOverwriteAndImport",
         "title": "Prompt Library: Pull (Overwrite) & Sync Repo"
       },
-
       {
         "command": "promptLibrary.openPrompt",
         "title": "Open Prompt",
@@ -127,9 +125,7 @@
         "command": "promptLibrary.deletePrompt",
         "title": "Delete Prompt",
         "icon": "$(trash)"
-
       }
-
     ],
     "viewsContainers": {
       "activitybar": [
@@ -165,7 +161,10 @@
         },
         "promptLibrary.writeStrategy": {
           "type": "string",
-          "enum": ["direct", "branchPR"],
+          "enum": [
+            "direct",
+            "branchPR"
+          ],
           "default": "direct",
           "description": "Writing strategy for sync: direct commit vs dedicated branch and PR."
         },
@@ -205,7 +204,6 @@
     },
     "menus": {
       "view/item/context": [
-
         {
           "command": "promptLibrary.addGroup",
           "when": "view == promptLibraryGroups && viewItem == root-private",
@@ -226,7 +224,6 @@
           "when": "view == promptLibraryGroups && viewItem == group",
           "group": "inline@3"
         },
-
         {
           "command": "promptLibrary.copyPrompt",
           "when": "view == promptLibraryGroups && viewItem == prompt",
@@ -251,8 +248,10 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && npm run copy-html",
+    "copy-html": "node -e \"const fs=require('fs'),path=require('path');const src='src/ui',dst='out/ui';fs.mkdirSync(dst,{recursive:true});fs.readdirSync(src).filter(f=>f.endsWith('.html')).forEach(f=>fs.copyFileSync(path.join(src,f),path.join(dst,f)))\"",
     "watch": "tsc -w -p ./",
+    "pretest": "npm run copy-html",
     "test": "vitest run",
     "test:watch": "vitest",
     "package": "npm run compile && npx --yes @vscode/vsce package",

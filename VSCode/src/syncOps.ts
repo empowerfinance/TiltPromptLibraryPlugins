@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { log } from './log';
 import { getSettings } from './settings';
+import { loadHtmlTemplate, getNonce, generateCSP } from './ui/htmlLoader';
 
 export class SyncOpsPanel {
   private static _panel: vscode.WebviewPanel | undefined;
@@ -34,7 +35,7 @@ export class SyncOpsPanel {
     this.postEntries();
   }
 
-  private static onMessage(msg: any) {
+  private static async onMessage(msg: any) {
     if (!msg) return;
     switch (msg.type) {
       case 'requestEntries':
@@ -53,10 +54,24 @@ export class SyncOpsPanel {
         vscode.commands.executeCommand('promptLibrary.syncPullOverwriteAndImport');
         break;
       case 'syncDirectCommit':
-        vscode.commands.executeCommand('promptLibrary.syncDirectCommit');
+        log.info('UI -> Received syncDirectCommit');
+        try {
+          await vscode.commands.executeCommand('promptLibrary.syncDirectCommit');
+          log.info('UI -> syncDirectCommit command completed');
+        } catch (e: any) {
+          log.error(`UI -> syncDirectCommit command failed: ${e?.message || e}`);
+          log.error(`Stack: ${e?.stack}`);
+        }
         break;
       case 'syncBranchPR':
-        vscode.commands.executeCommand('promptLibrary.syncBranchPR');
+        log.info('UI -> Received syncBranchPR');
+        try {
+          await vscode.commands.executeCommand('promptLibrary.syncBranchPR');
+          log.info('UI -> syncBranchPR command completed');
+        } catch (e: any) {
+          log.error(`UI -> syncBranchPR command failed: ${e?.message || e}`);
+          log.error(`Stack: ${e?.stack}`);
+        }
         break;
 
       case 'importJson':
@@ -83,110 +98,24 @@ export class SyncOpsPanel {
   private static render() {
     const s = getSettings();
     const disabledAttr = !s.repoPath ? 'disabled' : '';
+    const webview = this._panel!.webview;
+    const nonce = getNonce();
+    const csp = generateCSP(webview, nonce);
 
-    const html = `<!DOCTYPE html><html><head>
-    <style>
-      :root { --accent: var(--vscode-focusBorder); --card-bg: var(--vscode-editorWidget-background); --border: var(--vscode-widget-border); --muted: var(--vscode-descriptionForeground); }
-      * { box-sizing: border-box; }
-      body { font-family: var(--vscode-font-family); margin:0; color: var(--vscode-foreground); line-height:1.5; }
-      .container { padding: 16px; }
-      .rows { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 16px; width: 100%; align-items: start; }
-      .kv b { word-break: break-all; overflow-wrap: anywhere; }
+    const banner = !s.repoPath
+      ? '<div class="banner">Set promptLibrary.repoPath in settings to enable Pull & Sync.</div>'
+      : '';
 
-      .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 1px 0 rgba(0,0,0,.2), 0 8px 24px rgba(0,0,0,.08); }
-      .card h4 { margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--border); font-weight: 700; font-size: 13px; }
-      .card .body { padding: 12px; }
-      .btn { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--vscode-foreground); cursor: pointer; transition: background .15s ease, transform .02s ease, border-color .15s ease, box-shadow .15s ease; white-space: nowrap; }
-      .btn:hover { background: rgba(255,255,255,0.06); }
-      .btn:active { transform: translateY(1px); }
-      .btn[disabled] { opacity: 0.6; cursor: not-allowed; }
-      .btn-primary { background: var(--accent); color: var(--vscode-button-foreground, #000); border-color: var(--accent); }
-      .btn-primary:hover { filter: brightness(1.1); }
-      .kv { color: var(--muted); font-size: 12px; }
-      .btn-row { display:flex; gap:8px; margin-bottom: 8px; flex-wrap: wrap; }
-      .btn-rows { overflow:auto; }
-
-      .banner { padding: 8px 12px; background: var(--vscode-editorWarning-background, #5e4300); color: var(--vscode-editorWarning-foreground, #fff); border-left: 3px solid #c8a600; margin-bottom: 8px; border-radius: 6px; }
-      .log { padding: 8px; max-height: 70vh; overflow:auto; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 8px; }
-      .entry { font-size: 12px; margin-bottom: 4px; }
-      .lvl-info { color: var(--muted); }
-      .lvl-warn { color: #c8a600; }
-      .lvl-error { color: #cc241d; }
-      .time { opacity: 0.7; }
-
-    </style>
-    </head><body>
-      <div class="container">
-        <div class="rows">
-          <div class="card">
-            <h4>Actions</h4>
-
-            <div class="body">
-              ${!s.repoPath ? `<div class="banner">Set promptLibrary.repoPath in settings to enable Pull & Sync.</div>` : ''}
-              <div class="btn-rows">
-                <div class="btn-row">
-                  <button id="pullSync" class="btn btn-primary" ${disabledAttr}>Pull & Sync Repo</button>
-                  <button id="pullSyncOverwrite" class="btn btn-primary" ${disabledAttr} title="Discard local changes and reset to remote before syncing">Pull (Overwrite) & Sync Repo</button>
-                  <button id="syncDirectCommitBtn" class="btn" title="Write YAML, commit, and push to the current branch">Sync to GitHub: Direct Commit</button>
-                  <button id="syncBranchPRBtn" class="btn" title="Write YAML to a branch and open a PR on GitHub">Sync to GitHub: Branch + PR</button>
-                </div>
-                <div class="btn-row">
-                  <button id="openSettings" class="btn">Open Settings</button>
-                  <button id="importJson" class="btn">Import JSON</button>
-                  <button id="exportJson" class="btn">Export JSON</button>
-                  <button id="dedupe" class="btn">Deduplicate</button>
-                  <button id="clear" class="btn">Clear Logs</button>
-                  <button id="resetLib" class="btn">Reset Library</button>
-                </div>
-              </div>
-              <div class="kv">
-                <div>repoPath: <b>${s.repoPath || '(not set)'}</b></div>
-                <div>promptsSubdir: <b>${s.promptsSubdir}</b></div>
-                <div>writeStrategy: <b>${s.writeStrategy}</b></div>
-              </div>
-            </div>
-          </div>
-          <div class="card">
-            <h4>Logs</h4>
-            <div class="body">
-              <div id="log" class="log"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <script>
-        const vscode = acquireVsCodeApi();
-        const resetBtn = document.getElementById('resetLib'); if (resetBtn) resetBtn.addEventListener('click', () => vscode.postMessage({ type: 'resetAll' }));
-
-        const osBtn = document.getElementById('openSettings'); if (osBtn) osBtn.addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
-
-        const logEl = document.getElementById('log');
-
-        const importBtn = document.getElementById('importJson'); if (importBtn) importBtn.addEventListener('click', () => vscode.postMessage({ type: 'importJson' }));
-        const dedupeBtn = document.getElementById('dedupe'); if (dedupeBtn) dedupeBtn.addEventListener('click', () => vscode.postMessage({ type: 'deduplicate' }));
-
-        const exportBtn = document.getElementById('exportJson'); if (exportBtn) exportBtn.addEventListener('click', () => vscode.postMessage({ type: 'exportJson' }));
-
-        const ps = document.getElementById('pullSync'); if (ps) ps.addEventListener('click', () => vscode.postMessage({ type: 'pullSync' }));
-        const ps2 = document.getElementById('pullSyncOverwrite'); if (ps2) ps2.addEventListener('click', () => vscode.postMessage({ type: 'pullSyncOverwrite' }));
-
-        const sd2 = document.getElementById('syncDirectCommitBtn'); if (sd2) sd2.addEventListener('click', () => vscode.postMessage({ type: 'syncDirectCommit' }));
-        const sb2 = document.getElementById('syncBranchPRBtn'); if (sb2) sb2.addEventListener('click', () => vscode.postMessage({ type: 'syncBranchPR' }));
-
-        document.getElementById('clear').addEventListener('click', () => vscode.postMessage({ type: 'clear' }));
-        window.addEventListener('message', (event) => {
-          const msg = event.data || {};
-          if (msg.type === 'entries') {
-            const entries = msg.payload || [];
-            logEl.innerHTML = entries.map(e => '<div class="entry lvl-' + e.level + '"><span class="time">[' + e.time + ']</span> ' + e.message + '</div>').join('');
-            logEl.scrollTop = logEl.scrollHeight;
-          }
-        });
-        vscode.postMessage({ type: 'requestEntries' });
-      </script>
-    </body></html>`;
+    const html = loadHtmlTemplate('syncOpsView.html', {
+      CSP: csp,
+      NONCE: nonce,
+      BANNER: banner,
+      DISABLED: disabledAttr,
+      REPO_PATH: s.repoPath || '(not set)',
+      PROMPTS_SUBDIR: s.promptsSubdir,
+      WRITE_STRATEGY: s.writeStrategy
+    });
 
     this._panel!.webview.html = html;
   }
 }
-

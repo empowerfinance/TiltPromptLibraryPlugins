@@ -99,6 +99,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run tests
+        run: npm test
+
       - name: Set VS Code extension version from run number
         run: |
           echo "EXT_VERSION=0.0.${{ github.run_number }}" >> $GITHUB_ENV

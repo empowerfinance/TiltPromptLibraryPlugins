@@ -6,10 +6,12 @@ import { Prompt } from './model';
 import { getSettings } from './settings';
 import { writeSharedGroups } from './sync/yamlWriter';
 import { log } from './log';
-import { checkoutNewBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, tryBuildGithubCompareUrl, fetch as gitFetch, pull as gitPull, clone as gitClone, resetHardToRemote, cleanUntracked } from './sync/git';
+import { checkoutNewBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, getGitVersion } from './sync/hybridGit';
+import { tryBuildGithubCompareUrl, fetch as gitFetch, pull as gitPull, clone as gitClone, resetHardToRemote, cleanUntracked } from './sync/git';
 import { start as startScheduler } from './sync/scheduler';
 import { readSharedGroups } from './sync/yamlReader';
 import { SyncOpsPanel } from './syncOps';
+import { loadHtmlTemplate, getNonce, generateCSP } from './ui/htmlLoader';
 
 import * as path from 'path';
 import * as os from 'os';
@@ -602,8 +604,9 @@ export function activate(context: vscode.ExtensionContext) {
         const lib = await store.getLibrary();
         const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
         if (!sharedRoot) { vscode.window.showWarningMessage('Shared root not found'); log.warn('Shared root not found'); return; }
-        const rootUri = vscode.Uri.file(cfg.repoPath);
-        const result = await writeSharedGroups(rootUri, sharedRoot.children, cfg.promptsSubdir);
+        const promptsRoot = vscode.Uri.file(path.join(cfg.repoPath, cfg.promptsSubdir));
+        log.info(`Writing to prompts directory: ${promptsRoot.fsPath}`);
+        const result = await writeSharedGroups(promptsRoot, sharedRoot.children, cfg.promptsSubdir);
         const ms = Date.now() - started;
         vscode.window.showInformationMessage(`Sync write complete. Added ${result.added}, updated ${result.updated}, deleted ${result.deleted}.`);
         log.info(`Sync write complete in ${ms}ms. Added ${result.added}, updated ${result.updated}, deleted ${result.deleted}.`);
@@ -636,53 +639,177 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
     vscode.commands.registerCommand('promptLibrary.syncDirectCommit', async () => {
+      log.info('syncDirectCommit command started');
+
+      // Check git availability first
+      const gitCheck = await getGitVersion();
+      if (gitCheck.version) {
+        log.info(`Git version: ${gitCheck.version}`);
+      } else {
+        log.error(`Git check failed: ${gitCheck.error}`);
+      }
+
       const cfg = getSettings();
-      if (!cfg.repoPath) { vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.'); return; }
+      log.info(`Config: repoPath=${cfg.repoPath}, promptsSubdir=${cfg.promptsSubdir}`);
+      if (!cfg.repoPath) {
+        log.warn('No repoPath configured');
+        vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.');
+        return;
+      }
       const repoPath = cfg.repoPath;
-      if (!(await isGitRepo(repoPath))) { vscode.window.showWarningMessage('repoPath is not a Git repository'); log.warn('repoPath is not a Git repository'); return; }
+      log.info(`Checking if ${repoPath} is a git repo...`);
+      const repoCheck = await isGitRepo(repoPath);
+      log.info(`isGitRepo result: ${repoCheck.isRepo}${repoCheck.error ? `, error: ${repoCheck.error}` : ''}`);
+
+      if (!repoCheck.isRepo) {
+        const errorMsg = repoCheck.error || 'Not a Git repository';
+        log.error(`Git repository check failed: ${errorMsg}`);
+
+        // Provide helpful guidance based on the error
+        let guidance = '';
+        if (errorMsg.includes('not installed')) {
+          guidance = '\n\nTo fix:\n1. Install Git from https://git-scm.com/\n2. Restart VSCode\n3. Try sync again';
+        } else if (errorMsg.includes('Not a git repository')) {
+          guidance = `\n\nTo fix:\n1. Open Terminal\n2. Run: cd "${repoPath}"\n3. Run: git init\n4. Run: git remote add origin <your-github-repo-url>\n5. Try sync again`;
+        }
+
+        vscode.window.showErrorMessage(`${errorMsg}${guidance}`, 'Open Settings').then(choice => {
+          if (choice === 'Open Settings') {
+            vscode.commands.executeCommand('workbench.action.openSettings', 'promptLibrary.repoPath');
+          }
+        });
+        return;
+      }
       try {
         log.info('Direct commit: writing YAML...');
         const lib = await store.getLibrary();
         const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
-        if (!sharedRoot) { vscode.window.showWarningMessage('Shared root not found'); log.warn('Shared root not found'); return; }
-        const result = await writeSharedGroups(vscode.Uri.file(repoPath), sharedRoot.children, cfg.promptsSubdir);
+        if (!sharedRoot) {
+          vscode.window.showWarningMessage('Shared root not found');
+          log.warn('Shared root not found');
+          return;
+        }
+        log.info(`Found shared root with ${sharedRoot.children.length} children`);
+        const promptsRoot = vscode.Uri.file(path.join(repoPath, cfg.promptsSubdir));
+        log.info(`Writing to prompts directory: ${promptsRoot.fsPath}`);
+        const result = await writeSharedGroups(promptsRoot, sharedRoot.children, cfg.promptsSubdir);
+        log.info(`Write result: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
         await stageAll(repoPath);
+        log.info('Staged all changes');
         const msg = `Prompt Library sync: +${result.added}/~${result.updated}/-${result.deleted}`;
-        const didCommit = await gitCommit(repoPath, msg);
-        if (!didCommit) { log.warn('Nothing to commit.'); vscode.window.showInformationMessage('No changes to commit.'); return; }
-        const okPush = await gitPush(repoPath);
-        if (!okPush) { log.warn('Push failed'); vscode.window.showWarningMessage('Push failed. See Sync Status for details.'); return; }
+        log.info(`Committing with message: ${msg}`);
+        const commitResult = await gitCommit(repoPath, msg);
+        log.info(`Commit result: success=${commitResult.success}, nothingToCommit=${commitResult.nothingToCommit}`);
+        if (!commitResult.success) {
+          log.error(`Commit failed: ${commitResult.error}`);
+          vscode.window.showWarningMessage(`Commit failed: ${commitResult.error}`);
+          return;
+        }
+        if (commitResult.nothingToCommit) {
+          log.warn('Nothing to commit.');
+          vscode.window.showInformationMessage('No changes to commit.');
+          return;
+        }
+        log.info('Pushing to remote...');
+        const pushResult = await gitPush(repoPath);
+        log.info(`Push result: success=${pushResult.success}`);
+        if (!pushResult.success) {
+          log.error(`Push failed: ${pushResult.error}`);
+          vscode.window.showWarningMessage(`Push failed: ${pushResult.error}`);
+          return;
+        }
         log.info('Direct commit: pushed successfully.');
         vscode.window.showInformationMessage('Sync (Direct Commit) complete.');
       } catch (e: any) {
         log.error(`Direct commit failed: ${e?.message || e}`);
+        log.error(`Stack trace: ${e?.stack}`);
         vscode.window.showWarningMessage('Direct commit failed. See Sync Status for details.');
       }
     }),
     vscode.commands.registerCommand('promptLibrary.syncBranchPR', async () => {
+      log.info('syncBranchPR command started');
       const cfg = getSettings();
-      if (!cfg.repoPath) { vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.'); return; }
+      log.info(`Config: repoPath=${cfg.repoPath}, branchName=${cfg.branchName}`);
+      if (!cfg.repoPath) {
+        log.warn('No repoPath configured');
+        vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.');
+        return;
+      }
       const repoPath = cfg.repoPath;
-      if (!(await isGitRepo(repoPath))) { vscode.window.showWarningMessage('repoPath is not a Git repository'); log.warn('repoPath is not a Git repository'); return; }
+      log.info(`Checking if ${repoPath} is a git repo...`);
+      const repoCheck = await isGitRepo(repoPath);
+      log.info(`isGitRepo result: ${repoCheck.isRepo}${repoCheck.error ? `, error: ${repoCheck.error}` : ''}`);
+
+      if (!repoCheck.isRepo) {
+        const errorMsg = repoCheck.error || 'Not a Git repository';
+        log.error(`Git repository check failed: ${errorMsg}`);
+
+        // Provide helpful guidance based on the error
+        let guidance = '';
+        if (errorMsg.includes('not installed')) {
+          guidance = '\n\nTo fix:\n1. Install Git from https://git-scm.com/\n2. Restart VSCode\n3. Try sync again';
+        } else if (errorMsg.includes('Not a git repository')) {
+          guidance = `\n\nTo fix:\n1. Open Terminal\n2. Run: cd "${repoPath}"\n3. Run: git init\n4. Run: git remote add origin <your-github-repo-url>\n5. Try sync again`;
+        }
+
+        vscode.window.showErrorMessage(`${errorMsg}${guidance}`, 'Open Settings').then(choice => {
+          if (choice === 'Open Settings') {
+            vscode.commands.executeCommand('workbench.action.openSettings', 'promptLibrary.repoPath');
+          }
+        });
+        return;
+      }
       // Prefer configured branchName; fallback to timestamped branch
       const branch = cfg.branchName && cfg.branchName.trim() ? cfg.branchName.trim() : `prompt-sync/${new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16)}`;
       try {
         log.info(`Branch+PR: creating branch ${branch}...`);
         const cur = await getCurrentBranch(repoPath);
+        log.info(`Current branch: ${cur}`);
         if (!cur) { log.warn('Unable to detect current branch'); }
-        const created = await checkoutNewBranch(repoPath, branch);
-        if (!created) { log.warn('Checkout -b failed'); vscode.window.showWarningMessage('Failed to create branch. See Sync Status.'); return; }
+        const checkoutResult = await checkoutNewBranch(repoPath, branch);
+        log.info(`Checkout result: success=${checkoutResult.success}`);
+        if (!checkoutResult.success) {
+          log.error(`Checkout failed: ${checkoutResult.error}`);
+          vscode.window.showWarningMessage(`Failed to create branch: ${checkoutResult.error}`);
+          return;
+        }
         // Write YAML
         const lib = await store.getLibrary();
         const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
-        if (!sharedRoot) { vscode.window.showWarningMessage('Shared root not found'); log.warn('Shared root not found'); return; }
-        const result = await writeSharedGroups(vscode.Uri.file(repoPath), sharedRoot.children, cfg.promptsSubdir);
+        if (!sharedRoot) {
+          vscode.window.showWarningMessage('Shared root not found');
+          log.warn('Shared root not found');
+          return;
+        }
+        log.info(`Found shared root with ${sharedRoot.children.length} children`);
+        const promptsRoot = vscode.Uri.file(path.join(repoPath, cfg.promptsSubdir));
+        log.info(`Writing to prompts directory: ${promptsRoot.fsPath}`);
+        const result = await writeSharedGroups(promptsRoot, sharedRoot.children, cfg.promptsSubdir);
+        log.info(`Write result: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
         await stageAll(repoPath);
+        log.info('Staged all changes');
         const msg = `Prompt Library sync (PR): +${result.added}/~${result.updated}/-${result.deleted}`;
-        const didCommit = await gitCommit(repoPath, msg);
-        if (!didCommit) { log.warn('Nothing to commit on branch'); vscode.window.showInformationMessage('No changes to commit.'); return; }
-        const pushed = await gitPush(repoPath, 'origin', branch);
-        if (!pushed) { log.warn('Push failed'); vscode.window.showWarningMessage('Push failed. See Sync Status.'); return; }
+        log.info(`Committing with message: ${msg}`);
+        const commitResult = await gitCommit(repoPath, msg);
+        log.info(`Commit result: success=${commitResult.success}, nothingToCommit=${commitResult.nothingToCommit}`);
+        if (!commitResult.success) {
+          log.error(`Commit failed: ${commitResult.error}`);
+          vscode.window.showWarningMessage(`Commit failed: ${commitResult.error}`);
+          return;
+        }
+        if (commitResult.nothingToCommit) {
+          log.warn('Nothing to commit on branch');
+          vscode.window.showInformationMessage('No changes to commit.');
+          return;
+        }
+        log.info(`Pushing to origin/${branch}...`);
+        const pushResult = await gitPush(repoPath, 'origin', branch);
+        log.info(`Push result: success=${pushResult.success}`);
+        if (!pushResult.success) {
+          log.error(`Push failed: ${pushResult.error}`);
+          vscode.window.showWarningMessage(`Push failed: ${pushResult.error}`);
+          return;
+        }
         const remote = await getRemoteUrl(repoPath, 'origin');
         if (remote) {
           const prUrl = tryBuildGithubCompareUrl(remote, branch);
@@ -741,7 +868,23 @@ export function activate(context: vscode.ExtensionContext) {
         log.info(`Remote URL: ${cfg.remoteRepoUrl}`);
 
         // If the target path doesn't exist or isn't a git repo, clone it
-        if (!fs.existsSync(targetPath) || !(await isGitRepo(targetPath))) {
+        const repoCheck = await isGitRepo(targetPath);
+        if (!fs.existsSync(targetPath) || !repoCheck.isRepo) {
+          log.info(`Need to clone repository to: ${targetPath}`);
+
+          // If directory exists but is not a git repo, remove it first
+          if (fs.existsSync(targetPath)) {
+            log.warn(`Directory exists but is not a git repo, removing: ${targetPath}`);
+            try {
+              fs.rmSync(targetPath, { recursive: true, force: true });
+              log.info(`Removed non-git directory: ${targetPath}`);
+            } catch (e: any) {
+              log.error(`Failed to remove directory: ${e.message}`);
+              vscode.window.showErrorMessage(`Failed to remove non-git directory: ${e.message}`);
+              return;
+            }
+          }
+
           const parentDir = path.dirname(targetPath);
           const dirName = path.basename(targetPath);
           log.info(`Cloning to parent dir: ${parentDir}, dir name: ${dirName}`);
@@ -749,10 +892,18 @@ export function activate(context: vscode.ExtensionContext) {
           const cloneResult = await gitClone(parentDir, cfg.remoteRepoUrl, dirName);
           if (!cloneResult.success) {
             log.error(`Clone failed: ${cloneResult.error}`);
-            vscode.window.showWarningMessage('Clone failed. See Sync Status.');
+            vscode.window.showErrorMessage(`Clone failed: ${cloneResult.error || 'Unknown error'}`);
             return;
           }
           log.info(`Clone successful to: ${targetPath}`);
+
+          // Verify the clone worked
+          const verifyRepo = await isGitRepo(targetPath);
+          if (!verifyRepo.isRepo) {
+            log.error(`Clone reported success but directory is not a git repo!`);
+            vscode.window.showErrorMessage('Clone failed: Directory is not a git repository after clone');
+            return;
+          }
         } else {
           log.info(`Repository already exists at: ${targetPath}`);
         }
@@ -811,352 +962,15 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() { }
+
 function getHtml(webview: vscode.Webview): string {
   const nonce = getNonce();
-  const csp = `<meta http-equiv="Content-Security-Policy"
-    content="default-src 'none';
-             img-src ${webview.cspSource} https: data:;
-             style-src ${webview.cspSource} 'unsafe-inline';
-             script-src 'nonce-${nonce}';">`;
+  const csp = generateCSP(webview, nonce);
 
-  return `<!DOCTYPE html>
-<html>
-<head>
-  ${csp}
-  <style>
-    :root {
-      --accent: var(--vscode-focusBorder);
-      --card-bg: var(--vscode-editorWidget-background);
-      --panel-bg: var(--vscode-sideBar-background);
-      --border: var(--vscode-widget-border);
-      --muted: var(--vscode-descriptionForeground);
-    }
-    * { box-sizing: border-box; }
-    body {
-      font-family: var(--vscode-font-family);
-      color: var(--vscode-foreground);
-      background: transparent;
-      margin: 0;
-      line-height: 1.5;
-    }
-    .container { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
-
-    h3.title {
-      font-weight: 700;
-      font-size: 14px;
-      letter-spacing: .2px;
-      margin: 0 0 4px 0;
-    }
-    .muted { color: var(--muted); }
-
-    .card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 12px;
-      box-shadow: 0 1px 0 rgba(0,0,0,.2), 0 8px 24px rgba(0,0,0,.08);
-    }
-    .toolbar {
-      display:flex; gap:8px; align-items:center; flex-wrap: wrap;
-    }
-    .toolbar .spacer { flex: 1; }
-
-
-    .headerRow { display:flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-    .headerRow .leftCol { display:flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-    .headerRow .rightCol { display:flex; align-items: flex-start; }
-
-    .btn {
-      padding: 6px 10px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.03);
-      color: var(--vscode-foreground);
-      cursor: pointer;
-      transition: background .15s ease, transform .02s ease, border-color .15s ease, box-shadow .15s ease;
-    }
-    .btn:hover { background: rgba(255,255,255,0.06); }
-    .btn:active { transform: translateY(1px); }
-    .btn[disabled] { opacity: .6; cursor: not-allowed; }
-
-    .btn-primary {
-      background: var(--accent);
-      color: var(--vscode-button-foreground, #000);
-      border-color: var(--accent);
-      box-shadow: 0 0 0 0 rgba(0,0,0,0);
-    }
-    .btn-primary:hover { filter: brightness(1.1); }
-    .btn-primary:focus { outline: none; box-shadow: 0 0 0 2px rgba(255,255,255,.08), 0 0 0 3px var(--accent); }
-
-    input[type="text"], textarea {
-      width: 100%;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: var(--vscode-input-background);
-      color: var(--vscode-input-foreground, var(--vscode-foreground));
-      padding: 10px 12px;
-      outline: none;
-      transition: border-color .15s ease, box-shadow .15s ease;
-    }
-    input[type="text"]::placeholder, textarea::placeholder { color: var(--muted); }
-    input[type="text"]:focus, textarea:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(56,189,248,0.15);
-    }
-
-    .list { display:flex; flex-direction:column; gap:8px; }
-    .item {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 12px;
-      background: rgba(255,255,255,0.02);
-      transition: background .15s ease, border-color .15s ease;
-    }
-    .item:hover { background: rgba(255,255,255,0.04); border-color: var(--accent); }
-    .summary { cursor:pointer; font-weight:600; user-select:none; }
-    .summary:hover { text-decoration: underline; }
-
-    .tags { margin-top:6px; display:flex; flex-wrap:wrap; gap:6px; }
-    .chip {
-      font-size:11px; padding:2px 8px; border-radius:999px;
-      background: rgba(255,255,255,0.06); color: var(--vscode-foreground); border: 1px solid var(--border);
-    }
-
-    .rowActions { margin-left:auto; display:flex; gap:6px; align-items:center; }
-
-    #boot { position: sticky; top: 0; font-size: 11px; opacity: .5; padding: 4px 8px; }
-  </style>
-</head>
-<body>
-  <div id="boot">booting…</div>
-  <div class="container">
-    <div class="card">
-      <div class="headerRow">
-        <div class="leftCol">
-          <h3 class="title">Prompt Library</h3>
-          <div id="sel" class="muted">Loading…</div>
-        </div>
-        <div class="rightCol">
-          <div style="display:flex; flex-direction:column; gap:8px;">
-            <button id="syncOpsBtn" class="btn">Sync Ops</button>
-            <button id="openSettingsBtn" class="btn">Open Settings</button>
-          </div>
-        </div>
-      </div>
-      <div class="toolbar">
-        <span id="counts" class="count"></span>
-        <div class="spacer"></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div id="filterRow" style="display:none; gap:8px; align-items:center; margin-bottom:8px;">
-        <input id="filter" type="text" placeholder="Filter prompts..." />
-        <button id="clearFilter" class="btn">Clear</button>
-      </div>
-      <div id="bulkbar" class="toolbar" style="display:none;">
-        <span id="bulkcount" class="muted">0 selected</span>
-        <div class="spacer"></div>
-        <button id="bulkMove" class="btn">Move Selected</button>
-        <button id="bulkDelete" class="btn">Delete Selected</button>
-      </div>
-      <div id="list" class="list card" style="display:none;"></div>
-    </div>
-
-    <div class="card">
-      <label for="titleBox" class="muted" style="display:block;margin-bottom:6px;">Title (optional)</label>
-      <input id="titleBox" type="text" placeholder="Defaults to first 20 characters of the prompt" disabled />
-      <div style="height:8px;"></div>
-      <textarea id="composer" rows="4" placeholder="Select a group to enable the composer" disabled></textarea>
-      <div style="height:10px;"></div>
-      <div class="toolbar" style="gap:8px; padding:0;">
-        <button id="save" class="btn btn-primary" disabled>Add prompt</button>
-        <button id="cancelEdit" class="btn" style="display:none;">Cancel</button>
-      </div>
-    </div>
-  </div>
-
-  <script nonce="${nonce}">
-  (function(){
-    // ---- Boot diagnostics & error bridge ----
-    const vscode = acquireVsCodeApi?.();
-    const boot = document.getElementById('boot');
-    try { if (boot) boot.textContent = 'script running'; } catch{}
-    window.onerror = function(message, source, lineno, colno, error){
-      try { vscode?.postMessage({ type: 'wv-log', msg: 'ERR: ' + String(message) }); } catch {}
-    };
-
-    const sel = document.getElementById('sel');
-    const filter = document.getElementById('filter');
-    try {
-      filter?.setAttribute('disabled','true');
-      document.getElementById('clearFilter')?.setAttribute('disabled','true');
-      filter?.parentElement?.setAttribute('style','display:none;');
-    } catch {}
-    const list = document.getElementById('list');
-    const composer = document.getElementById('composer');
-    const save = document.getElementById('save');
-    const titleBox = document.getElementById('titleBox');
-    const counts = document.getElementById('counts');
-    const cancelBtn = document.getElementById('cancelEdit');
-
-
-
-	    let editingId = null;
-
-    function first20(s){ return (String(s||'')).replace(/\\r\\n?|\\n/g,' ').slice(0,20).trim(); }
-
-    // Optimistically enable inputs so they can receive focus immediately
-    try {
-      composer?.removeAttribute('disabled');
-      save?.removeAttribute('disabled');
-      titleBox?.removeAttribute('disabled');
-    } catch {}
-
-    // Auto-suggest title from first 20 chars if empty
-    composer?.addEventListener('input', () => {
-      if (!titleBox) return;
-      if (!titleBox.value || !titleBox.value.trim()) {
-        titleBox.value = first20(composer.value || '');
-      }
-    });
-
-    let allPrompts = [];
-    try { vscode?.postMessage({ type: 'ready' }); vscode?.postMessage({ type: 'wv-log', msg: 'boot' }); } catch {}
-
-    const selected = new Set();
-    function summarize(text){
-      const first = (text||'').split(/\\r?\\n/,1)[0];
-      return first.length > 120 ? first.slice(0,117) + '\\u2026' : first;
-    }
-    function normalized(t){ return (t||'').replace(/\\r\\n|\\r/g,'\\n').replace(/\\s+/g,' ').trim().toLowerCase(); }
-    function renderCounts(shown){ if (counts) counts.textContent = ''; }
-
-    function renderSelectionBar(){
-      const bulkbar = document.getElementById('bulkbar');
-      const bulkcount = document.getElementById('bulkcount');
-      const n = selected.size;
-      if (!bulkbar || !bulkcount) return;
-      if (n > 0) { bulkbar.style.display = 'flex'; bulkcount.textContent = n + ' selected'; }
-      else { bulkbar.style.display = 'none'; }
-    }
-
-    function renderList(prompts){
-      if (!list) return;
-      list.innerHTML = '';
-      list.style.display = 'none';
-      renderCounts(0);
-      const bulkbar = document.getElementById('bulkbar'); if (bulkbar) bulkbar.style.display = 'none';
-    }
-
-    function applyFilter(){ renderList(allPrompts); } // filtering disabled
-
-    window.addEventListener('message', (event) => {
-      const msg = event.data || {};
-      try { vscode?.postMessage({ type: 'wv-log', msg: 'recv ' + String(msg.type) + (Array.isArray(msg.payload) ? (' len=' + msg.payload.length) : '') }); } catch {}
-      if (msg.type === 'selectedGroup') {
-        // Leaving edit mode when switching groups to avoid overwriting an existing prompt
-        editingId = null;
-        if (save) save.textContent = 'Add prompt';
-        if (cancelBtn) cancelBtn.style.display = 'none';
-
-        const g = msg.payload;
-        if (!g || !g.id) {
-          sel && (sel.textContent = 'No group selected');
-          composer?.setAttribute('disabled','true');
-          save?.setAttribute('disabled','true');
-          titleBox?.setAttribute('disabled','true');
-          composer && composer.setAttribute('placeholder','Select a group to enable the composer');
-          allPrompts = [];
-          renderList([]);
-        } else {
-          sel && (sel.textContent = 'Selected group: ' + (g.name || g.id));
-          try { if (filter) filter.value = ''; } catch {}
-          selected.clear(); renderSelectionBar();
-          if (g.id === 'root-shared' || g.id === 'root-private') {
-            composer?.setAttribute('disabled','true');
-            save?.setAttribute('disabled','true');
-            titleBox?.setAttribute('disabled','true');
-            composer && composer.setAttribute('placeholder','Select a subgroup to add prompts');
-          } else {
-            composer?.removeAttribute('disabled');
-            save?.removeAttribute('disabled');
-            titleBox?.removeAttribute('disabled');
-            composer && composer.setAttribute('placeholder', 'Write a new prompt for ' + (g.name || g.id) + '...');
-          }
-        }
-      } else if (msg.type === 'prompts') {
-        allPrompts = Array.isArray(msg.payload) ? msg.payload : [];
-        try { vscode?.postMessage({ type: 'wv-log', msg: 'render prompts=' + allPrompts.length }); } catch {}
-        applyFilter();
-      } else if (msg.type === 'populateComposer') {
-        const p = msg.payload || {};
-        if (titleBox) titleBox.value = String(p.title || '');
-        if (composer) { composer.value = String(p.text || ''); try { composer.focus(); } catch {} }
-        editingId = (p.id ? String(p.id) : null);
-        if (save) save.textContent = 'Save changes';
-        if (cancelBtn) cancelBtn.style.display = 'inline-block';
-      }
-    });
-
-    document.getElementById('bulkDelete')?.addEventListener('click', () => {
-      if (selected.size === 0) return;
-      vscode?.postMessage({ type: 'deleteMany', ids: Array.from(selected) });
-      selected.clear(); renderSelectionBar();
-    });
-    document.getElementById('bulkMove')?.addEventListener('click', () => {
-      if (selected.size === 0) return;
-      vscode?.postMessage({ type: 'moveMany', ids: Array.from(selected) });
-      selected.clear(); renderSelectionBar();
-    });
-
-    document.getElementById('syncOpsBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.syncOps' }));
-    document.getElementById('openSettingsBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.openSettings' }));
-
-    save?.addEventListener('click', () => {
-      const text = composer?.value || '';
-      if (!text.trim()) return;
-      const rawTitle = (titleBox && titleBox.value) ? titleBox.value.trim() : '';
-      const fallback = first20(text);
-      const title = rawTitle || fallback;
-      if (editingId) {
-        vscode?.postMessage({ type: 'editPrompt', id: editingId, text, title });
-        editingId = null;
-        if (save) save.textContent = 'Add prompt'; if (cancelBtn) cancelBtn.style.display = 'none';
-      } else {
-        const seen = new Set(allPrompts.map(p => normalized(p.text)));
-        if (seen.has(normalized(text))) { alert('Duplicate prompt'); return; }
-        vscode?.postMessage({ type: 'addPrompt', text, title });
-      }
-      if (composer) composer.value = '';
-      if (titleBox) titleBox.value = '';
-      try { if (filter) filter.value = ''; } catch {};
-    });
-    // Cancel editing: restore add mode and clear fields
-    cancelBtn?.addEventListener('click', () => {
-      editingId = null;
-      if (save) save.textContent = 'Add prompt';
-      if (cancelBtn) cancelBtn.style.display = 'none';
-      if (composer) composer.value = '';
-      if (titleBox) titleBox.value = '';
-      try { if (filter) filter.value = ''; } catch {};
-    });
-
-  })();
-  </script>
-</body>
-</html>`;
-}
-
-
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-
-  let result = '';
-  for (let i = 0; i < 32; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+  return loadHtmlTemplate('promptLibraryView.html', {
+    CSP: csp,
+    NONCE: nonce
+  });
 }
 
 

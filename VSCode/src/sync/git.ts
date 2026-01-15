@@ -1,22 +1,93 @@
 import * as vscode from 'vscode';
 import { spawn } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface GitResult { code: number; stdout: string; stderr: string }
 
+// Try to find git executable
+function getGitPath(): string {
+  // Common git locations
+  const commonPaths = [
+    '/usr/bin/git',
+    '/usr/local/bin/git',
+    '/opt/homebrew/bin/git',
+    'git' // fallback to PATH
+  ];
+
+  // On macOS/Linux, try common locations first
+  if (process.platform !== 'win32') {
+    for (const gitPath of commonPaths) {
+      if (gitPath !== 'git') {
+        try {
+          if (fs.existsSync(gitPath)) {
+            return gitPath;
+          }
+        } catch (e) {
+          // Continue to next path
+        }
+      }
+    }
+  }
+
+  return 'git'; // fallback
+}
+
 export async function runGit(cwd: string, args: string[]): Promise<GitResult> {
-  return new Promise((resolve) => {
-    const proc = spawn('git', args, { cwd, shell: false });
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      proc.kill();
+      reject(new Error(`Git command timed out after 30s: git ${args.join(' ')}`));
+    }, 30000);
+
+    const gitPath = getGitPath();
+    console.log(`[git] Running: ${gitPath} ${args.join(' ')} in ${cwd}`);
+    const proc = spawn(gitPath, args, { cwd, shell: false });
     let stdout = '';
     let stderr = '';
-    proc.stdout.on('data', d => stdout += d.toString());
-    proc.stderr.on('data', d => stderr += d.toString());
-    proc.on('close', code => resolve({ code: code ?? -1, stdout, stderr }));
+
+    proc.stdout?.on('data', d => stdout += d.toString());
+    proc.stderr?.on('data', d => stderr += d.toString());
+
+    proc.on('error', (err: any) => {
+      clearTimeout(timeout);
+      const pathInfo = process.env.PATH || 'PATH not set';
+      reject(new Error(`Failed to spawn git: ${err.message}\nPATH: ${pathInfo}\nTry: which git in terminal to find git location`));
+    });
+
+    proc.on('close', code => {
+      clearTimeout(timeout);
+      console.log(`[git] Result: code=${code}, stdout="${stdout.trim()}", stderr="${stderr.trim()}"`);
+      resolve({ code: code ?? -1, stdout, stderr });
+    });
   });
 }
 
-export async function isGitRepo(path: string): Promise<boolean> {
-  const res = await runGit(path, ['rev-parse', '--is-inside-work-tree']);
-  return res.code === 0 && res.stdout.trim() === 'true';
+export async function isGitRepo(path: string): Promise<{ isRepo: boolean; error?: string }> {
+  try {
+    const res = await runGit(path, ['rev-parse', '--is-inside-work-tree']);
+    const isRepo = res.code === 0 && res.stdout.trim() === 'true';
+    if (!isRepo && res.stderr) {
+      // Git ran but directory is not a repo
+      return { isRepo: false, error: `Not a git repository: ${res.stderr.trim()}` };
+    }
+    return { isRepo };
+  } catch (e: any) {
+    // Git command failed to run - return the full error message for debugging
+    return { isRepo: false, error: e.message };
+  }
+}
+
+export async function getGitVersion(): Promise<{ version?: string; error?: string }> {
+  try {
+    const res = await runGit(process.cwd(), ['--version']);
+    if (res.code === 0) {
+      return { version: res.stdout.trim() };
+    }
+    return { error: `Git returned code ${res.code}: ${res.stderr}` };
+  } catch (e: any) {
+    return { error: e.message };
+  }
 }
 
 export async function getCurrentBranch(path: string): Promise<string | null> {
@@ -28,22 +99,36 @@ export async function stageAll(path: string): Promise<void> {
   await runGit(path, ['add', '-A']);
 }
 
-export async function commit(path: string, message: string): Promise<boolean> {
+export async function commit(path: string, message: string): Promise<{ success: boolean; error?: string; nothingToCommit?: boolean }> {
   const res = await runGit(path, ['commit', '-m', message]);
   // If nothing to commit, git returns non-zero with specific message; treat as success with no-op
-  if (res.code !== 0 && /nothing to commit/i.test(res.stdout + res.stderr)) return true;
-  return res.code === 0;
+  if (res.code !== 0 && /nothing to commit/i.test(res.stdout + res.stderr)) {
+    return { success: true, nothingToCommit: true };
+  }
+  if (res.code === 0) {
+    return { success: true };
+  } else {
+    return { success: false, error: `Git commit failed (code ${res.code}): ${res.stderr || res.stdout}` };
+  }
 }
 
-export async function push(path: string, remote = 'origin', branch?: string): Promise<boolean> {
+export async function push(path: string, remote = 'origin', branch?: string): Promise<{ success: boolean; error?: string }> {
   const args = branch ? ['push', '-u', remote, branch] : ['push'];
   const res = await runGit(path, args);
-  return res.code === 0;
+  if (res.code === 0) {
+    return { success: true };
+  } else {
+    return { success: false, error: `Git push failed (code ${res.code}): ${res.stderr || res.stdout}` };
+  }
 }
 
-export async function checkoutNewBranch(path: string, branch: string): Promise<boolean> {
+export async function checkoutNewBranch(path: string, branch: string): Promise<{ success: boolean; error?: string }> {
   const res = await runGit(path, ['checkout', '-b', branch]);
-  return res.code === 0;
+  if (res.code === 0) {
+    return { success: true };
+  } else {
+    return { success: false, error: `Git checkout failed (code ${res.code}): ${res.stderr || res.stdout}` };
+  }
 }
 
 export async function getRemoteUrl(path: string, remote = 'origin'): Promise<string | null> {
@@ -54,9 +139,22 @@ export async function getRemoteUrl(path: string, remote = 'origin'): Promise<str
 
 export async function clone(baseDir: string, remoteUrl: string, targetDirName?: string): Promise<{ success: boolean; error?: string }> {
   const args = targetDirName ? ['clone', remoteUrl, targetDirName] : ['clone', remoteUrl];
+  console.log(`[git.clone] Cloning ${remoteUrl} to ${baseDir}/${targetDirName || ''}`);
   const res = await runGit(baseDir, args);
+  console.log(`[git.clone] Clone result: code=${res.code}, stderr="${res.stderr.substring(0, 200)}"`);
+
   if (res.code === 0) {
-    return { success: true };
+    // Verify the clone actually created a .git directory
+    const targetPath = targetDirName ? path.join(baseDir, targetDirName) : baseDir;
+    const gitPath = path.join(targetPath, '.git');
+
+    if (fs.existsSync(gitPath)) {
+      console.log(`[git.clone] Verified .git exists at: ${gitPath}`);
+      return { success: true };
+    } else {
+      console.error(`[git.clone] Clone reported success but .git not found at: ${gitPath}`);
+      return { success: false, error: `Clone completed but .git directory not found at ${gitPath}` };
+    }
   } else {
     return { success: false, error: `Git clone failed (code ${res.code}): ${res.stderr || res.stdout}` };
   }
