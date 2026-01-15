@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   {{CSP}}
   <style>
@@ -10,7 +11,11 @@
       --border: var(--vscode-widget-border);
       --muted: var(--vscode-descriptionForeground);
     }
-    * { box-sizing: border-box; }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       font-family: var(--vscode-font-family);
       color: var(--vscode-foreground);
@@ -18,7 +23,13 @@
       margin: 0;
       line-height: 1.5;
     }
-    .container { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+
+    .container {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
 
     h3.title {
       font-weight: 700;
@@ -26,48 +37,91 @@
       letter-spacing: .2px;
       margin: 0 0 4px 0;
     }
-    .muted { color: var(--muted); }
+
+    .muted {
+      color: var(--muted);
+    }
 
     .card {
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 12px;
-      box-shadow: 0 1px 0 rgba(0,0,0,.2), 0 8px 24px rgba(0,0,0,.08);
+      box-shadow: 0 1px 0 rgba(0, 0, 0, .2), 0 8px 24px rgba(0, 0, 0, .08);
     }
+
     .toolbar {
-      display:flex; gap:8px; align-items:center; flex-wrap: wrap;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
     }
-    .toolbar .spacer { flex: 1; }
+
+    .toolbar .spacer {
+      flex: 1;
+    }
 
 
-    .headerRow { display:flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-    .headerRow .leftCol { display:flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-    .headerRow .rightCol { display:flex; align-items: flex-start; }
+    .headerRow {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .headerRow .leftCol {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+    }
+
+    .headerRow .rightCol {
+      display: flex;
+      align-items: flex-start;
+    }
 
     .btn {
       padding: 6px 10px;
       border-radius: 8px;
       border: 1px solid var(--border);
-      background: rgba(255,255,255,0.03);
+      background: rgba(255, 255, 255, 0.03);
       color: var(--vscode-foreground);
       cursor: pointer;
       transition: background .15s ease, transform .02s ease, border-color .15s ease, box-shadow .15s ease;
     }
-    .btn:hover { background: rgba(255,255,255,0.06); }
-    .btn:active { transform: translateY(1px); }
-    .btn[disabled] { opacity: .6; cursor: not-allowed; }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .btn:active {
+      transform: translateY(1px);
+    }
+
+    .btn[disabled] {
+      opacity: .6;
+      cursor: not-allowed;
+    }
 
     .btn-primary {
       background: var(--accent);
       color: var(--vscode-button-foreground, #000);
       border-color: var(--accent);
-      box-shadow: 0 0 0 0 rgba(0,0,0,0);
+      box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
     }
-    .btn-primary:hover { filter: brightness(1.1); }
-    .btn-primary:focus { outline: none; box-shadow: 0 0 0 2px rgba(255,255,255,.08), 0 0 0 3px var(--accent); }
 
-    input[type="text"], textarea {
+    .btn-primary:hover {
+      filter: brightness(1.1);
+    }
+
+    .btn-primary:focus {
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, .08), 0 0 0 3px var(--accent);
+    }
+
+    input[type="text"],
+    textarea {
       width: 100%;
       border-radius: 8px;
       border: 1px solid var(--border);
@@ -77,42 +131,87 @@
       outline: none;
       transition: border-color .15s ease, box-shadow .15s ease;
     }
-    input[type="text"]::placeholder, textarea::placeholder { color: var(--muted); }
-    input[type="text"]:focus, textarea:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(56,189,248,0.15);
+
+    input[type="text"]::placeholder,
+    textarea::placeholder {
+      color: var(--muted);
     }
 
-    .list { display:flex; flex-direction:column; gap:8px; }
+    input[type="text"]:focus,
+    textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+    }
+
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
     .item {
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 10px 12px;
-      background: rgba(255,255,255,0.02);
+      background: rgba(255, 255, 255, 0.02);
       transition: background .15s ease, border-color .15s ease;
     }
-    .item:hover { background: rgba(255,255,255,0.04); border-color: var(--accent); }
-    .summary { cursor:pointer; font-weight:600; user-select:none; }
-    .summary:hover { text-decoration: underline; }
 
-    .tags { margin-top:6px; display:flex; flex-wrap:wrap; gap:6px; }
-    .chip {
-      font-size:11px; padding:2px 8px; border-radius:999px;
-      background: rgba(255,255,255,0.06); color: var(--vscode-foreground); border: 1px solid var(--border);
+    .item:hover {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: var(--accent);
     }
 
-    .rowActions { margin-left:auto; display:flex; gap:6px; align-items:center; }
+    .summary {
+      cursor: pointer;
+      font-weight: 600;
+      user-select: none;
+    }
 
-    #boot { position: sticky; top: 0; font-size: 11px; opacity: .5; padding: 4px 8px; }
+    .summary:hover {
+      text-decoration: underline;
+    }
+
+    .tags {
+      margin-top: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chip {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--vscode-foreground);
+      border: 1px solid var(--border);
+    }
+
+    .rowActions {
+      margin-left: auto;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    #boot {
+      position: sticky;
+      top: 0;
+      font-size: 11px;
+      opacity: .5;
+      padding: 4px 8px;
+    }
   </style>
 </head>
+
 <body>
   <div id="boot">booting…</div>
   <div class="container">
     <div class="card">
       <div class="headerRow">
         <div class="leftCol">
-          <h3 class="title">Prompt Library</h3>
+          <h3 class="title">Quick Add</h3>
           <div id="sel" class="muted">Loading…</div>
         </div>
         <div class="rightCol">
@@ -129,20 +228,6 @@
     </div>
 
     <div class="card">
-      <div id="filterRow" style="display:none; gap:8px; align-items:center; margin-bottom:8px;">
-        <input id="filter" type="text" placeholder="Filter prompts..." />
-        <button id="clearFilter" class="btn">Clear</button>
-      </div>
-      <div id="bulkbar" class="toolbar" style="display:none;">
-        <span id="bulkcount" class="muted">0 selected</span>
-        <div class="spacer"></div>
-        <button id="bulkMove" class="btn">Move Selected</button>
-        <button id="bulkDelete" class="btn">Delete Selected</button>
-      </div>
-      <div id="list" class="list card" style="display:none;"></div>
-    </div>
-
-    <div class="card">
       <label for="titleBox" class="muted" style="display:block;margin-bottom:6px;">Title (optional)</label>
       <input id="titleBox" type="text" placeholder="Defaults to first 20 characters of the prompt" disabled />
       <div style="height:8px;"></div>
@@ -156,173 +241,173 @@
   </div>
 
   <script nonce="{{NONCE}}">
-  (function(){
-    // ---- Boot diagnostics & error bridge ----
-    const vscode = acquireVsCodeApi?.();
-    const boot = document.getElementById('boot');
-    try { if (boot) boot.textContent = 'script running'; } catch{}
-    window.onerror = function(message, source, lineno, colno, error){
-      try { vscode?.postMessage({ type: 'wv-log', msg: 'ERR: ' + String(message) }); } catch {}
-    };
+    (function () {
+      // ---- Boot diagnostics & error bridge ----
+      const vscode = acquireVsCodeApi?.();
+      const boot = document.getElementById('boot');
+      try { if (boot) boot.textContent = 'script running'; } catch { }
+      window.onerror = function (message, source, lineno, colno, error) {
+        try { vscode?.postMessage({ type: 'wv-log', msg: 'ERR: ' + String(message) }); } catch { }
+      };
 
-    const sel = document.getElementById('sel');
-    const filter = document.getElementById('filter');
-    try {
-      filter?.setAttribute('disabled','true');
-      document.getElementById('clearFilter')?.setAttribute('disabled','true');
-      filter?.parentElement?.setAttribute('style','display:none;');
-    } catch {}
-    const list = document.getElementById('list');
-    const composer = document.getElementById('composer');
-    const save = document.getElementById('save');
-    const titleBox = document.getElementById('titleBox');
-    const counts = document.getElementById('counts');
-    const cancelBtn = document.getElementById('cancelEdit');
+      const sel = document.getElementById('sel');
+      const filter = document.getElementById('filter');
+      try {
+        filter?.setAttribute('disabled', 'true');
+        document.getElementById('clearFilter')?.setAttribute('disabled', 'true');
+        filter?.parentElement?.setAttribute('style', 'display:none;');
+      } catch { }
+      const list = document.getElementById('list');
+      const composer = document.getElementById('composer');
+      const save = document.getElementById('save');
+      const titleBox = document.getElementById('titleBox');
+      const counts = document.getElementById('counts');
+      const cancelBtn = document.getElementById('cancelEdit');
 
 
 
-    let editingId = null;
+      let editingId = null;
 
-    function first20(s){ return (String(s||'')).replace(/\r\n?|\n/g,' ').slice(0,20).trim(); }
+      function first20(s) { return (String(s || '')).replace(/\r\n?|\n/g, ' ').slice(0, 20).trim(); }
 
-    // Optimistically enable inputs so they can receive focus immediately
-    try {
-      composer?.removeAttribute('disabled');
-      save?.removeAttribute('disabled');
-      titleBox?.removeAttribute('disabled');
-    } catch {}
+      // Optimistically enable inputs so they can receive focus immediately
+      try {
+        composer?.removeAttribute('disabled');
+        save?.removeAttribute('disabled');
+        titleBox?.removeAttribute('disabled');
+      } catch { }
 
-    // Auto-suggest title from first 20 chars if empty
-    composer?.addEventListener('input', () => {
-      if (!titleBox) return;
-      if (!titleBox.value || !titleBox.value.trim()) {
-        titleBox.value = first20(composer.value || '');
+      // Auto-suggest title from first 20 chars if empty
+      composer?.addEventListener('input', () => {
+        if (!titleBox) return;
+        if (!titleBox.value || !titleBox.value.trim()) {
+          titleBox.value = first20(composer.value || '');
+        }
+      });
+
+      let allPrompts = [];
+      try { vscode?.postMessage({ type: 'ready' }); vscode?.postMessage({ type: 'wv-log', msg: 'boot' }); } catch { }
+
+      const selected = new Set();
+      function summarize(text) {
+        const first = (text || '').split(/\r?\n/, 1)[0];
+        return first.length > 120 ? first.slice(0, 117) + '\u2026' : first;
       }
-    });
+      function normalized(t) { return (t || '').replace(/\r\n|\r/g, '\n').replace(/\s+/g, ' ').trim().toLowerCase(); }
+      function renderCounts(shown) { if (counts) counts.textContent = ''; }
 
-    let allPrompts = [];
-    try { vscode?.postMessage({ type: 'ready' }); vscode?.postMessage({ type: 'wv-log', msg: 'boot' }); } catch {}
+      function renderSelectionBar() {
+        const bulkbar = document.getElementById('bulkbar');
+        const bulkcount = document.getElementById('bulkcount');
+        const n = selected.size;
+        if (!bulkbar || !bulkcount) return;
+        if (n > 0) { bulkbar.style.display = 'flex'; bulkcount.textContent = n + ' selected'; }
+        else { bulkbar.style.display = 'none'; }
+      }
 
-    const selected = new Set();
-    function summarize(text){
-      const first = (text||'').split(/\r?\n/,1)[0];
-      return first.length > 120 ? first.slice(0,117) + '\u2026' : first;
-    }
-    function normalized(t){ return (t||'').replace(/\r\n|\r/g,'\n').replace(/\s+/g,' ').trim().toLowerCase(); }
-    function renderCounts(shown){ if (counts) counts.textContent = ''; }
+      function renderList(prompts) {
+        if (!list) return;
+        list.innerHTML = '';
+        list.style.display = 'none';
+        renderCounts(0);
+        const bulkbar = document.getElementById('bulkbar'); if (bulkbar) bulkbar.style.display = 'none';
+      }
 
-    function renderSelectionBar(){
-      const bulkbar = document.getElementById('bulkbar');
-      const bulkcount = document.getElementById('bulkcount');
-      const n = selected.size;
-      if (!bulkbar || !bulkcount) return;
-      if (n > 0) { bulkbar.style.display = 'flex'; bulkcount.textContent = n + ' selected'; }
-      else { bulkbar.style.display = 'none'; }
-    }
+      function applyFilter() { renderList(allPrompts); } // filtering disabled
 
-    function renderList(prompts){
-      if (!list) return;
-      list.innerHTML = '';
-      list.style.display = 'none';
-      renderCounts(0);
-      const bulkbar = document.getElementById('bulkbar'); if (bulkbar) bulkbar.style.display = 'none';
-    }
+      window.addEventListener('message', (event) => {
+        const msg = event.data || {};
+        try { vscode?.postMessage({ type: 'wv-log', msg: 'recv ' + String(msg.type) + (Array.isArray(msg.payload) ? (' len=' + msg.payload.length) : '') }); } catch { }
+        if (msg.type === 'selectedGroup') {
+          // Leaving edit mode when switching groups to avoid overwriting an existing prompt
+          editingId = null;
+          if (save) save.textContent = 'Add prompt';
+          if (cancelBtn) cancelBtn.style.display = 'none';
 
-    function applyFilter(){ renderList(allPrompts); } // filtering disabled
+          const g = msg.payload;
+          if (!g || !g.id) {
+            sel && (sel.textContent = 'No group selected');
+            composer?.setAttribute('disabled', 'true');
+            save?.setAttribute('disabled', 'true');
+            titleBox?.setAttribute('disabled', 'true');
+            composer && composer.setAttribute('placeholder', 'Select a group to enable the composer');
+            allPrompts = [];
+            renderList([]);
+          } else {
+            sel && (sel.textContent = 'Selected group: ' + (g.name || g.id));
+            try { if (filter) filter.value = ''; } catch { }
+            selected.clear(); renderSelectionBar();
+            if (g.id === 'root-shared' || g.id === 'root-private') {
+              composer?.setAttribute('disabled', 'true');
+              save?.setAttribute('disabled', 'true');
+              titleBox?.setAttribute('disabled', 'true');
+              composer && composer.setAttribute('placeholder', 'Select a subgroup to add prompts');
+            } else {
+              composer?.removeAttribute('disabled');
+              save?.removeAttribute('disabled');
+              titleBox?.removeAttribute('disabled');
+              composer && composer.setAttribute('placeholder', 'Write a new prompt for ' + (g.name || g.id) + '...');
+            }
+          }
+        } else if (msg.type === 'prompts') {
+          allPrompts = Array.isArray(msg.payload) ? msg.payload : [];
+          try { vscode?.postMessage({ type: 'wv-log', msg: 'render prompts=' + allPrompts.length }); } catch { }
+          applyFilter();
+        } else if (msg.type === 'populateComposer') {
+          const p = msg.payload || {};
+          if (titleBox) titleBox.value = String(p.title || '');
+          if (composer) { composer.value = String(p.text || ''); try { composer.focus(); } catch { } }
+          editingId = (p.id ? String(p.id) : null);
+          if (save) save.textContent = 'Save changes';
+          if (cancelBtn) cancelBtn.style.display = 'inline-block';
+        }
+      });
 
-    window.addEventListener('message', (event) => {
-      const msg = event.data || {};
-      try { vscode?.postMessage({ type: 'wv-log', msg: 'recv ' + String(msg.type) + (Array.isArray(msg.payload) ? (' len=' + msg.payload.length) : '') }); } catch {}
-      if (msg.type === 'selectedGroup') {
-        // Leaving edit mode when switching groups to avoid overwriting an existing prompt
+      document.getElementById('bulkDelete')?.addEventListener('click', () => {
+        if (selected.size === 0) return;
+        vscode?.postMessage({ type: 'deleteMany', ids: Array.from(selected) });
+        selected.clear(); renderSelectionBar();
+      });
+      document.getElementById('bulkMove')?.addEventListener('click', () => {
+        if (selected.size === 0) return;
+        vscode?.postMessage({ type: 'moveMany', ids: Array.from(selected) });
+        selected.clear(); renderSelectionBar();
+      });
+
+      document.getElementById('syncOpsBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.syncOps' }));
+      document.getElementById('openSettingsBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.openSettings' }));
+
+      save?.addEventListener('click', () => {
+        const text = composer?.value || '';
+        if (!text.trim()) return;
+        const rawTitle = (titleBox && titleBox.value) ? titleBox.value.trim() : '';
+        const fallback = first20(text);
+        const title = rawTitle || fallback;
+        if (editingId) {
+          vscode?.postMessage({ type: 'editPrompt', id: editingId, text, title });
+          editingId = null;
+          if (save) save.textContent = 'Add prompt'; if (cancelBtn) cancelBtn.style.display = 'none';
+        } else {
+          const seen = new Set(allPrompts.map(p => normalized(p.text)));
+          if (seen.has(normalized(text))) { alert('Duplicate prompt'); return; }
+          vscode?.postMessage({ type: 'addPrompt', text, title });
+        }
+        if (composer) composer.value = '';
+        if (titleBox) titleBox.value = '';
+        try { if (filter) filter.value = ''; } catch { };
+      });
+      // Cancel editing: restore add mode and clear fields
+      cancelBtn?.addEventListener('click', () => {
         editingId = null;
         if (save) save.textContent = 'Add prompt';
         if (cancelBtn) cancelBtn.style.display = 'none';
+        if (composer) composer.value = '';
+        if (titleBox) titleBox.value = '';
+        try { if (filter) filter.value = ''; } catch { };
+      });
 
-        const g = msg.payload;
-        if (!g || !g.id) {
-          sel && (sel.textContent = 'No group selected');
-          composer?.setAttribute('disabled','true');
-          save?.setAttribute('disabled','true');
-          titleBox?.setAttribute('disabled','true');
-          composer && composer.setAttribute('placeholder','Select a group to enable the composer');
-          allPrompts = [];
-          renderList([]);
-        } else {
-          sel && (sel.textContent = 'Selected group: ' + (g.name || g.id));
-          try { if (filter) filter.value = ''; } catch {}
-          selected.clear(); renderSelectionBar();
-          if (g.id === 'root-shared' || g.id === 'root-private') {
-            composer?.setAttribute('disabled','true');
-            save?.setAttribute('disabled','true');
-            titleBox?.setAttribute('disabled','true');
-            composer && composer.setAttribute('placeholder','Select a subgroup to add prompts');
-          } else {
-            composer?.removeAttribute('disabled');
-            save?.removeAttribute('disabled');
-            titleBox?.removeAttribute('disabled');
-            composer && composer.setAttribute('placeholder', 'Write a new prompt for ' + (g.name || g.id) + '...');
-          }
-        }
-      } else if (msg.type === 'prompts') {
-        allPrompts = Array.isArray(msg.payload) ? msg.payload : [];
-        try { vscode?.postMessage({ type: 'wv-log', msg: 'render prompts=' + allPrompts.length }); } catch {}
-        applyFilter();
-      } else if (msg.type === 'populateComposer') {
-        const p = msg.payload || {};
-        if (titleBox) titleBox.value = String(p.title || '');
-        if (composer) { composer.value = String(p.text || ''); try { composer.focus(); } catch {} }
-        editingId = (p.id ? String(p.id) : null);
-        if (save) save.textContent = 'Save changes';
-        if (cancelBtn) cancelBtn.style.display = 'inline-block';
-      }
-    });
-
-    document.getElementById('bulkDelete')?.addEventListener('click', () => {
-      if (selected.size === 0) return;
-      vscode?.postMessage({ type: 'deleteMany', ids: Array.from(selected) });
-      selected.clear(); renderSelectionBar();
-    });
-    document.getElementById('bulkMove')?.addEventListener('click', () => {
-      if (selected.size === 0) return;
-      vscode?.postMessage({ type: 'moveMany', ids: Array.from(selected) });
-      selected.clear(); renderSelectionBar();
-    });
-
-    document.getElementById('syncOpsBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.syncOps' }));
-    document.getElementById('openSettingsBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.openSettings' }));
-
-    save?.addEventListener('click', () => {
-      const text = composer?.value || '';
-      if (!text.trim()) return;
-      const rawTitle = (titleBox && titleBox.value) ? titleBox.value.trim() : '';
-      const fallback = first20(text);
-      const title = rawTitle || fallback;
-      if (editingId) {
-        vscode?.postMessage({ type: 'editPrompt', id: editingId, text, title });
-        editingId = null;
-        if (save) save.textContent = 'Add prompt'; if (cancelBtn) cancelBtn.style.display = 'none';
-      } else {
-        const seen = new Set(allPrompts.map(p => normalized(p.text)));
-        if (seen.has(normalized(text))) { alert('Duplicate prompt'); return; }
-        vscode?.postMessage({ type: 'addPrompt', text, title });
-      }
-      if (composer) composer.value = '';
-      if (titleBox) titleBox.value = '';
-      try { if (filter) filter.value = ''; } catch {};
-    });
-    // Cancel editing: restore add mode and clear fields
-    cancelBtn?.addEventListener('click', () => {
-      editingId = null;
-      if (save) save.textContent = 'Add prompt';
-      if (cancelBtn) cancelBtn.style.display = 'none';
-      if (composer) composer.value = '';
-      if (titleBox) titleBox.value = '';
-      try { if (filter) filter.value = ''; } catch {};
-    });
-
-  })();
+    })();
   </script>
 </body>
-</html>
 
+</html>

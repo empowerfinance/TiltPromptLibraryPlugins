@@ -186,12 +186,12 @@
         {
           "type": "webview",
           "id": "promptLibraryView",
-          "name": "Prompt Library",
-          "icon": "$(library)"
+          "name": "Quick Add",
+          "icon": "$(add)"
         },
         {
           "id": "promptLibraryGroups",
-          "name": "Groups",
+          "name": "Prompt Groups",
           "icon": "$(folder)"
         },
         {
