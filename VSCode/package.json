@@ -58,6 +58,11 @@
         "title": "Prompt Library: Open Settings"
       },
       {
+        "command": "promptLibrary.sendToAugment",
+        "title": "Send to Augment",
+        "icon": "$(send)"
+      },
+      {
         "command": "promptLibrary.syncWriteNow",
         "title": "Prompt Library: Sync Now (YAML Write)"
       },
@@ -228,6 +233,11 @@
           "command": "promptLibrary.copyPrompt",
           "when": "view == promptLibraryGroups && viewItem == prompt",
           "group": "inline@1"
+        },
+        {
+          "command": "promptLibrary.sendToAugment",
+          "when": "view == promptLibraryGroups && viewItem == prompt",
+          "group": "inline@2"
         },
         {
           "command": "promptLibrary.editPrompt",

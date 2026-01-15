@@ -9,9 +9,10 @@ A single, friendly Prompt Library that works in both JetBrains Rider and VS Code
 
 ---
 
-## What you get (today)
+## What you get
 
-Common ideas across both IDEs (feature depth varies; Rider is currently most complete):
+Both IDEs are feature-complete with full parity:
+
 - Create, edit, delete prompts with confirmation and instant persistence
 - One‑click copy; real‑time search (case‑insensitive)
 - Duplicate detection via normalized text
@@ -19,7 +20,7 @@ Common ideas across both IDEs (feature depth varies; Rider is currently most com
 - Import/Export JSON (simple arrays recommended)
 - GitHub Sync (Shared only): export as merge‑friendly YAML (one file per prompt)
 
-See the Rider section for the full feature set and the YAML sync model.
+See the Rider and VS Code sections below for platform-specific details and installation instructions.
 
 ---
 
@@ -28,11 +29,13 @@ See the Rider section for the full feature set and the YAML sync model.
 ### Rider (Recommended today)
 
 Install from release
-1) Download the latest Rider ZIP from the repo [Releases](../../releases)
-2) Rider → File → Settings → Plugins → ⚙️ → Install from Disk…
-3) Select the ZIP and restart Rider
+
+1. Download the latest Rider ZIP from the repo [Releases](../../releases)
+2. Rider → File → Settings → Plugins → ⚙️ → Install from Disk…
+3. Select the ZIP and restart Rider
 
 Build from source
+
 - Prereqs: JDK 21; Rider 2025.2+ (legacy path supports Rider 2024.3–2025.1 with JDK 17/21)
 - Commands (run inside the Rider subfolder):
   - macOS/Linux: `cd Rider && ./gradlew buildPlugin`
@@ -45,10 +48,12 @@ Build from source
 ### VS Code
 
 Install from release or local file
-1) Download the latest `.vsix` from [Releases](../../releases), or use `VSCode/prompt-library-local.vsix`
-2) VS Code → Extensions → … menu → Install from VSIX… → choose the file
+
+1. Download the latest `.vsix` from [Releases](../../releases), or use `VSCode/prompt-library-local.vsix`
+2. VS Code → Extensions → … menu → Install from VSIX… → choose the file
 
 Build from source
+
 - Prereqs: Node 18+, npm
 - Commands (run inside the VSCode subfolder):
   - `cd VSCode`
@@ -56,34 +61,41 @@ Build from source
   - Dev: press F5 to launch “Extension Development Host”
   - Package: `npm run package` (outputs a `.vsix`), or `npm run package:local`
 
-### VS Code extension details (current status)
+### VS Code Extension (Feature-Complete)
 
-- Views: Activity bar container with three views
-  - Groups (tree): Shared and Private roots with child groups
-  - Prompt Library (webview): list, compose, and actions for the selected group
-  - Sync Status (webview): logs and feedback from sync operations
-- Root behavior and actions (intentional):
-  - Roots (Shared/Private) show no prompts and the composer is disabled
-  - No context-menu actions are shown on root nodes; actions are allowed only on groups
-  - The extension defaults selection to Private/Unfiled so you can add a prompt immediately
-- Prompt actions (per group): Copy, Edit (inline), Move, Delete; bulk Move/Delete with multi-select checkboxes; duplicate detection via normalized text
-- Import/Export: JSON import/export of the full library; simple string-array JSON is supported and recommended
-- GitHub Sync (Shared only) — YAML repository model:
-  - Export layout under a working copy path: <repoPath>/<promptsSubdir>/
-    - <GroupName>/_group.yaml (group metadata: id, name, kind, tags, description)
-    - <GroupName>/prompts/p-<uuid>.yaml (one file per prompt)
-    - Child groups repeat the same structure in subfolders
-  - Read YAML replaces the Shared namespace from the repo (remote‑wins)
-  - Write YAML regenerates the tree deterministically for clean diffs
-  - Direct Commit or Branch + PR flows are available; a Clone/Pull + Import one‑shot exists to bootstrap
-- Settings (File → Preferences → Settings → “Prompt Library”):
-  - promptLibrary.remoteRepoUrl: optional remote URL for Clone/Pull + Import
-  - promptLibrary.repoPath: local working copy folder (defaults to ~/PromptLibrary if unset)
-  - promptLibrary.promptsSubdir: subfolder for exported prompts (default: prompts)
-  - promptLibrary.writeStrategy: direct or branchPR; promptLibrary.branchName for branchPR
-  - Optional auto-fetch interval (future-facing)
+**Views**
 
-Tip: To add prompts, select a child group (e.g., Private/Unfiled). The composer is disabled at the Shared/Private roots by design.
+- **Quick Add** - Fast prompt creation with auto-title generation
+- **Prompt Groups** - Tree view of Shared/Private groups and prompts
+- **Prompt** - View and copy prompt details
+- **Sync Ops** - GitHub sync operations with grouped actions and help text
+
+**Features**
+
+- Create, edit, delete prompts with drag-and-drop support
+- One-click copy to clipboard
+- 📤 Send to Augment - One-click send prompts directly to Augment chat
+- Organize in Shared/Private namespaces with nested groups
+- Duplicate detection via normalized text
+- Import/Export JSON (simple arrays or full objects)
+- GitHub Sync (Shared only) with YAML repository model
+
+**GitHub Sync - YAML Repository Model**
+
+- Layout: `<repoPath>/<promptsSubdir>/<GroupName>/_group.yaml` + `prompts/p-<uuid>.yaml`
+- Remote-wins merge: missing-on-remote Shared prompts move to Private/Unfiled
+- Sync operations: Pull & Sync, Quick Commit, Create Pull Request
+- Clean rewrite each sync for deterministic diffs
+
+**Settings** (File → Preferences → Settings → "Prompt Library")
+
+- `promptLibrary.repoPath` - Local repo path (default: `~/PromptLibrary`)
+- `promptLibrary.promptsSubdir` - YAML subdirectory (default: `promptsProduct`)
+- `promptLibrary.writeStrategy` - `direct` or `branchPR`
+- `promptLibrary.branchName` - Branch name for PR strategy
+- `promptLibrary.remoteRepoUrl` - Optional remote URL
+
+**Note:** Select a child group (e.g., Private/Unfiled) to add prompts. Roots are navigational only.
 
 ---
 
@@ -96,10 +108,7 @@ Tip: To add prompts, select a child group (e.g., Private/Unfiled). The composer 
 - Manage groups under Shared/Private; Unfiled is the default inbox
 - Import/Export JSON arrays like:
   ```json
-  [
-    "Write a unit test for a login function",
-    "Explain dependency injection in C#"
-  ]
+  ["Write a unit test for a login function", "Explain dependency injection in C#"]
   ```
 
 ---
@@ -107,6 +116,7 @@ Tip: To add prompts, select a child group (e.g., Private/Unfiled). The composer 
 ## Rider plugin details (feature‑complete)
 
 Highlights
+
 - Theme‑aware UI; responsive list with bounded card height
 - Titles (optional) with smart display when blank
 - Row actions: Open in Editor dialog with autosave
@@ -115,6 +125,7 @@ Highlights
 - Moving prompts updates their location correctly across groups/namespaces
 
 GitHub Sync — YAML repository model (Shared only)
+
 - Exports under a configurable subfolder (default: `prompts`) in a working copy
 - Layout:
   - `<promptsSubdir>/<GroupName>/_group.yaml` (id, name, kind, tags, description)
@@ -128,10 +139,12 @@ GitHub Sync — YAML repository model (Shared only)
 - Toasts: sync summary “+A ~U -D”; “Kept K local prompt(s) …”; “Initialized empty repo” on first setup
 
 Compatibility
+
 - Rider 2025.2+: build with JDK 21 → `./gradlew buildPlugin` (Windows: `./gradlew.bat buildPlugin`)
 - Rider 2024.3–2025.1 (legacy): JDK 17 or 21 → `-b build-legacy.gradle.kts`
 
 Troubleshooting
+
 - Install fails: ensure Rider 2024.1+; use the correct ZIP for your Rider version
 - Build fails: confirm JDK 21 (or JDK 17 for legacy); on Windows always use `.\gradlew.bat`
 - Tool window missing: View → Tool Windows → Prompt Library
@@ -143,10 +156,12 @@ Troubleshooting
 We welcome contributions! This repo documents the evolutionary approach in `Rider/docs/`.
 
 Dev setup
+
 - Rider: `cd Rider; .\gradlew.bat runIde` (macOS/Linux: `./gradlew runIde`) to launch a sandbox
 - VS Code: `cd VSCode; npm install; npm run compile;` then press F5
 
 Guidelines
+
 - Make small, incremental changes; update docs where helpful
 - Test in Rider sandbox or the VS Code Dev Host before submitting PRs
 - Keep JSON/YAML outputs deterministic for clean diffs

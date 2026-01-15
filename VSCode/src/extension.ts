@@ -122,7 +122,7 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
         if (!res.ok) { vscode.window.showWarningMessage(res.reason ?? 'Could not add prompt'); return; }
         vscode.window.showInformationMessage('Prompt added');
         await this.pushList();
-        try { const lib = await this.store.getLibrary(); this.groups.setLibrary(lib); } catch {}
+        try { const lib = await this.store.getLibrary(); this.groups.setLibrary(lib); } catch { }
         break;
       }
       case 'deletePrompt': {
@@ -152,7 +152,7 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
           if (!res2.ok) { vscode.window.showWarningMessage(res2.reason ?? 'Could not update title'); return; }
         }
         await this.pushList();
-        try { const lib = await this.store.getLibrary(); this.groups.setLibrary(lib); } catch {}
+        try { const lib = await this.store.getLibrary(); this.groups.setLibrary(lib); } catch { }
         break;
       }
       case 'movePrompt': {
@@ -251,7 +251,7 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
     }
 
     this.selectedGroup = effective;
-    try { await this.memento.update('promptLibrary.lastSelectedGroup', effective); } catch {}
+    try { await this.memento.update('promptLibrary.lastSelectedGroup', effective); } catch { }
     log.info(`Webview setSelectedGroup: id=${effective.id ?? 'null'}, name=${effective.name ?? 'null'}, hasView=${!!this.view}`);
     this.view?.webview.postMessage({ type: 'selectedGroup', payload: effective });
     // When selection changes, refresh list for that group
@@ -277,7 +277,7 @@ class PromptTreeDragAndDrop implements vscode.TreeDragAndDropController<GroupIte
     private readonly store: LibraryStore,
     private readonly groups: GroupsProvider,
     private readonly provider: PromptLibraryViewProvider,
-  ) {}
+  ) { }
 
   handleDrag(source: readonly (GroupItem | PromptItem)[], dataTransfer: vscode.DataTransfer, token: vscode.CancellationToken): void | Thenable<void> {
     try {
@@ -288,7 +288,7 @@ class PromptTreeDragAndDrop implements vscode.TreeDragAndDropController<GroupIte
         fromGroupId: (promptItems[0] as any).groupId as string | undefined,
       };
       dataTransfer.set(this.mime, new vscode.DataTransferItem(JSON.stringify(payload)));
-    } catch {}
+    } catch { }
   }
 
   async handleDrop(target: GroupItem | PromptItem | undefined, dataTransfer: vscode.DataTransfer, token: vscode.CancellationToken): Promise<void> {
@@ -317,10 +317,10 @@ class PromptTreeDragAndDrop implements vscode.TreeDragAndDropController<GroupIte
       }
       await this.provider.refresh();
       await this.groups.init();
-    } catch {}
+    } catch { }
   }
 
-  dispose() {}
+  dispose() { }
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -335,8 +335,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Auto-refresh tree + webview whenever the library changes
   const storeSub = store.onDidChange(async () => {
-    try { await groups.refreshFromStore(); } catch {}
-    try { await provider.refresh(); } catch {}
+    try { await groups.refreshFromStore(); } catch { }
+    try { await provider.refresh(); } catch { }
   });
   context.subscriptions.push(storeSub);
 
@@ -441,6 +441,121 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.setStatusBarMessage('Prompt copied to clipboard', 1500);
       } catch (e) { log.warn('openPrompt failed: ' + String((e as any)?.message || e)); }
     }),
+    vscode.commands.registerCommand('promptLibrary.sendToAugment', async (arg?: any) => {
+      log.info('=== Send to Augment: START ===');
+      try {
+        const pid: string | undefined = typeof arg === 'string' ? arg : arg?.promptId;
+        log.info(`Send to Augment: promptId = ${pid}`);
+        if (!pid) {
+          log.warn('Send to Augment: No promptId provided');
+          return;
+        }
+
+        const p = await store.getPromptById(pid);
+        if (!p) {
+          log.warn(`Send to Augment: Prompt not found for id ${pid}`);
+          return;
+        }
+
+        const promptText = p.text || '';
+        log.info(`Send to Augment: Prompt text length = ${promptText.length} chars`);
+        log.info(`Send to Augment: Prompt preview = ${promptText.substring(0, 50)}...`);
+
+        // Copy to clipboard first (fallback)
+        log.info('Send to Augment: Copying to clipboard...');
+        await vscode.env.clipboard.writeText(promptText);
+        log.info('Send to Augment: ✓ Clipboard copy successful');
+
+        // Try to send to Augment
+        try {
+          log.info('Send to Augment: Starting integration...');
+
+          // Augment uses Cmd+L / Ctrl+L to open its chat panel
+          // But we need to find the actual command name
+          const allCommands = await vscode.commands.getCommands(true);
+          const augmentCommands = allCommands.filter(cmd => cmd.toLowerCase().includes('augment') && cmd.toLowerCase().includes('chat'));
+          log.info(`Send to Augment: Found ${augmentCommands.length} Augment chat commands: ${JSON.stringify(augmentCommands.slice(0, 10))}`);
+
+          // Try to open Augment's chat panel and paste
+          let success = false;
+
+          // Strategy 1: Try to focus Augment's chat panel directly
+          const chatFocusCommands = augmentCommands.filter(cmd =>
+            cmd.includes('focus') || cmd.includes('open') || cmd.includes('show')
+          );
+
+          for (const cmd of chatFocusCommands) {
+            try {
+              log.info(`Send to Augment: Trying command: ${cmd}`);
+              await vscode.commands.executeCommand(cmd);
+              log.info(`Send to Augment: ✓ ${cmd} executed`);
+
+              // Wait longer for Augment's input to be ready and focused
+              await new Promise(resolve => setTimeout(resolve, 500));
+
+              // The text is already in clipboard from earlier
+              // Just try to paste it
+              try {
+                log.info('Send to Augment: Attempting paste from clipboard...');
+                await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+                log.info('Send to Augment: ✓ Paste command executed');
+
+                // Give it a moment to paste
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                vscode.window.setStatusBarMessage('✓ Sent to Augment', 2000);
+                success = true;
+                break;
+              } catch (pasteError: any) {
+                log.warn(`Send to Augment: Paste failed - ${pasteError?.message}`);
+
+                // Fallback: Just show a message
+                vscode.window.showInformationMessage(
+                  '✓ Augment opened! Prompt copied to clipboard - paste with Cmd+V'
+                );
+                success = true;
+                break;
+              }
+            } catch (e: any) {
+              log.warn(`Send to Augment: ${cmd} failed - ${e?.message}`);
+            }
+          }
+
+          if (!success) {
+            throw new Error('Could not open Augment chat panel');
+          }
+        } catch (chatError: any) {
+          log.warn(`Send to Augment: Chat integration failed - ${chatError?.message || chatError}`);
+          log.warn(`Send to Augment: Error stack: ${chatError?.stack || 'no stack'}`);
+
+          // Chat command failed - show helpful message
+          vscode.window.showInformationMessage(
+            '✓ Prompt copied! Open your AI chat (Cmd+K or Cmd+I) and paste with Cmd+V',
+            'Got it',
+            'Configure Chat Provider'
+          ).then(selection => {
+            if (selection === 'Configure Chat Provider') {
+              vscode.window.showInformationMessage(
+                'To use Augment with VS Code\'s built-in chat:\n' +
+                '1. Make sure Augment is set as your default chat provider\n' +
+                '2. Check Settings → Chat → Default Provider\n' +
+                '3. Or use Cmd+K to open Augment directly',
+                'Open Settings'
+              ).then(choice => {
+                if (choice === 'Open Settings') {
+                  vscode.commands.executeCommand('workbench.action.openSettings', 'chat');
+                }
+              });
+            }
+          });
+        }
+      } catch (e: any) {
+        log.error(`Send to Augment: FATAL ERROR - ${e?.message || e}`);
+        log.error(`Send to Augment: Error stack: ${e?.stack || 'no stack'}`);
+        vscode.window.showWarningMessage('Failed to send to Augment. Prompt is in clipboard.');
+      }
+      log.info('=== Send to Augment: END ===');
+    }),
     vscode.commands.registerCommand('promptLibrary.copyPrompt', async (item?: any) => {
       const pid: string | undefined = (item as any)?.promptId;
       if (!pid) return;
@@ -455,8 +570,8 @@ export function activate(context: vscode.ExtensionContext) {
       const p = await store.getPromptById(pid); if (!p) return;
       const title = (p.title && p.title.trim()) ? p.title : (p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim();
       // Ensure the Prompt Library view is focused and set to the prompt's group so composer is enabled
-      try { if (gid) { const g = groups.getGroupById(gid); await provider.setSelectedGroup({ id: gid, name: g?.name ?? gid }); } } catch {}
-      try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch {}
+      try { if (gid) { const g = groups.getGroupById(gid); await provider.setSelectedGroup({ id: gid, name: g?.name ?? gid }); } } catch { }
+      try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch { }
       // Populate the composer with this prompt's content
       provider.populateComposer({ id: pid, title, text: p.text || '' });
     }),
@@ -529,7 +644,7 @@ export function activate(context: vscode.ExtensionContext) {
         try {
           const cleaned = await cleanUntracked(cfg.repoPath);
           if (!cleaned) { log.warn('git clean -fd failed; some untracked files may remain.'); }
-        } catch {}
+        } catch { }
         const groupsFromRepo = await readSharedGroups(vscode.Uri.file(cfg.repoPath), cfg.promptsSubdir);
         const countPrompts = (gs: any[]): number => gs.reduce((acc, g) => acc + (Array.isArray(g.prompts) ? g.prompts.length : 0) + countPrompts(g.children || []), 0);
         const totalPrompts = countPrompts(groupsFromRepo as any);
