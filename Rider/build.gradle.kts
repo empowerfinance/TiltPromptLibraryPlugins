@@ -86,6 +86,16 @@ tasks {
     test {
         useJUnitPlatform()
         finalizedBy(jacocoTestReport) // Generate coverage report after tests
+
+        // Enable headless mode for GUI tests in CI environments
+        systemProperty("java.awt.headless", "true")
+
+        // Additional JVM args for IntelliJ Platform tests
+        jvmArgs(
+            "-Djava.awt.headless=true",
+            "-Didea.is.unit.test=true",
+            "-Didea.home.path=${project.buildDir}/idea-sandbox"
+        )
     }
 
     jacocoTestReport {

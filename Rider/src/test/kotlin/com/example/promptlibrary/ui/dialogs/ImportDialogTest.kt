@@ -2,7 +2,9 @@ package com.example.promptlibrary.ui.dialogs
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.condition.DisabledIfSystemProperty
 
+@DisabledIfSystemProperty(named = "java.awt.headless", matches = "true")
 class ImportDialogTest {
     
     @Test
