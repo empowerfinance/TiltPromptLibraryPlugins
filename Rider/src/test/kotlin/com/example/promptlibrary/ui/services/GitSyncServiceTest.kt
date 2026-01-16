@@ -68,26 +68,26 @@ class GitSyncServiceTest {
     }
     
     @Test
-    fun `loadRepoIntoShared should return warning when no working copy`() {
+    fun `loadRepoIntoShared should return warning when no project`() {
         // When
         val result = service.loadRepoIntoShared()
-        
+
         // Then
         assertThat(result).isInstanceOf(GitSyncService.SyncResult.Warning::class.java)
         if (result is GitSyncService.SyncResult.Warning) {
-            assertThat(result.message).contains("No working copy")
+            assertThat(result.message).contains("No project available")
         }
     }
-    
+
     @Test
-    fun `pullFromGit should return warning when no working copy`() {
+    fun `pullFromGit should return warning when no project`() {
         // When
         val result = service.pullFromGit()
-        
+
         // Then
         assertThat(result).isInstanceOf(GitSyncService.SyncResult.Warning::class.java)
         if (result is GitSyncService.SyncResult.Warning) {
-            assertThat(result.message).contains("No working copy")
+            assertThat(result.message).contains("No project available")
         }
     }
 }

@@ -102,17 +102,17 @@ class GroupTreePanelTest {
     @Test
     fun `SharedRoot should have correct toString`() {
         // When
-        val sharedRoot = GroupTreePanel.SharedRoot
-        
+        val sharedRoot = SharedRoot
+
         // Then
         assertThat(sharedRoot.toString()).isEqualTo("Shared")
     }
-    
+
     @Test
     fun `PrivateRoot should have correct toString`() {
         // When
-        val privateRoot = GroupTreePanel.PrivateRoot
-        
+        val privateRoot = PrivateRoot
+
         // Then
         assertThat(privateRoot.toString()).isEqualTo("Private")
     }
