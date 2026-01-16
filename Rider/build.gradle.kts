@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.intellij.platform") version "2.7.2"
     kotlin("jvm") version "2.1.21"
     kotlin("plugin.serialization") version "2.1.21"
+    jacoco
 }
 
 // Version will be set by GitHub Actions, fallback to 1.0.0 for local development
@@ -28,6 +29,12 @@ dependencies {
         bundledPlugin("Git4Idea")
     }
     implementation("com.charleskorn.kaml:kaml:0.92.0")
+
+    // Testing dependencies
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.1")
+    testImplementation("io.mockk:mockk:1.13.8")
+    testImplementation("org.assertj:assertj-core:3.24.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 }
 
 intellijPlatform {
@@ -75,6 +82,31 @@ java {
 }
 
 tasks {
+    // Configure test task to use JUnit Platform
+    test {
+        useJUnitPlatform()
+        finalizedBy(jacocoTestReport) // Generate coverage report after tests
+    }
+
+    jacocoTestReport {
+        dependsOn(test) // Tests are required to run before generating the report
+        reports {
+            xml.required.set(true)
+            html.required.set(true)
+            csv.required.set(false)
+        }
+    }
+
+    jacocoTestCoverageVerification {
+        violationRules {
+            rule {
+                limit {
+                    minimum = "0.80".toBigDecimal() // 80% coverage target
+                }
+            }
+        }
+    }
+
     // Configure runIde with explicit type to ensure Kotlin DSL has task model
     named<org.jetbrains.intellij.platform.gradle.tasks.RunIdeTask>("runIde") {
         jvmArgs = listOf("-Xmx1g")

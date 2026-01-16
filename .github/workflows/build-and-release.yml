@@ -2,9 +2,9 @@ name: Build and Release Plugins
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 permissions:
   contents: write
@@ -13,7 +13,7 @@ jobs:
   build_rider:
     runs-on: ubuntu-latest
     env:
-      RIDER_VERSION: '2024.3'
+      RIDER_VERSION: "2024.3"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -21,8 +21,8 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
+          java-version: "17"
+          distribution: "temurin"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -55,6 +55,33 @@ jobs:
         run: cd Rider && ./gradlew setupDependencies --no-daemon --stacktrace
         timeout-minutes: 25
 
+      - name: Run Rider plugin tests
+        run: cd Rider && ./gradlew test --no-daemon --stacktrace
+        timeout-minutes: 10
+
+      - name: Generate test report
+        if: always()
+        run: cd Rider && ./gradlew jacocoTestReport --no-daemon --stacktrace
+        continue-on-error: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rider-test-results-${{ env.PLUGIN_VERSION }}
+          path: |
+            Rider/build/reports/tests/
+            Rider/build/test-results/
+          retention-days: 30
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rider-coverage-report-${{ env.PLUGIN_VERSION }}
+          path: Rider/build/reports/jacoco/
+          retention-days: 30
+
       - name: Build Rider plugin
         run: cd Rider && ./gradlew buildPlugin --no-daemon --stacktrace -PpluginVersion=${{ env.PLUGIN_VERSION }}
 
@@ -86,7 +113,7 @@ jobs:
       - name: Use Node.js 20.18.1
         uses: actions/setup-node@v4
         with:
-          node-version: '20.18.1'
+          node-version: "20.18.1"
 
       - name: Setup npm cache
         uses: actions/cache@v4
@@ -161,4 +188,3 @@ jobs:
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

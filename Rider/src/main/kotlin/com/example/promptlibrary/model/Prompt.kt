@@ -38,18 +38,17 @@ data class Prompt(
     /**
      * Normalizes the prompt text for search and duplicate detection
      * - trim leading/trailing whitespace
-     * - collapse repeated internal whitespace to a single space
      * - normalize line endings to "\n"
-     * - lowercase for comparison
      * - remove trailing spaces on each line
+     * - collapse repeated internal whitespace (non-newline) to a single space
+     * - lowercase for comparison
      */
     fun normalizedText(): String {
         return text
             .trim()
-            .replace(Regex("\\s+"), " ")
             .replace("\r\n", "\n").replace("\r", "\n")
             .lines()
-            .joinToString("\n") { it.trimEnd() }
+            .joinToString("\n") { it.trim().replace(Regex("\\s+"), " ") }
             .lowercase()
     }
 }

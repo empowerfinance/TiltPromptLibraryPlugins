@@ -3,12 +3,38 @@
 This living document is the hand-off ledger for agents/contributors. Update it after each meaningful change.
 
 ### Conventions
+
 - Entries are reverse-chronological (newest first)
 - Each entry includes: Date, Author, Summary, Files touched, Next step
 - Keep notes concise but actionable
 
 ---
+
+### 2026-01-16 — Phase 1 Refactoring: Extracted PromptCard and PromptComposer components (Author: Augment Agent)
+
+- Summary:
+  - Started Phase 1 of the REFACTORING_AND_TESTING_PLAN.md to improve testability and maintainability.
+  - Extracted PromptCard component (175 lines) from PromptLibraryPanel with full callback-based architecture for testability.
+  - Extracted PromptComposer component (140 lines) with SaveResult sealed class for type-safe error handling.
+  - Reduced PromptLibraryPanel from 1021 lines to 882 lines (139 lines saved, ~13.6% reduction).
+  - Added comprehensive unit tests for both components (6 tests for PromptCard, 10 tests for PromptComposer).
+  - All 126 tests passing (110 existing + 16 new component tests).
+  - Components use constructor injection and callbacks instead of direct dependencies, making them independently testable.
+- Files touched:
+  - src/main/kotlin/com/example/promptlibrary/ui/components/PromptCard.kt (new)
+  - src/main/kotlin/com/example/promptlibrary/ui/components/PromptComposer.kt (new)
+  - src/test/kotlin/com/example/promptlibrary/ui/components/PromptCardTest.kt (new)
+  - src/test/kotlin/com/example/promptlibrary/ui/components/PromptComposerTest.kt (new)
+  - src/main/kotlin/com/example/promptlibrary/ui/PromptLibraryPanel.kt (refactored)
+- Next step:
+  - Continue Phase 1: Extract GroupTreePanel, PromptListPanel, ToolbarPanel components.
+  - Extract dialog classes: ImportDialog, ExportDialog, EditPromptDialog, GroupManagementDialog.
+  - Goal: Reduce PromptLibraryPanel to < 300 lines.
+
+---
+
 ### 2025-09-08 — Root prompt migration, Unfiled default, namespace safeguards, and UX polish (Author: Augment Agent)
+
 - Summary:
   - Migrated any private-root prompts into Private/Unfiled on startup; prevented prompts from showing when a namespace root (Private/Shared) is selected.
   - New prompts default to the selected group or Private/Unfiled when no group is selected.
@@ -25,6 +51,7 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Optionally pin Unfiled to top and make it non-deletable; hide when empty.
 
 ### 2025-08-23 — Shared/Private roots, context menu, Unfiled fallback (Author: Augment Agent)
+
 - Summary:
   - Flattened top-level to two roots: Shared and Private; removed visible “Library” label; auto-expand roots; disabled rename/delete on roots.
   - Added right-click context menu on groups for Rename/Delete; fixed delete dialog interpolation; toasts on collision and delete.
@@ -37,8 +64,8 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Optionally veto collapsing roots; pin Unfiled at top and make non-deletable.
   - Implement YAML repo import/export and document Shared/Private behaviors in README.
 
-
 ### 2025-08-20 — UI polish scaffolding and YAML wiring plan (Author: Augment Agent)
+
 - Summary:
   - Began stabilizing PromptLibraryPanel layout: introduced Options gear, planned Show group tree toggle, saved splitter state.
   - Planning to remove in-row editor and rely on modal editor to eliminate flicker; card size stabilized.
@@ -49,8 +76,8 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Complete UI fixes (toggle, persistence), then implement YAML Import/Export via new helpers.
   - Build and verify in sandbox; document new options in README.
 
-
 ### 2025-08-20 — Build system migration to v2 plugin + successful build (Author: Augment Agent)
+
 - Summary:
   - Migrated Gradle from org.jetbrains.intellij 1.x to org.jetbrains.intellij.platform 2.x DSL.
   - Targeted Rider 2024.3 in main build; added legacy build script for Rider 2024.1–2025.1.
@@ -67,9 +94,8 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Consider adding basic unit tests for repository import/export and normalization.
   - Prepare a Release zip and test install on Rider 2024.3.
 
-
-
 ### 2025-08-19 — Continue Phase 1: Context menu + Import/Export v2 notes (Author: Augment Agent)
+
 - Summary:
   - Implemented right-click context menu on prompt cards and titles with actions: Copy, Open in Editor, Delete (with confirm + undo notification).
   - Added modal Edit Prompt dialog with autosave-on-close.
@@ -82,8 +108,8 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Verify v2 migration path in sandbox: ensure prompts.json -> prompts.v2.json conversion, titles render, search works, and context menu actions behave.
   - Optionally scaffold a basic Groups sidebar (non-interactive) that lists group names from v2 library.
 
-
 ### 2025-08-18 — Step 1/3: Grouped local store (v2) + title support + migration (Author: Augment Agent)
+
 - Summary:
   - Added optional `title` to Prompt and `displayTitle()` helper deriving first 50 chars with ellipsis when blank.
   - Introduced grouped local storage file `prompts.v2.json` storing `Library(groups[], privatePrompts[])`.
@@ -100,6 +126,7 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Step 2/3: Add basic group management UI scaffolding (optional for now), and ensure import/export UX mentions v1 vs v2 formats.
 
 ### 2025-08-15 — Initial scaffolding of documentation (Author: Augment Agent)
+
 - Summary:
   - Rewrote README.md with comprehensive design, architecture, data model, normalization rules, plan, and acceptance criteria.
   - Added docs/KICKOFF.md with onboarding instructions for new agents.
@@ -112,8 +139,8 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Create INSTALL.md with build/install/use instructions.
   - Begin Step 1 from the plan: Gradle project setup with Kotlin + IntelliJ plugin targeting Rider and a placeholder ToolWindow.
 
-
 ### 2025-08-15 — Step 1 kickoff: Gradle + plugin scaffold (Author: Augment Agent)
+
 - Summary:
   - Added Gradle build files and IntelliJ plugin configuration targeting Rider (RD).
   - Implemented minimal ToolWindowFactory that shows a placeholder panel.
@@ -129,6 +156,7 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Run `./gradlew runIde` (Windows: `gradlew.bat runIde`) to verify the tool window appears in sandbox Rider.
 
 ### 2025-08-15 — Step 2 in progress: Static UI scaffold (Author: Augment Agent)
+
 - Summary:
   - Added PromptLibraryPanel with toolbar (Export/Import/Search), scrollable list, in-memory prompts, click-to-copy, edit toggle, delete confirm, and new prompt composer.
   - Wired ToolWindow to use the new panel.
@@ -142,6 +170,7 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Then proceed to Step 3 (persistence via JSON file under config path).
 
 ### 2025-08-15 — Sandbox run verified (Author: You)
+
 - Summary:
   - Ran the “Run Plugin Sandbox” configuration in Rider successfully.
   - Tool window appears and the scaffold UI is functional (add, copy, edit toggle, delete confirm, search filter in-memory).
@@ -151,6 +180,7 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Implement Step 3 (persistence): PromptRepository with JSON file under IDE config path; load/save on add/edit/delete.
 
 ### 2025-08-15 — Step 3 implemented: Local persistence (Author: Augment Agent)
+
 - Summary:
   - Created Prompt data model with id, text, createdAt, updatedAt fields and normalization methods.
   - Implemented PromptRepository with JSON persistence under IDE config path (PathManager.getConfigPath()/prompt-library/prompts.json).
@@ -168,6 +198,7 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Verify that prompts persist across restarts (Step 3 DoD: restart Rider and prompts persist).
 
 ### 2025-08-15 — Step 3 completed: Persistence verified (Author: You)
+
 - Summary:
   - Fixed compilation errors (PathManager import path).
   - Tested sandbox successfully - persistence is working beautifully.
@@ -179,6 +210,7 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Implement Step 4: Copy on click with notification (already partially working, need to verify and polish).
 
 ### 2025-08-15 — Step 4 completed: Copy on click verified (Author: You)
+
 - Summary:
   - Tested copy-to-clipboard functionality - works perfectly!
   - Clicking prompt text copies original text to clipboard.
@@ -190,6 +222,7 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Implement Step 5: Edit in place + Save/Cancel (appears mostly implemented, need to verify and polish).
 
 ### 2025-08-15 — Step 5 completed: Edit in place with Save/Cancel (Author: Augment Agent)
+
 - Summary:
   - Enhanced edit functionality by adding Cancel button alongside Save.
   - Cancel button restores original text and exits edit mode.
@@ -202,6 +235,7 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Implement Step 6: Delete with confirm/undo (confirm dialog already implemented, may need undo functionality).
 
 ### 2025-08-15 — Step 6 completed: Delete with confirm (Author: You)
+
 - Summary:
   - Delete functionality working perfectly with confirmation dialog.
   - Trash icon (minus sign) shows "Delete this prompt?" confirm dialog.
@@ -215,6 +249,7 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Implement Step 7: Search (simple substring) - case-insensitive filter with normalization.
 
 ### 2025-08-15 — Step 7 completed: Search functionality verified (Author: You)
+
 - Summary:
   - Search functionality working perfectly - already implemented and tested.
   - Real-time case-insensitive substring filtering with text normalization.
@@ -227,12 +262,13 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Implement Step 8: Import/Export JSON - wire up the disabled Export/Import buttons with file dialogs and JSON handling.
 
 ### 2025-08-15 — Step 8 completed: Import/Export JSON (Author: Augment Agent)
+
 - Summary:
   - Implemented flexible import functionality that accepts multiple JSON formats:
-    * Simple string arrays: ["prompt1", "prompt2"]
-    * Objects with just text field: [{"text": "prompt"}]
-    * Full Prompt objects with optional id/timestamps
-    * Mixed formats in same array
+    - Simple string arrays: ["prompt1", "prompt2"]
+    - Objects with just text field: [{"text": "prompt"}]
+    - Full Prompt objects with optional id/timestamps
+    - Mixed formats in same array
   - Implemented clean export functionality that outputs simple string arrays
   - Added comprehensive file dialogs with save/load and clipboard operations
   - Fixed compilation errors with JDialog constructors and JSON serialization
@@ -244,6 +280,7 @@ This living document is the hand-off ledger for agents/contributors. Update it a
   - Implement Step 9: Polish & packaging - icons, spacing, wrapping behavior, basic tests, buildPlugin.
 
 ### 2025-08-15 — Repository cleanup and README restructure (Author: Augment Agent)
+
 - Summary:
   - Completely restructured README.md to be user-focused with quick start at top
   - Added project story section explaining evolutionary development approach
