@@ -53,6 +53,12 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         },
         onPromptSelected = { prompt, groupId ->
             handlePromptSelected(prompt, groupId)
+        },
+        onAddGroupToShared = {
+            addGroupToNamespace("Shared")
+        },
+        onAddGroupToPrivate = {
+            addGroupToNamespace("Private")
         }
     )
 
@@ -351,6 +357,25 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
             repository.deletePrompt(prompt.id)
             groupTreePanel.rebuildTree()
             Notifications.Bus.notify(Notification("PromptLibrary", "Prompt deleted", "", NotificationType.INFORMATION))
+        }
+    }
+
+    /**
+     * Helper function to add a group to a specific namespace (Shared or Private).
+     */
+    private fun addGroupToNamespace(namespace: String) {
+        val name = JOptionPane.showInputDialog(this, "New group name:", "Add Group to $namespace", JOptionPane.PLAIN_MESSAGE)
+        val trimmed = name?.trim().orEmpty()
+        if (trimmed.isNotEmpty()) {
+            val newGroup = if (namespace == "Shared") {
+                repository.addSharedGroup(trimmed)
+            } else {
+                repository.addPrivateGroup(trimmed)
+            }
+            selectedGroupId = newGroup.id
+            selectedGroupName = newGroup.name
+            groupTreePanel.rebuildTree()
+            updateComposerState()
         }
     }
 

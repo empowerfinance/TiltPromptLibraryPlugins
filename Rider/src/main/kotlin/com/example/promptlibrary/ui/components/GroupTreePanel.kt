@@ -3,11 +3,18 @@ package com.example.promptlibrary.ui.components
 import com.example.promptlibrary.model.Group
 import com.example.promptlibrary.model.Prompt
 import com.example.promptlibrary.repository.PromptRepository
+import com.intellij.icons.AllIcons
+import com.intellij.ui.JBColor
+import com.intellij.ui.components.JBLabel
+import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
-import javax.swing.JPanel
-import javax.swing.JScrollPane
-import javax.swing.JTree
+import java.awt.Component
+import java.awt.FlowLayout
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
+import javax.swing.*
 import javax.swing.tree.DefaultMutableTreeNode
+import javax.swing.tree.DefaultTreeCellRenderer
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
 
@@ -33,7 +40,9 @@ data class PromptNode(val prompt: Prompt, val groupId: String) {
 class GroupTreePanel(
     private val repository: PromptRepository,
     private val onGroupSelected: (String?) -> Unit,
-    private val onPromptSelected: (Prompt, String) -> Unit
+    private val onPromptSelected: (Prompt, String) -> Unit,
+    private val onAddGroupToShared: () -> Unit = {},
+    private val onAddGroupToPrivate: () -> Unit = {}
 ) : JPanel(BorderLayout()) {
 
     private val groupTreeModel = DefaultTreeModel(DefaultMutableTreeNode("Library"))
@@ -42,9 +51,139 @@ class GroupTreePanel(
     
     init {
         setupTree()
+        setupCustomRenderer()
+        setupMouseListener()
+        setupHoverEffect()
         add(JScrollPane(groupTree), BorderLayout.CENTER)
     }
-    
+
+    /**
+     * Sets up mouse listener to detect clicks on "+ Add Group" text.
+     */
+    private fun setupMouseListener() {
+        groupTree.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                val path = groupTree.getPathForLocation(e.x, e.y) ?: return
+                val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
+                val userObject = node.userObject
+
+                // Only handle Shared/Private root nodes
+                if (userObject !is SharedRoot && userObject !is PrivateRoot) return
+
+                val rowBounds = groupTree.getPathBounds(path) ?: return
+
+                // Check if click is on the right side (where "+ Add Group" text is)
+                // The text starts approximately at rowBounds.x + rowBounds.width - 80
+                val clickableAreaStart = rowBounds.x + rowBounds.width - 80
+
+                if (e.x >= clickableAreaStart) {
+                    println("[GroupTreePanel] Clicked '+ Add Group' for $userObject")
+                    when (userObject) {
+                        is SharedRoot -> onAddGroupToShared()
+                        is PrivateRoot -> onAddGroupToPrivate()
+                    }
+                }
+            }
+        })
+    }
+
+    /**
+     * Sets up hover effect to show hand cursor over "+ Add Group" text.
+     */
+    private fun setupHoverEffect() {
+        groupTree.addMouseMotionListener(object : MouseAdapter() {
+            override fun mouseMoved(e: MouseEvent) {
+                val path = groupTree.getPathForLocation(e.x, e.y)
+                if (path == null) {
+                    groupTree.cursor = java.awt.Cursor.getDefaultCursor()
+                    return
+                }
+
+                val node = path.lastPathComponent as? DefaultMutableTreeNode
+                val userObject = node?.userObject
+
+                if (userObject !is SharedRoot && userObject !is PrivateRoot) {
+                    groupTree.cursor = java.awt.Cursor.getDefaultCursor()
+                    return
+                }
+
+                val rowBounds = groupTree.getPathBounds(path)
+                if (rowBounds == null) {
+                    groupTree.cursor = java.awt.Cursor.getDefaultCursor()
+                    return
+                }
+
+                // Show hand cursor when over "+ Add Group" text area
+                val clickableAreaStart = rowBounds.x + rowBounds.width - 80
+
+                if (e.x >= clickableAreaStart) {
+                    groupTree.cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                } else {
+                    groupTree.cursor = java.awt.Cursor.getDefaultCursor()
+                }
+            }
+        })
+    }
+
+    /**
+     * Sets up a custom cell renderer that shows "+ Add Group" text on Shared and Private root nodes.
+     */
+    private fun setupCustomRenderer() {
+        groupTree.cellRenderer = object : DefaultTreeCellRenderer() {
+            override fun getTreeCellRendererComponent(
+                tree: JTree?,
+                value: Any?,
+                sel: Boolean,
+                expanded: Boolean,
+                leaf: Boolean,
+                row: Int,
+                hasFocus: Boolean
+            ): Component {
+                super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus)
+
+                val node = value as? DefaultMutableTreeNode
+                val userObject = node?.userObject
+
+                // Only add "+ Add Group" text for Shared and Private root nodes
+                if (userObject is SharedRoot || userObject is PrivateRoot) {
+                    val panel = JPanel(BorderLayout()).apply {
+                        isOpaque = false
+                        background = if (sel) backgroundSelectionColor else backgroundNonSelectionColor
+
+                        // Left side: default label with icon
+                        val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+                            isOpaque = false
+                            add(JBLabel(userObject.toString()).apply {
+                                icon = if (expanded) openIcon else closedIcon
+                                foreground = if (sel) textSelectionColor else textNonSelectionColor
+                            })
+                        }
+
+                        // Right side: "+ Add Group" text
+                        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 2, 0)).apply {
+                            isOpaque = false
+                            add(JBLabel("+ Add Group").apply {
+                                font = font.deriveFont(9.5f)
+                                foreground = JBColor(
+                                    java.awt.Color(100, 100, 100),
+                                    java.awt.Color(150, 150, 150)
+                                )
+                            })
+                        }
+
+                        add(leftPanel, BorderLayout.WEST)
+                        add(rightPanel, BorderLayout.EAST)
+                    }
+                    return panel
+                }
+
+                return this
+            }
+        }
+    }
+
+
+
     private fun setupTree() {
         groupTree.addTreeSelectionListener {
             val node = groupTree.lastSelectedPathComponent as? DefaultMutableTreeNode
