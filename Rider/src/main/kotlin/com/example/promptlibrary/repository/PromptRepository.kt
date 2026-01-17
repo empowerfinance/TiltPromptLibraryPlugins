@@ -354,9 +354,9 @@ class PromptRepository {
      * Adds a new prompt, checking for duplicates based on normalized text.
      * Returns the added prompt, or null if a duplicate was found.
      */
-    fun addPrompt(text: String): Prompt? {
+    fun addPrompt(text: String, title: String? = null): Prompt? {
         val prompts = loadPrompts().toMutableList()
-        val newPrompt = Prompt(text = text)
+        val newPrompt = Prompt(text = text, title = title)
 
         // Check for duplicates using normalized text
         val normalizedNew = newPrompt.normalizedText()

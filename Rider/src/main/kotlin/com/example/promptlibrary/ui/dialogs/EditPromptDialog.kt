@@ -4,6 +4,8 @@ import com.example.promptlibrary.model.Prompt
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
+import com.intellij.ui.JBColor
+import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.FlowLayout
@@ -33,16 +35,33 @@ class EditPromptDialog(
     
     init {
         dialog.layout = BorderLayout()
-        
-        // Text editor
-        dialog.add(JScrollPane(editorArea), BorderLayout.CENTER)
-        
-        // Buttons
-        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
-            add(JButton("Cancel").apply { 
-                addActionListener { dialog.dispose() } 
+
+        // Main content panel with padding
+        val contentPanel = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(12)
+
+            // Text editor with rounded border
+            val scrollPane = JScrollPane(editorArea).apply {
+                border = BorderFactory.createLineBorder(JBColor.border(), 1, true)
+            }
+            add(scrollPane, BorderLayout.CENTER)
+        }
+        dialog.add(contentPanel, BorderLayout.CENTER)
+
+        // Buttons with modern styling
+        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 8)).apply {
+            border = BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, JBColor.border()),
+                JBUI.Borders.empty(8)
+            )
+
+            add(JButton("Cancel").apply {
+                cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                addActionListener { dialog.dispose() }
             })
             add(JButton("Save").apply {
+                cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                putClientProperty("JButton.buttonType", "default")
                 addActionListener {
                     saveAndClose()
                 }

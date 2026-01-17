@@ -49,21 +49,34 @@ class ExportDialog(
                 isModal = true
                 layout = BorderLayout()
 
-                val textArea = JTextArea(jsonData, 20, 60).apply {
-                    isEditable = false
-                    lineWrap = true
-                    wrapStyleWord = true
-                }
+                // Main content with padding
+                val contentPanel = JPanel(BorderLayout()).apply {
+                    border = com.intellij.util.ui.JBUI.Borders.empty(12)
 
-                val scrollPane = JScrollPane(textArea).apply {
-                    horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+                    val textArea = JTextArea(jsonData, 20, 60).apply {
+                        isEditable = false
+                        lineWrap = true
+                        wrapStyleWord = true
+                    }
+
+                    val scrollPane = JScrollPane(textArea).apply {
+                        horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+                        border = BorderFactory.createLineBorder(com.intellij.ui.JBColor.border(), 1, true)
+                    }
+                    add(scrollPane, BorderLayout.CENTER)
                 }
-                add(scrollPane, BorderLayout.CENTER)
+                add(contentPanel, BorderLayout.CENTER)
 
                 val labelCount = prompts.size
                 val dialogRef = this
-                val buttonPanel = JPanel(FlowLayout()).apply {
+                val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 8)).apply {
+                    border = BorderFactory.createCompoundBorder(
+                        BorderFactory.createMatteBorder(1, 0, 0, 0, com.intellij.ui.JBColor.border()),
+                        com.intellij.util.ui.JBUI.Borders.empty(8)
+                    )
+
                     add(JButton("Copy to Clipboard").apply {
+                        cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                         addActionListener {
                             CopyPasteManagerEx.getInstance().setContents(StringSelection(jsonData))
                             Notifications.Bus.notify(
@@ -78,6 +91,8 @@ class ExportDialog(
                         }
                     })
                     add(JButton("Save to File").apply {
+                        cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                        putClientProperty("JButton.buttonType", "default")
                         addActionListener {
                             val fileChooser = JFileChooser().apply {
                                 fileFilter = FileNameExtensionFilter("JSON files", "json")
@@ -108,6 +123,7 @@ class ExportDialog(
                         }
                     })
                     add(JButton("Close").apply {
+                        cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                         addActionListener { dialogRef.dispose() }
                     })
                 }

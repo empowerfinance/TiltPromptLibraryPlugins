@@ -1,6 +1,7 @@
 package com.example.promptlibrary.ui.components
 
 import com.example.promptlibrary.model.Group
+import com.example.promptlibrary.model.Prompt
 import com.example.promptlibrary.repository.PromptRepository
 import java.awt.BorderLayout
 import javax.swing.JPanel
@@ -14,14 +15,25 @@ import javax.swing.tree.TreePath
 object SharedRoot { override fun toString() = "Shared" }
 object PrivateRoot { override fun toString() = "Private" }
 
+// Wrapper for Group to display name in tree
+data class GroupNode(val group: Group) {
+    override fun toString() = group.name
+}
+
+// Wrapper for Prompt to display in tree
+data class PromptNode(val prompt: Prompt, val groupId: String) {
+    override fun toString() = prompt.displayTitle(50)
+}
+
 /**
  * Panel containing the group tree view.
  *
- * Displays a hierarchical tree of Shared and Private groups.
+ * Displays a hierarchical tree of Shared and Private groups with prompts.
  */
 class GroupTreePanel(
     private val repository: PromptRepository,
-    private val onGroupSelected: (String?) -> Unit
+    private val onGroupSelected: (String?) -> Unit,
+    private val onPromptSelected: (Prompt, String) -> Unit
 ) : JPanel(BorderLayout()) {
 
     private val groupTreeModel = DefaultTreeModel(DefaultMutableTreeNode("Library"))
@@ -37,14 +49,27 @@ class GroupTreePanel(
         groupTree.addTreeSelectionListener {
             val node = groupTree.lastSelectedPathComponent as? DefaultMutableTreeNode
             val userObject = node?.userObject
-            
-            selectedGroupId = when (userObject) {
-                is Group -> userObject.id
-                is SharedRoot, is PrivateRoot -> null
-                else -> null
+
+            when (userObject) {
+                is PromptNode -> {
+                    // Prompt selected - notify callback
+                    onPromptSelected(userObject.prompt, userObject.groupId)
+                    selectedGroupId = userObject.groupId
+                }
+                is GroupNode -> {
+                    // Group selected
+                    selectedGroupId = userObject.group.id
+                    onGroupSelected(selectedGroupId)
+                }
+                is SharedRoot, is PrivateRoot -> {
+                    selectedGroupId = null
+                    onGroupSelected(null)
+                }
+                else -> {
+                    selectedGroupId = null
+                    onGroupSelected(null)
+                }
             }
-            
-            onGroupSelected(selectedGroupId)
         }
         
         // Show the root to display Shared and Private
@@ -79,9 +104,17 @@ class GroupTreePanel(
         
         fun addNodes(parent: DefaultMutableTreeNode, groups: List<Group>) {
             for (g in groups) {
-                val node = DefaultMutableTreeNode(g)
-                parent.add(node)
-                if (g.children.isNotEmpty()) addNodes(node, g.children)
+                val groupNode = DefaultMutableTreeNode(GroupNode(g))
+                parent.add(groupNode)
+
+                // Add prompts under this group
+                for (prompt in g.prompts) {
+                    val promptNode = DefaultMutableTreeNode(PromptNode(prompt, g.id))
+                    groupNode.add(promptNode)
+                }
+
+                // Add child groups recursively
+                if (g.children.isNotEmpty()) addNodes(groupNode, g.children)
             }
         }
         
@@ -103,7 +136,7 @@ class GroupTreePanel(
             val treeRoot = groupTreeModel.root as DefaultMutableTreeNode
             fun find(node: DefaultMutableTreeNode): TreePath? {
                 val uo = node.userObject
-                if (uo is Group && uo.id == prevSelected) return TreePath(node.path)
+                if (uo is GroupNode && uo.group.id == prevSelected) return TreePath(node.path)
                 for (i in 0 until node.childCount) {
                     val child = node.getChildAt(i) as DefaultMutableTreeNode
                     val found = find(child)

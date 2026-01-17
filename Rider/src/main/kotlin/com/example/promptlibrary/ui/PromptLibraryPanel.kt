@@ -3,12 +3,11 @@ package com.example.promptlibrary.ui
 import com.example.promptlibrary.model.Group
 import com.example.promptlibrary.model.Prompt
 import com.example.promptlibrary.repository.PromptRepository
-import com.example.promptlibrary.ui.components.PromptCard
 import com.example.promptlibrary.ui.components.PromptComposer
 import com.example.promptlibrary.ui.components.SaveResult
 import com.example.promptlibrary.ui.components.GroupTreePanel
-import com.example.promptlibrary.ui.components.SharedRoot
-import com.example.promptlibrary.ui.components.PrivateRoot
+import com.example.promptlibrary.ui.components.PromptDetailPanel
+import com.example.promptlibrary.ui.components.GroupNode
 import com.example.promptlibrary.ui.dialogs.EditPromptDialog
 import com.example.promptlibrary.ui.dialogs.EditResult
 import com.example.promptlibrary.ui.dialogs.ExportDialog
@@ -37,37 +36,35 @@ import com.intellij.openapi.options.ShowSettingsUtil
 
 class PromptLibraryPanel(private val project: com.intellij.openapi.project.Project) : JPanel(BorderLayout()) {
     private val repository = PromptRepository()
-    private var prompts: List<Prompt> = emptyList()
-    private val listPanel = JPanel()
-    private val searchField = JTextField()
+    private var selectedGroupId: String? = null
+    private var selectedGroupName: String? = null
+
+    // Prompt detail panel
+    private val promptDetailPanel = PromptDetailPanel(
+        onEdit = { prompt, groupId -> editPrompt(prompt, groupId) },
+        onDelete = { prompt, groupId -> deletePrompt(prompt, groupId) }
+    )
 
     // Group tree component
-    private val groupTreePanel = GroupTreePanel(repository) { groupId ->
-        selectedGroupId = groupId
-        updateComposerState()
-        refreshList()
-    }
-    private var selectedGroupId: String? = null
+    private val groupTreePanel = GroupTreePanel(
+        repository = repository,
+        onGroupSelected = { groupId ->
+            selectedGroupId = groupId
+            selectedGroupName = getGroupName(groupId)
+            updateComposerState()
+            promptDetailPanel.clear()
+        },
+        onPromptSelected = { prompt, groupId ->
+            handlePromptSelected(prompt, groupId)
+        }
+    )
 
     private lateinit var promptComposer: PromptComposer
-    private var lastDeletedPrompt: Prompt? = null
 
     // Git sync service
     private val gitSyncService = GitSyncService(project, repository)
 
-    private val maxCardHeight = 180
-    // UI layout components
-    private lateinit var split: JSplitPane
-    private lateinit var leftContainer: JPanel
-    private val props: PropertiesComponent = PropertiesComponent.getInstance()
-    private var showGroupTree: Boolean
-        get() = props.getBoolean("promptlib.ui.showGroupTree", true)
-        set(value) { props.setValue("promptlib.ui.showGroupTree", value, true) }
-    private val defaultDividerSize = 8
-    private var expandedPromptId: String? = null
-    private val collapsedRowHeight = 24
-
-    // Small, borderless icon button helper
+    // Small, borderless icon button helper with modern hover effects
     private fun iconButton(icon: javax.swing.Icon, tooltip: String, onClick: () -> Unit): JButton {
         return JButton(icon).apply {
             toolTipText = tooltip
@@ -75,6 +72,24 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
             isOpaque = false
             isBorderPainted = false
             isFocusPainted = false
+            cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+
+            // Add modern hover effect
+            addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseEntered(e: java.awt.event.MouseEvent?) {
+                    isContentAreaFilled = true
+                    background = JBColor.namedColor("Button.hoverBackground",
+                        JBColor(java.awt.Color(0, 0, 0, 10), java.awt.Color(255, 255, 255, 10)))
+                }
+                override fun mouseExited(e: java.awt.event.MouseEvent?) {
+                    isContentAreaFilled = false
+                }
+                override fun mousePressed(e: java.awt.event.MouseEvent?) {
+                    background = JBColor.namedColor("Button.pressedBackground",
+                        JBColor(java.awt.Color(0, 0, 0, 20), java.awt.Color(255, 255, 255, 20)))
+                }
+            })
+
             addActionListener { onClick() }
         }
     }
@@ -96,7 +111,7 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
                     if (trimmed.isNotEmpty()) {
                         val ok = repository.renameGroup(g.id, trimmed)
                         if (!ok) Notifications.Bus.notify(Notification("PromptLibrary", "Duplicate group name", "A group with that name already exists in Private.", NotificationType.WARNING))
-                        groupTreePanel.rebuildTree(); refreshList()
+                        groupTreePanel.rebuildTree()
                     }
                 }
             })
@@ -119,66 +134,40 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
                         val unfiled = repository.ensureUnfiledGroup()
                         repository.deleteGroupPreservePrompts(g.id)
                         Notifications.Bus.notify(Notification("PromptLibrary", "Group deleted", "Moved prompts to '${unfiled.name}'.", NotificationType.INFORMATION))
-                        groupTreePanel.rebuildTree(); refreshList()
+                        groupTreePanel.rebuildTree()
                     }
                 }
             })
         }
 
-        border = JBUI.Borders.empty(8)
+        border = JBUI.Borders.empty(4)
 
 
         // Compact toolbar: primary icons (Sync, Import, Export) + overflow menu (advanced + settings + view)
-        val toolbar = JPanel(BorderLayout(8, 0)).apply {
-            val actions = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+        val toolbar = JPanel(BorderLayout(4, 0)).apply {
+            border = JBUI.Borders.emptyBottom(4)
+
+            val actions = JPanel(FlowLayout(FlowLayout.LEFT, 2, 0)).apply {
                 // Primary: Sync
-                add(JButton(AllIcons.Actions.Refresh).apply {
-                    toolTipText = "Sync: Pull, merge (remote wins), write YAML, commit & push"
-                    addActionListener { runFullSync() }
+                add(iconButton(AllIcons.Actions.Refresh, "Sync: Pull, merge (remote wins), write YAML, commit & push") {
+                    runFullSync()
                 })
                 // Primary: Import
-                add(JButton(AllIcons.ToolbarDecorator.Import).apply {
-                    toolTipText = "Import prompts from JSON"
-                    addActionListener { showImportDialog() }
+                add(iconButton(AllIcons.ToolbarDecorator.Import, "Import prompts from JSON") {
+                    showImportDialog()
                 })
                 // Primary: Export
-                add(JButton(AllIcons.ToolbarDecorator.Export).apply {
-                    toolTipText = "Export prompts to JSON"
-                    addActionListener { showExportDialog() }
+                add(iconButton(AllIcons.ToolbarDecorator.Export, "Export prompts to JSON") {
+                    showExportDialog()
                 })
             }
 
-            // Helper: current selection (reserved for future context-aware actions)
-            fun selectedGroupUnderPrivate(): Group? {
-                val sel = groupTreePanel.getLastSelectedNode() as? javax.swing.tree.DefaultMutableTreeNode ?: return null
-                val uo = sel.userObject
-                return if (uo is Group) uo else null
-            }
-
-            // Overflow menu consolidating view options, advanced git actions, and settings
-            val overflowButton = JButton(AllIcons.Actions.More).apply {
-                toolTipText = "More actions"
-            }
+            // Overflow menu consolidating advanced git actions and settings
             val overflowPopup = JPopupMenu().apply {
                 // Advanced Git actions
                 add(JMenuItem("Pull only").apply { addActionListener { pullFromGit() } })
                 add(JMenuItem("Load from Repo (into Shared)").apply { addActionListener { loadRepoIntoShared() } })
                 add(JMenuItem("Write to Git (commit & push)").apply { addActionListener { writeToGit() } })
-                addSeparator()
-                // View options
-                add(JCheckBoxMenuItem("Show group tree", showGroupTree).apply {
-                    addActionListener {
-                        showGroupTree = isSelected
-                        if (showGroupTree) {
-                            split.leftComponent = leftContainer
-                            split.dividerSize = defaultDividerSize
-                        } else {
-                            split.leftComponent = null
-                            split.dividerSize = 0
-                        }
-                        split.revalidate(); split.repaint()
-                    }
-                })
                 addSeparator()
                 // Settings
                 add(JMenuItem("Settings…").apply { addActionListener { openSettings() } })
@@ -196,130 +185,124 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
                     }
                 })
             }
-            overflowButton.addActionListener { overflowPopup.show(overflowButton, 0, overflowButton.height) }
+            val overflowButton = JButton(AllIcons.Actions.More).apply {
+                toolTipText = "More actions"
+                isContentAreaFilled = false
+                isOpaque = false
+                isBorderPainted = false
+                isFocusPainted = false
+                cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+
+                addMouseListener(object : java.awt.event.MouseAdapter() {
+                    override fun mouseEntered(e: java.awt.event.MouseEvent?) {
+                        isContentAreaFilled = true
+                        background = JBColor.namedColor("Button.hoverBackground",
+                            JBColor(java.awt.Color(0, 0, 0, 10), java.awt.Color(255, 255, 255, 10)))
+                    }
+                    override fun mouseExited(e: java.awt.event.MouseEvent?) {
+                        isContentAreaFilled = false
+                    }
+                    override fun mousePressed(e: java.awt.event.MouseEvent?) {
+                        background = JBColor.namedColor("Button.pressedBackground",
+                            JBColor(java.awt.Color(0, 0, 0, 20), java.awt.Color(255, 255, 255, 20)))
+                    }
+                })
+
+                addActionListener {
+                    overflowPopup.show(this, 0, height)
+                }
+            }
 
             add(actions, BorderLayout.WEST)
-            add(searchField.apply {
-                toolTipText = "Search prompts…"
-                document.addDocumentListener(SimpleDocumentListener { refreshList() })
-            }, BorderLayout.CENTER)
             add(overflowButton, BorderLayout.EAST)
         }
-            // Left: group tree with toolbar, Right: list
-            // Left: group tree with toolbar, Right: list
-            val treeToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
-                add(JButton(AllIcons.General.Add).apply {
-                    toolTipText = "Add Group"
-                    addActionListener {
-                        val options = arrayOf("Shared", "Private")
-                        val target = JOptionPane.showInputDialog(this@PromptLibraryPanel, "Add group to:", "Add Group", JOptionPane.PLAIN_MESSAGE, null, options, options.last()) as? String
-                        val name = JOptionPane.showInputDialog(this@PromptLibraryPanel, "New group name:", "Add Group", JOptionPane.PLAIN_MESSAGE)
-                        val trimmed = name?.trim().orEmpty()
-                        if (!trimmed.isNullOrEmpty()) {
-                            val newGroup = if (target == "Shared") repository.addSharedGroup(trimmed) else repository.addPrivateGroup(trimmed)
-                            // Focus the newly created group and rebuild
-                            selectedGroupId = newGroup.id
-                            groupTreePanel.rebuildTree(); refreshList()
-                        }
-                    }
-                })
-                add(JButton(AllIcons.Actions.Edit).apply {
-                    toolTipText = "Rename Group"
-                    addActionListener {
-                        val sel = groupTreePanel.getLastSelectedNode() as? javax.swing.tree.DefaultMutableTreeNode
-                        val g = sel?.userObject as? Group ?: return@addActionListener
-                        val name = JOptionPane.showInputDialog(this@PromptLibraryPanel, "Rename group:", g.name)
-                        val trimmed = name?.trim().orEmpty()
-                        if (trimmed.isNotEmpty()) {
-                            val ok = repository.renameGroup(g.id, trimmed)
-                            if (!ok) {
-                                Notifications.Bus.notify(Notification("PromptLibrary", "Duplicate group name", "A group with that name already exists.", NotificationType.WARNING))
-                            }
-                            groupTreePanel.rebuildTree(); refreshList()
-                        }
-                    }
-                })
-                add(JButton(AllIcons.General.Remove).apply {
-                    toolTipText = "Delete Group"
-                    addActionListener {
-                        val sel = groupTreePanel.getLastSelectedNode() as? javax.swing.tree.DefaultMutableTreeNode
-                        val g = sel?.userObject as? Group ?: return@addActionListener
-                        if (g.tags.contains("ns:shared")) {
-                            Notifications.Bus.notify(Notification("PromptLibrary", "Not allowed", "Shared groups cannot be deleted", NotificationType.WARNING))
-                        } else {
-                            val res = JOptionPane.showConfirmDialog(this@PromptLibraryPanel, "Delete group '${g.name}'? Prompts will be moved to Private/Unfiled.", "Confirm Delete", JOptionPane.YES_NO_OPTION)
-                            if (res == JOptionPane.YES_OPTION) {
-                                repository.deleteGroupPreservePrompts(g.id)
-                                groupTreePanel.rebuildTree(); refreshList()
-                            }
-                        }
-                    }
-                })
-            }
 
+        // Tree toolbar with group management buttons
+        val treeToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 2, 2)).apply {
+            border = JBUI.Borders.emptyBottom(2)
 
-            split = JSplitPane(JSplitPane.HORIZONTAL_SPLIT).apply {
-                dividerSize = defaultDividerSize
-                resizeWeight = 0.25
-            }
-            // Build the left container with the group tree and toolbar
-            leftContainer = JPanel(BorderLayout()).apply {
-                add(treeToolbar, BorderLayout.NORTH)
-                add(groupTreePanel, BorderLayout.CENTER)
-            }
-            // Attach components to split
-            split.leftComponent = leftContainer
-            split.rightComponent = ScrollPaneFactory.createScrollPane(listPanel, true).apply {
-                horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-            }
-            add(split, BorderLayout.CENTER)
-            // Apply initial tree visibility
-            fun applyTreeVisibility() {
-                if (showGroupTree) {
-                    split.leftComponent = leftContainer
-                    split.dividerSize = defaultDividerSize
-                } else {
-                    split.leftComponent = null
-                    split.dividerSize = 0
-
-
+            add(iconButton(AllIcons.General.Add, "Add Group") {
+                val options = arrayOf("Shared", "Private")
+                val target = JOptionPane.showInputDialog(this@PromptLibraryPanel, "Add group to:", "Add Group", JOptionPane.PLAIN_MESSAGE, null, options, options.last()) as? String
+                val name = JOptionPane.showInputDialog(this@PromptLibraryPanel, "New group name:", "Add Group", JOptionPane.PLAIN_MESSAGE)
+                val trimmed = name?.trim().orEmpty()
+                if (!trimmed.isNullOrEmpty()) {
+                    val newGroup = if (target == "Shared") repository.addSharedGroup(trimmed) else repository.addPrivateGroup(trimmed)
+                    selectedGroupId = newGroup.id
+                    selectedGroupName = newGroup.name
+                    groupTreePanel.rebuildTree()
+                    updateComposerState()
                 }
-                split.revalidate(); split.repaint()
+            })
+            add(iconButton(AllIcons.Actions.Edit, "Rename Group") {
+                val sel = groupTreePanel.getLastSelectedNode() as? javax.swing.tree.DefaultMutableTreeNode
+                val groupNode = sel?.userObject as? GroupNode ?: return@iconButton
+                val g = groupNode.group
+                val name = JOptionPane.showInputDialog(this@PromptLibraryPanel, "Rename group:", g.name)
+                val trimmed = name?.trim().orEmpty()
+                if (trimmed.isNotEmpty()) {
+                    val ok = repository.renameGroup(g.id, trimmed)
+                    if (!ok) {
+                        Notifications.Bus.notify(Notification("PromptLibrary", "Duplicate group name", "A group with that name already exists.", NotificationType.WARNING))
+                    }
+                    groupTreePanel.rebuildTree()
+                }
+            })
+            add(iconButton(AllIcons.General.Remove, "Delete Group") {
+                val sel = groupTreePanel.getLastSelectedNode() as? javax.swing.tree.DefaultMutableTreeNode
+                val groupNode = sel?.userObject as? GroupNode ?: return@iconButton
+                val g = groupNode.group
+                if (g.tags.contains("ns:shared")) {
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Not allowed", "Shared groups cannot be deleted", NotificationType.WARNING))
+                } else {
+                    val res = JOptionPane.showConfirmDialog(this@PromptLibraryPanel, "Delete group '${g.name}'? Prompts will be moved to Private/Unfiled.", "Confirm Delete", JOptionPane.YES_NO_OPTION)
+                    if (res == JOptionPane.YES_OPTION) {
+                        repository.deleteGroupPreservePrompts(g.id)
+                        groupTreePanel.rebuildTree()
+                    }
+                }
+            })
+        }
+
+        // Vertical layout: tree -> detail -> composer
+        val mainContent = JPanel(BorderLayout()).apply {
+            // Tree section with toolbar
+            val treeSection = JPanel(BorderLayout()).apply {
+                add(treeToolbar, BorderLayout.NORTH)
+                add(ScrollPaneFactory.createScrollPane(groupTreePanel, true), BorderLayout.CENTER)
+                preferredSize = JBUI.size(0, 300)
             }
-            applyTreeVisibility()
 
-            // Tree selection is now handled by the GroupTreePanel callback
-
-            // Restore and persist divider location
-            val lastDiv = props.getInt("promptlib.split.divider", -1)
-            if (lastDiv > 0) split.dividerLocation = lastDiv
-            split.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY) {
-                // Update composer state after changing selection
-                updateComposerState()
-
-                props.setValue("promptlib.split.divider", split.dividerLocation, -1)
+            // Detail section
+            val detailSection = JPanel(BorderLayout()).apply {
+                add(promptDetailPanel, BorderLayout.CENTER)
+                preferredSize = JBUI.size(0, 150)
             }
 
-            groupTreePanel.rebuildTree()
+            // Vertical split: tree on top, detail on bottom
+            val verticalSplit = JSplitPane(JSplitPane.VERTICAL_SPLIT).apply {
+                topComponent = treeSection
+                bottomComponent = detailSection
+                resizeWeight = 0.65
+                dividerSize = 4
+            }
+
+            add(verticalSplit, BorderLayout.CENTER)
+        }
 
         add(toolbar, BorderLayout.NORTH)
+        add(mainContent, BorderLayout.CENTER)
 
-        // List area (right side is already the listPanel scroll in the split)
-        listPanel.layout = BoxLayout(listPanel, BoxLayout.Y_AXIS)
-        listPanel.alignmentX = Component.LEFT_ALIGNMENT.toFloat()
-
-        // New prompt composer
-        promptComposer = PromptComposer { text ->
+        // Prompt composer
+        promptComposer = PromptComposer { text, title ->
             val currentSelection = selectedGroupId
-            val addedPrompt = repository.addPrompt(text)
+            val addedPrompt = repository.addPrompt(text, title)
             if (addedPrompt != null) {
                 val targetGid = currentSelection ?: repository.ensureUnfiledGroup().id
                 repository.movePromptToGroup(addedPrompt.id, targetGid)
-                loadPrompts()
                 // Restore focus to the group we just saved into
                 selectedGroupId = targetGid
                 groupTreePanel.rebuildTree()
-                refreshList()
                 SaveResult.Success
             } else {
                 SaveResult.Duplicate
@@ -327,149 +310,94 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         }
         add(promptComposer, BorderLayout.SOUTH)
 
-        loadPrompts()
-        // One-time migration: move any private-root prompts into Unfiled group so nothing sits on namespace roots
+        // One-time migration: move any private-root prompts into Unfiled group
         val moved = repository.migratePrivateRootPromptsToUnfiled()
         if (moved > 0) {
             Notifications.Bus.notify(Notification("PromptLibrary", "Migrated prompts", "Moved ${moved} prompt(s) to Private/Unfiled", NotificationType.INFORMATION))
-            groupTreePanel.rebuildTree()
         }
-        // Initialize composer state on load
-        promptComposer.updateState(groupSelected = false)
 
-        refreshList()
-            // Rebuild tree in case groups changed from settings actions
-            groupTreePanel.rebuildTree()
+        // Initialize composer state
+        promptComposer.updateState(groupSelected = false, groupName = null)
 
-    }
-
-    private fun updateComposerState() {
-        val isRootSelected = selectedGroupId == null
-        promptComposer.updateState(groupSelected = !isRootSelected)
-    }
-
-    private fun loadPrompts() {
-        prompts = repository.loadPrompts()
-        // Default selection: Private (null)
-        groupTreePanel.clearSelection()
+        // Build initial tree
+        groupTreePanel.rebuildTree()
 
     }
 
-    private fun normalized(s: String): String = s
-        .trim()
-        .replace(Regex("\\s+"), " ")
-        .replace("\r\n", "\n").replace("\r", "\n")
-        .lines()
-        .joinToString("\n") { it.trimEnd() }
-        .lowercase()
-
-    private fun matchesSearch(prompt: Prompt): Boolean {
-        val q = searchField.text.trim()
-        if (q.isEmpty()) return true
-        return prompt.normalizedText().contains(normalized(q))
-    }
-
-    private fun refreshList() {
-        listPanel.removeAll()
-        // Do not show prompts when a namespace root (Shared/Private) is selected
-        val base = when (val gid = selectedGroupId) {
-            null -> emptyList()
-            else -> repository.getGroupPrompts(gid)
-        }
-        val items = base.filter { matchesSearch(it) }
-        items.forEach { prompt ->
-            listPanel.add(createPromptCard(prompt))
-            listPanel.add(Box.createVerticalStrut(8))
-        }
-        listPanel.revalidate()
-        listPanel.repaint()
-    }
-
-    private fun createPromptCard(prompt: Prompt): JComponent {
-        val isExpanded = expandedPromptId == prompt.id
-
-        return PromptCard(
-            prompt = prompt,
-            isExpanded = isExpanded,
-            maxCardHeight = maxCardHeight,
-            collapsedRowHeight = collapsedRowHeight,
-            onToggleExpand = { promptId ->
-                expandedPromptId = if (isExpanded) null else promptId
-                refreshList()
-            },
-            onCopy = { text -> copyToClipboard(text) },
-            onEdit = { p -> openEditorDialog(p) },
-            onDelete = { p ->
-                val deletedPrompt = repository.deletePrompt(p.id)
-                if (deletedPrompt != null) {
-                    lastDeletedPrompt = deletedPrompt
-                    loadPrompts()
-                    refreshList()
-                    showUndoNotification(deletedPrompt)
-                }
-            },
-            onMove = { p, group ->
-                repository.movePromptToGroup(p.id, group.id)
-                loadPrompts()
-                refreshList()
-            },
-            availableGroups = repository.getAllGroups()
-        ).create()
-    }
-
-    private fun copyToClipboard(text: String) {
-        CopyPasteManagerEx.getInstance().setContents(StringSelection(text))
+    private fun handlePromptSelected(prompt: Prompt, groupId: String) {
+        // Copy to clipboard
+        CopyPasteManagerEx.getInstance().setContents(StringSelection(prompt.text))
         Notifications.Bus.notify(Notification("PromptLibrary", "Prompt copied", "", NotificationType.INFORMATION))
+
+        // Show in detail panel
+        promptDetailPanel.setPrompt(prompt, groupId)
+
+        // Update selected group for composer
+        selectedGroupId = groupId
+        selectedGroupName = getGroupName(groupId)
+        updateComposerState()
     }
 
-    private fun openEditorDialog(prompt: Prompt) {
+    private fun getGroupName(groupId: String?): String? {
+        if (groupId == null) return null
+        val group = findGroupById(groupId)
+        return group?.name
+    }
+
+    private fun editPrompt(prompt: Prompt, groupId: String) {
         EditPromptDialog(
             prompt = prompt,
             parent = this,
             onSave = { newText ->
                 val updated = repository.updatePrompt(prompt.id, newText)
-                if (updated == null) {
-                    EditResult.Duplicate
-                } else {
-                    loadPrompts()
-                    refreshList()
+                if (updated != null) {
+                    groupTreePanel.rebuildTree()
+                    promptDetailPanel.setPrompt(updated, groupId)
                     EditResult.Success
+                } else {
+                    EditResult.Duplicate
                 }
             }
         ).show()
     }
 
-
-    private fun showUndoNotification(deletedPrompt: Prompt) {
-        val notification = Notification(
-            "PromptLibrary",
-            "Prompt deleted",
-            "Click to undo",
-            NotificationType.INFORMATION
+    private fun deletePrompt(prompt: Prompt, groupId: String) {
+        val res = JOptionPane.showConfirmDialog(
+            this,
+            "Delete this prompt?",
+            "Confirm Delete",
+            JOptionPane.YES_NO_OPTION
         )
+        if (res == JOptionPane.YES_OPTION) {
+            repository.deletePrompt(prompt.id)
+            groupTreePanel.rebuildTree()
+            promptDetailPanel.clear()
+            Notifications.Bus.notify(Notification("PromptLibrary", "Prompt deleted", "", NotificationType.INFORMATION))
+        }
+    }
 
-        notification.addAction(object : com.intellij.notification.NotificationAction("Undo") {
-            override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent, notification: Notification) {
+    private fun updateComposerState() {
+        val groupId = selectedGroupId
+        val group = if (groupId != null) findGroupById(groupId) else null
+        val groupName = selectedGroupName ?: group?.name
+        val isValidGroup = group != null && !isRootGroup(group)
 
-                // Restore the deleted prompt
-                val restoredPrompts = repository.loadPrompts().toMutableList()
-                restoredPrompts.add(deletedPrompt)
-                repository.savePrompts(restoredPrompts)
+        promptComposer.updateState(groupSelected = isValidGroup, groupName = groupName)
+    }
 
-                loadPrompts()
-                refreshList()
-
-                // Hide the notification
-                notification.expire()
-
-                // Show confirmation
-                Notifications.Bus.notify(
-                    Notification("PromptLibrary", "Prompt restored", "", NotificationType.INFORMATION)
-                )
+    private fun findGroupById(groupId: String): Group? {
+        fun search(g: Group): Group? {
+            if (g.id == groupId) return g
+            g.children.forEach { child ->
+                search(child)?.let { return it }
             }
-        })
+            return null
+        }
+        return repository.getAllGroups().firstNotNullOfOrNull { search(it) }
+    }
 
-        Notifications.Bus.notify(notification)
+    private fun isRootGroup(group: Group): Boolean {
+        return group.id == "root-shared" || group.id == "root-private"
     }
 
     private fun showExportDialog() {
@@ -478,14 +406,13 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         val uo = node?.userObject
 
         val exportPrompts: List<Prompt> = when (uo) {
-            is Group -> repository.getGroupPrompts(uo.id)
-            is SharedRoot, is PrivateRoot -> repository.getAllPromptsLibrary()
+            is GroupNode -> repository.getGroupPrompts(uo.group.id)
             else -> repository.getAllPromptsLibrary()
         }
 
-        val title = if (uo is Group) "Export Group: ${uo.name}" else "Export Library (v1 JSON)"
-        val defaultName = if (uo is Group) {
-            uo.name.replace(" ", "_").lowercase() + "-prompts.json"
+        val title = if (uo is GroupNode) "Export Group: ${uo.group.name}" else "Export Library (v1 JSON)"
+        val defaultName = if (uo is GroupNode) {
+            uo.group.name.replace(" ", "_").lowercase() + "-prompts.json"
         } else {
             "library-prompts.json"
         }
@@ -503,8 +430,7 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
             parent = this,
             onImport = { importedPrompts ->
                 val importedCount = repository.importPrompts(importedPrompts)
-                loadPrompts()
-                refreshList()
+                groupTreePanel.rebuildTree()
                 ImportResult.Success(
                     importedCount = importedCount,
                     duplicatesSkipped = importedPrompts.size - importedCount
@@ -533,7 +459,7 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         try {
             val groups = GitYamlLoader.loadFromRoot(root)
             repository.replaceSharedGroups(groups)
-            groupTreePanel.rebuildTree(); refreshList()
+            groupTreePanel.rebuildTree()
             Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Imported ${'$'}{groups.size} Shared group(s) from Git (remote-wins).", NotificationType.INFORMATION))
         } catch (e: Exception) {
             JOptionPane.showMessageDialog(this@PromptLibraryPanel, "Error loading YAML: ${'$'}{e.message}", "Git Sync", JOptionPane.ERROR_MESSAGE)
@@ -557,11 +483,4 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         com.example.promptlibrary.sync.GitRepoManager.nukeWorkingCopy(project)
         runFullSync()
     }
-}
-
-// Helpers
-private class SimpleDocumentListener(val onChange: () -> Unit) : javax.swing.event.DocumentListener {
-    override fun insertUpdate(e: javax.swing.event.DocumentEvent?) = onChange()
-    override fun removeUpdate(e: javax.swing.event.DocumentEvent?) = onChange()
-    override fun changedUpdate(e: javax.swing.event.DocumentEvent?) = onChange()
 }

@@ -24,8 +24,30 @@ object GitRepoManager {
         val git = Git.getInstance()
 
         // If user provided a local path, prefer it as the working copy
-        if (s.repoPath.isNotBlank()) {
-            val repoRoot = File(s.repoPath)
+        // Use expandPath to handle tilde (~) expansion, matching VS Code behavior
+        val rawRepoPath = s.repoPath.trim()
+        if (rawRepoPath.isNotBlank()) {
+            val expandedPath = PluginSettingsService.expandPath(rawRepoPath)
+            val repoRoot = File(expandedPath)
+
+            // If the path doesn't exist and we have a remote URL, try to clone
+            if (!repoRoot.exists() && remoteUrl.isNotEmpty()) {
+                // Create parent directory if needed
+                repoRoot.parentFile?.mkdirs()
+
+                val handler = GitLineHandler(project, LocalFileSystem.getInstance().refreshAndFindFileByIoFile(repoRoot.parentFile)!!, GitCommand.CLONE).apply {
+                    addParameters(remoteUrl)
+                    addParameters(repoRoot.absolutePath)
+                    endOptions()
+                }
+                val result = git.runCommand(handler)
+                if (!result.success()) {
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Clone failed: ${result.errorOutputAsJoinedString}", NotificationType.ERROR))
+                    return null to null
+                }
+            }
+
+            // Verify it's a valid git repository
             if (!repoRoot.exists() || !repoRoot.isDirectory || !File(repoRoot, ".git").exists()) {
                 Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Local repo path is not a valid Git repository", NotificationType.ERROR))
                 return null to null

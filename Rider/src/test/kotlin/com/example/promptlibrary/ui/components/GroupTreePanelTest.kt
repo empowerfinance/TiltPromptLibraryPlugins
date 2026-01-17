@@ -26,75 +26,80 @@ class GroupTreePanelTest {
     fun `panel should be created`() {
         // Given
         var selectedGroupId: String? = null
-        
+
         // When
         val panel = GroupTreePanel(
             repository = repository,
-            onGroupSelected = { selectedGroupId = it }
+            onGroupSelected = { selectedGroupId = it },
+            onPromptSelected = { _, _ -> }
         )
-        
+
         // Then
         assertThat(panel).isNotNull
     }
-    
+
     @Test
     fun `rebuildTree should populate tree with groups`() {
         // Given
         var selectedGroupId: String? = null
         val panel = GroupTreePanel(
             repository = repository,
-            onGroupSelected = { selectedGroupId = it }
+            onGroupSelected = { selectedGroupId = it },
+            onPromptSelected = { _, _ -> }
         )
-        
+
         // When
         panel.rebuildTree()
-        
+
         // Then
         assertThat(panel).isNotNull
     }
-    
+
     @Test
     fun `clearSelection should clear selected group`() {
         // Given
         var selectedGroupId: String? = "test-id"
         val panel = GroupTreePanel(
             repository = repository,
-            onGroupSelected = { selectedGroupId = it }
+            onGroupSelected = { selectedGroupId = it },
+            onPromptSelected = { _, _ -> }
         )
-        
+
         // When
         panel.clearSelection()
-        
+
         // Then
         assertThat(panel.getSelectedGroupId()).isNull()
     }
-    
+
     @Test
     fun `getSelectedGroupId should return null initially`() {
         // Given
         val panel = GroupTreePanel(
             repository = repository,
-            onGroupSelected = { }
+            onGroupSelected = { },
+            onPromptSelected = { _, _ -> }
         )
-        
+
         // When
         val groupId = panel.getSelectedGroupId()
-        
+
         // Then
         assertThat(groupId).isNull()
     }
-    
+
     @Test
     fun `getLastSelectedNode should return null initially`() {
         // Given
         val panel = GroupTreePanel(
             repository = repository,
-            onGroupSelected = { }
+            onGroupSelected = { },
+            onPromptSelected = { _, _ -> }
         )
-        
+
         // When
         val node = panel.getLastSelectedNode()
-        
+
         // Then
         assertThat(node).isNull()
     }

@@ -5,6 +5,7 @@ import com.intellij.ide.CopyPasteManagerEx
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
+import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import kotlinx.serialization.json.*
 import java.awt.BorderLayout
@@ -37,23 +38,45 @@ class ImportDialog(
     
     init {
         dialog.layout = BorderLayout()
-        
-        val header = JLabel("Import supports v1 arrays (strings or objects with 'text') and v2 Library JSON. v2 imports will be flattened into private prompts.")
-        header.border = JBUI.Borders.empty(8)
-        dialog.add(header, BorderLayout.NORTH)
-        
-        val scrollPane = JScrollPane(textArea).apply {
-            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+
+        // Header with info text
+        val header = JLabel("<html><body style='width: 500px'>Import supports v1 arrays (strings or objects with 'text') and v2 Library JSON. v2 imports will be flattened into private prompts.</body></html>").apply {
+            border = BorderFactory.createCompoundBorder(
+                JBUI.Borders.empty(12, 12, 8, 12),
+                BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(JBColor.namedColor("Component.infoForeground", JBColor.GRAY), 1, true),
+                    JBUI.Borders.empty(8)
+                )
+            )
+            foreground = JBColor.namedColor("Label.infoForeground", JBColor.GRAY)
         }
-        dialog.add(scrollPane, BorderLayout.CENTER)
+        dialog.add(header, BorderLayout.NORTH)
+
+        // Main content with padding
+        val contentPanel = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(0, 12, 12, 12)
+
+            val scrollPane = JScrollPane(textArea).apply {
+                horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+                border = BorderFactory.createLineBorder(JBColor.border(), 1, true)
+            }
+            add(scrollPane, BorderLayout.CENTER)
+        }
+        dialog.add(contentPanel, BorderLayout.CENTER)
         
-        val buttonPanel = JPanel(FlowLayout()).apply {
+        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 8)).apply {
+            border = BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, JBColor.border()),
+                JBUI.Borders.empty(8)
+            )
+
             add(JButton("Load from File").apply {
+                cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                 addActionListener {
                     val fileChooser = JFileChooser().apply {
                         fileFilter = FileNameExtensionFilter("JSON files", "json")
                     }
-                    
+
                     if (fileChooser.showOpenDialog(dialog) == JFileChooser.APPROVE_OPTION) {
                         try {
                             val jsonData = fileChooser.selectedFile.readText()
@@ -70,6 +93,7 @@ class ImportDialog(
                 }
             })
             add(JButton("Paste from Clipboard").apply {
+                cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                 addActionListener {
                     try {
                         val clipboardData = CopyPasteManagerEx.getInstance().contents?.getTransferData(
@@ -96,11 +120,14 @@ class ImportDialog(
                 }
             })
             add(JButton("Import").apply {
+                cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                putClientProperty("JButton.buttonType", "default")
                 addActionListener {
                     performImport()
                 }
             })
             add(JButton("Close").apply {
+                cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                 addActionListener { dialog.dispose() }
             })
         }

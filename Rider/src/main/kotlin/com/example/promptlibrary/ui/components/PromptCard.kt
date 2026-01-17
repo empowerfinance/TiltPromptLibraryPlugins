@@ -36,9 +36,49 @@ class PromptCard(
         }
         
         val card = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.customLine(JBColor.border(), 1)
+            // Modern card styling with rounded corners and subtle shadow effect
+            border = BorderFactory.createCompoundBorder(
+                JBUI.Borders.empty(4, 0, 4, 0), // Outer spacing
+                BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(JBColor.border(), 1, true), // Rounded border
+                    JBUI.Borders.empty(0) // Inner padding handled by components
+                )
+            )
+            background = UIManager.getColor("Panel.background")
             maximumSize = Dimension(Int.MAX_VALUE, if (isExpanded) maxCardHeight + 80 else collapsedRowHeight)
             preferredSize = Dimension(Int.MAX_VALUE, if (isExpanded) maxCardHeight + 80 else collapsedRowHeight)
+
+            // Add subtle hover effect
+            val originalBg = background
+            addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseEntered(e: java.awt.event.MouseEvent?) {
+                    background = JBColor(
+                        java.awt.Color(originalBg.red, originalBg.green, originalBg.blue, 250),
+                        java.awt.Color(
+                            Math.min(255, originalBg.red + 5),
+                            Math.min(255, originalBg.green + 5),
+                            Math.min(255, originalBg.blue + 5)
+                        )
+                    )
+                    border = BorderFactory.createCompoundBorder(
+                        JBUI.Borders.empty(4, 0, 4, 0),
+                        BorderFactory.createCompoundBorder(
+                            BorderFactory.createLineBorder(JBColor.namedColor("Component.focusColor", JBColor.BLUE), 1, true),
+                            JBUI.Borders.empty(0)
+                        )
+                    )
+                }
+                override fun mouseExited(e: java.awt.event.MouseEvent?) {
+                    background = originalBg
+                    border = BorderFactory.createCompoundBorder(
+                        JBUI.Borders.empty(4, 0, 4, 0),
+                        BorderFactory.createCompoundBorder(
+                            BorderFactory.createLineBorder(JBColor.border(), 1, true),
+                            JBUI.Borders.empty(0)
+                        )
+                    )
+                }
+            })
         }
 
         // Title label (first 50 chars of text when title is blank)
@@ -112,6 +152,24 @@ class PromptCard(
             isContentAreaFilled = false
             isFocusPainted = false
             preferredSize = Dimension(24, 24)
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+
+            // Add hover effect for better visual feedback
+            addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseEntered(e: java.awt.event.MouseEvent?) {
+                    isContentAreaFilled = true
+                    background = JBColor.namedColor("Button.hoverBackground",
+                        JBColor(java.awt.Color(0, 0, 0, 10), java.awt.Color(255, 255, 255, 10)))
+                }
+                override fun mouseExited(e: java.awt.event.MouseEvent?) {
+                    isContentAreaFilled = false
+                }
+                override fun mousePressed(e: java.awt.event.MouseEvent?) {
+                    background = JBColor.namedColor("Button.pressedBackground",
+                        JBColor(java.awt.Color(0, 0, 0, 20), java.awt.Color(255, 255, 255, 20)))
+                }
+            })
+
             addActionListener { onClick() }
         }
     }

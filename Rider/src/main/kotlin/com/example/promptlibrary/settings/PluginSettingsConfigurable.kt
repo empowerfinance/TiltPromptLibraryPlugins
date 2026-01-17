@@ -38,13 +38,39 @@ class PluginSettingsConfigurable : Configurable {
             strategyCombo.maximumSize = java.awt.Dimension(Int.MAX_VALUE, fieldHeight)
             autoFetchMinutesField.maximumSize = java.awt.Dimension(80, fieldHeight)
 
-            add(labeled("Remote repo URL (https or ssh):", remoteUrlField))
-            add(labeled("Local repo path (optional, if already cloned):", repoField))
-            add(labeled("Prompts subdirectory:", subdirField))
-            add(labeled("Branch name (blank = current):", branchField))
-            add(labeled("Write strategy:", strategyCombo))
-            add(autoFetchCheckbox)
-            add(labeled("Auto-fetch interval (minutes):", autoFetchMinutesField))
+            add(labeled("Remote Git URL for the shared prompts repository (optional for local-only mode):", remoteUrlField))
+            add(labeled("Local path to the repo root where shared prompts YAML will be written:", repoField))
+            add(labeled("Subdirectory name for prompts under each group directory:", subdirField))
+            add(labeled("Branch name to use when Write Strategy is 'branchPR':", branchField))
+            add(labeled("Writing strategy for sync: direct commit vs dedicated branch and PR:", strategyCombo))
+            add(autoFetchCheckbox.apply {
+                text = "Enable periodic auto-fetch for the repo"
+            })
+            add(labeled("Fetch interval in minutes when auto-fetch is enabled:", autoFetchMinutesField))
+
+            add(Box.createVerticalStrut(12))
+
+            // Add helpful info text matching VS Code's descriptions
+            val infoPanel = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                border = BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(com.intellij.ui.JBColor.border(), 1, true),
+                    com.intellij.util.ui.JBUI.Borders.empty(8)
+                )
+                background = com.intellij.ui.JBColor.namedColor("Panel.background", com.intellij.ui.JBColor.background())
+
+                add(JLabel("<html><b>Settings Guide:</b></html>").apply {
+                    font = font.deriveFont(java.awt.Font.BOLD)
+                })
+                add(Box.createVerticalStrut(4))
+                add(JLabel("<html><b>repoPath</b>: Supports tilde (~) expansion. Default: ~/PromptLibrary</html>"))
+                add(JLabel("<html><b>promptsSubdir</b>: Subdirectory for prompts. Default: prompts</html>"))
+                add(JLabel("<html><b>branchName</b>: Leave blank to use current branch, or specify for Branch+PR strategy</html>"))
+                add(JLabel("<html><b>writeStrategy</b>: 'direct' commits to current branch, 'branchPR' creates a new branch</html>"))
+
+                maximumSize = java.awt.Dimension(Int.MAX_VALUE, 120)
+            }
+            add(infoPanel)
 
             add(Box.createVerticalStrut(12))
             add(JSeparator())
