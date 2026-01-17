@@ -132,6 +132,11 @@
       transition: border-color .15s ease, box-shadow .15s ease;
     }
 
+    textarea {
+      resize: vertical;
+      min-height: 120px;
+    }
+
     input[type="text"]::placeholder,
     textarea::placeholder {
       color: var(--muted);
@@ -206,35 +211,23 @@
 </head>
 
 <body>
-  <div id="boot">booting…</div>
+  <div id="boot" style="display:none;">booting…</div>
   <div class="container">
     <div class="card">
-      <div class="headerRow">
-        <div class="leftCol">
-          <h3 class="title">Quick Add</h3>
-          <div id="sel" class="muted">Loading…</div>
-        </div>
-        <div class="rightCol">
-          <div style="display:flex; flex-direction:column; gap:8px;">
-            <button id="syncOpsBtn" class="btn">Sync Ops</button>
-            <button id="openSettingsBtn" class="btn">Open Settings</button>
-          </div>
-        </div>
-      </div>
-      <div class="toolbar">
+      <div id="sel" class="muted" style="margin-bottom:12px;">Loading…</div>
+      <div class="toolbar" style="margin-bottom:12px;">
         <span id="counts" class="count"></span>
         <div class="spacer"></div>
       </div>
-    </div>
-
-    <div class="card">
       <label for="titleBox" class="muted" style="display:block;margin-bottom:6px;">Title (optional)</label>
       <input id="titleBox" type="text" placeholder="Defaults to first 20 characters of the prompt" disabled />
       <div style="height:8px;"></div>
-      <textarea id="composer" rows="4" placeholder="Select a group to enable the composer" disabled></textarea>
+      <textarea id="composer" rows="8" placeholder="Select a prompt to view or edit, or select a group to add new" disabled></textarea>
       <div style="height:10px;"></div>
       <div class="toolbar" style="gap:8px; padding:0;">
-        <button id="save" class="btn btn-primary" disabled>Add prompt</button>
+        <button id="addNew" class="btn" disabled>Add New</button>
+        <div class="spacer"></div>
+        <button id="save" class="btn btn-primary" disabled>Add Prompt</button>
         <button id="cancelEdit" class="btn" style="display:none;">Cancel</button>
       </div>
     </div>
@@ -245,7 +238,7 @@
       // ---- Boot diagnostics & error bridge ----
       const vscode = acquireVsCodeApi?.();
       const boot = document.getElementById('boot');
-      try { if (boot) boot.textContent = 'script running'; } catch { }
+      // Boot element is hidden, no need to update text
       window.onerror = function (message, source, lineno, colno, error) {
         try { vscode?.postMessage({ type: 'wv-log', msg: 'ERR: ' + String(message) }); } catch { }
       };
@@ -263,12 +256,93 @@
       const titleBox = document.getElementById('titleBox');
       const counts = document.getElementById('counts');
       const cancelBtn = document.getElementById('cancelEdit');
+      const addNewBtn = document.getElementById('addNew');
 
-
-
+      // Mode: 'view', 'add', or 'edit'
+      let currentMode = 'add';
       let editingId = null;
+      let viewingId = null;
+
+      // Track original values for change detection
+      let originalTitle = '';
+      let originalText = '';
 
       function first20(s) { return (String(s || '')).replace(/\r\n?|\n/g, ' ').slice(0, 20).trim(); }
+
+      // Check if current values differ from original
+      function hasChanges() {
+        if (currentMode !== 'edit') return false;
+        const currentTitle = titleBox?.value || '';
+        const currentText = composer?.value || '';
+        return currentTitle !== originalTitle || currentText !== originalText;
+      }
+
+      // Update save button state based on changes
+      function updateSaveButton() {
+        if (!save) return;
+        if (currentMode === 'edit') {
+          if (hasChanges()) {
+            save.removeAttribute('disabled');
+          } else {
+            save.setAttribute('disabled', 'true');
+          }
+        } else if (currentMode === 'add') {
+          // In add mode, enable if there's text
+          if (composer?.value?.trim()) {
+            save.removeAttribute('disabled');
+          } else {
+            save.setAttribute('disabled', 'true');
+          }
+        }
+      }
+
+      function setMode(mode, promptId = null) {
+        currentMode = mode;
+
+        if (mode === 'view') {
+          viewingId = promptId;
+          editingId = null;
+          if (composer) composer.setAttribute('readonly', 'true');
+          if (titleBox) titleBox.setAttribute('readonly', 'true');
+          if (save) {
+            save.textContent = 'Save Changes';
+            save.style.display = 'inline-block';
+          }
+          if (cancelBtn) cancelBtn.style.display = 'inline-block';
+          if (addNewBtn) {
+            addNewBtn.style.display = 'inline-block';
+            addNewBtn.removeAttribute('disabled');
+          }
+        } else if (mode === 'edit') {
+          editingId = promptId;
+          viewingId = null;
+          if (composer) composer.removeAttribute('readonly');
+          if (titleBox) titleBox.removeAttribute('readonly');
+          if (save) {
+            save.textContent = 'Save Changes';
+            save.style.display = 'inline-block';
+            // Initially disabled until changes are made
+            save.setAttribute('disabled', 'true');
+          }
+          if (cancelBtn) cancelBtn.style.display = 'inline-block';
+          if (addNewBtn) {
+            addNewBtn.style.display = 'inline-block';
+            addNewBtn.removeAttribute('disabled');
+          }
+        } else { // 'add'
+          editingId = null;
+          viewingId = null;
+          if (composer) composer.removeAttribute('readonly');
+          if (titleBox) titleBox.removeAttribute('readonly');
+          if (save) {
+            save.textContent = 'Add Prompt';
+            save.style.display = 'inline-block';
+          }
+          if (cancelBtn) cancelBtn.style.display = 'none';
+          // Hide "Add New" button when already in add mode
+          if (addNewBtn) addNewBtn.style.display = 'none';
+        }
+      }
 
       // Optimistically enable inputs so they can receive focus immediately
       try {
@@ -277,12 +351,20 @@
         titleBox?.removeAttribute('disabled');
       } catch { }
 
-      // Auto-suggest title from first 20 chars if empty
+      // Auto-suggest title from first 20 chars if empty (only in add/edit mode)
       composer?.addEventListener('input', () => {
         if (!titleBox) return;
+        if (currentMode === 'view') return; // Don't auto-suggest in view mode
         if (!titleBox.value || !titleBox.value.trim()) {
           titleBox.value = first20(composer.value || '');
         }
+        // Update save button state when text changes
+        updateSaveButton();
+      });
+
+      // Update save button state when title changes
+      titleBox?.addEventListener('input', () => {
+        updateSaveButton();
       });
 
       let allPrompts = [];
@@ -319,10 +401,10 @@
         const msg = event.data || {};
         try { vscode?.postMessage({ type: 'wv-log', msg: 'recv ' + String(msg.type) + (Array.isArray(msg.payload) ? (' len=' + msg.payload.length) : '') }); } catch { }
         if (msg.type === 'selectedGroup') {
-          // Leaving edit mode when switching groups to avoid overwriting an existing prompt
-          editingId = null;
-          if (save) save.textContent = 'Add prompt';
-          if (cancelBtn) cancelBtn.style.display = 'none';
+          // Switch to add mode when selecting a group
+          setMode('add');
+          if (composer) composer.value = '';
+          if (titleBox) titleBox.value = '';
 
           const g = msg.payload;
           if (!g || !g.id) {
@@ -330,7 +412,8 @@
             composer?.setAttribute('disabled', 'true');
             save?.setAttribute('disabled', 'true');
             titleBox?.setAttribute('disabled', 'true');
-            composer && composer.setAttribute('placeholder', 'Select a group to enable the composer');
+            addNewBtn?.setAttribute('disabled', 'true');
+            composer && composer.setAttribute('placeholder', 'Select a group or prompt');
             allPrompts = [];
             renderList([]);
           } else {
@@ -341,6 +424,7 @@
               composer?.setAttribute('disabled', 'true');
               save?.setAttribute('disabled', 'true');
               titleBox?.setAttribute('disabled', 'true');
+              addNewBtn?.setAttribute('disabled', 'true');
               composer && composer.setAttribute('placeholder', 'Select a subgroup to add prompts');
             } else {
               composer?.removeAttribute('disabled');
@@ -355,11 +439,14 @@
           applyFilter();
         } else if (msg.type === 'populateComposer') {
           const p = msg.payload || {};
-          if (titleBox) titleBox.value = String(p.title || '');
-          if (composer) { composer.value = String(p.text || ''); try { composer.focus(); } catch { } }
-          editingId = (p.id ? String(p.id) : null);
-          if (save) save.textContent = 'Save changes';
-          if (cancelBtn) cancelBtn.style.display = 'inline-block';
+          // Store original values for change detection
+          originalTitle = String(p.title || '');
+          originalText = String(p.text || '');
+
+          if (titleBox) titleBox.value = originalTitle;
+          if (composer) { composer.value = originalText; try { composer.focus(); } catch { } }
+          // Enter edit mode (editable) when a prompt is selected
+          setMode('edit', p.id);
         }
       });
 
@@ -374,35 +461,64 @@
         selected.clear(); renderSelectionBar();
       });
 
-      document.getElementById('syncOpsBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.syncOps' }));
-      document.getElementById('openSettingsBtn')?.addEventListener('click', () => vscode?.postMessage({ type: 'runCmd', command: 'promptLibrary.openSettings' }));
+      // Add New button - switch to add mode with empty fields
+      addNewBtn?.addEventListener('click', () => {
+        setMode('add');
+        if (composer) composer.value = '';
+        if (titleBox) titleBox.value = '';
+        // Clear original values since we're in add mode
+        originalTitle = '';
+        originalText = '';
+        updateSaveButton();
+        try { composer?.focus(); } catch { }
+      });
 
+      // Save button - handles both add and edit
       save?.addEventListener('click', () => {
         const text = composer?.value || '';
         if (!text.trim()) return;
         const rawTitle = (titleBox && titleBox.value) ? titleBox.value.trim() : '';
         const fallback = first20(text);
         const title = rawTitle || fallback;
-        if (editingId) {
+
+        if (currentMode === 'view') {
+          // Switch from view to edit mode
+          setMode('edit', viewingId);
+        } else if (editingId) {
+          // Save changes to existing prompt
           vscode?.postMessage({ type: 'editPrompt', id: editingId, text, title });
-          editingId = null;
-          if (save) save.textContent = 'Add prompt'; if (cancelBtn) cancelBtn.style.display = 'none';
+          // Update original values to reflect the save
+          originalTitle = title;
+          originalText = text;
+          // Disable save button since there are no unsaved changes
+          updateSaveButton();
+          setMode('add');
+          if (composer) composer.value = '';
+          if (titleBox) titleBox.value = '';
+          originalTitle = '';
+          originalText = '';
         } else {
+          // Add new prompt
           const seen = new Set(allPrompts.map(p => normalized(p.text)));
           if (seen.has(normalized(text))) { alert('Duplicate prompt'); return; }
           vscode?.postMessage({ type: 'addPrompt', text, title });
+          if (composer) composer.value = '';
+          if (titleBox) titleBox.value = '';
+          originalTitle = '';
+          originalText = '';
         }
-        if (composer) composer.value = '';
-        if (titleBox) titleBox.value = '';
         try { if (filter) filter.value = ''; } catch { };
       });
-      // Cancel editing: restore add mode and clear fields
+
+      // Cancel button - return to add mode
       cancelBtn?.addEventListener('click', () => {
-        editingId = null;
-        if (save) save.textContent = 'Add prompt';
-        if (cancelBtn) cancelBtn.style.display = 'none';
+        setMode('add');
         if (composer) composer.value = '';
         if (titleBox) titleBox.value = '';
+        // Clear original values
+        originalTitle = '';
+        originalText = '';
+        updateSaveButton();
         try { if (filter) filter.value = ''; } catch { };
       });
 

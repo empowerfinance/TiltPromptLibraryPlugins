@@ -6,30 +6,30 @@ A simple and efficient prompt library for JetBrains Rider that helps you organiz
 
 ## ✨ Features
 
+### Core Features
+
 - 📝 **Create, edit, and delete prompts** with confirmation dialogs
 - 📋 **One-click copy** - click any prompt to copy it to clipboard
-- 🔍 **Real-time search** with case-insensitive filtering
+- 🎯 **Send to Editor** - insert prompt text directly into the active editor at cursor position
+- 🔍 **Tree-based navigation** - prompts appear as child nodes under groups
 - 📤 **Import/Export** prompts as clean JSON arrays
 - 🚫 **Duplicate detection** - automatically prevents duplicate prompts
 - 💾 **Persistent storage** - prompts survive IDE restarts
 - 🎨 **Theme-aware UI** - adapts to light/dark Rider themes
-- ⚡ **Responsive design** - clean, scrollable interface
+- ⚡ **Responsive design** - clean, vertical layout matching VS Code extension
+
+### Organization
+
 - 🗂️ **Shared/Private group namespaces** with per-namespace uniqueness and Unfiled fallback
 - 🏷️ **Prompt titles** (optional) with smart 50‑char derived display when blank
-- 🧰 **Row actions**: Open in Editor dialog with autosave, bounded card height
-- ⚙️ Options menu with Show/Hide group tree and persistent splitter position
-- 🧭 **Shared/Private roots UX**: roots show no prompts; new prompts go to selected group or Unfiled; Move To… lists only groups; Unfiled is the default inbox
-- ✅ No prompts shown at Shared/Private roots; the tree roots are navigational only
+- 🧭 **Shared/Private roots UX**: roots show no prompts; new prompts go to selected group or Unfiled
 - 📥 New prompts default into Unfiled when no group is selected
 - 🚚 Moving prompts removes them from the previous location and inserts into the target group
 - ✏️ Edit dialog updates prompts whether they live in Private or in any Group (duplicate-safe)
-
 - 🧑‍🤝‍🧑 **Group toolbar**: add to Shared/Private, rename; delete is blocked for Shared (allowed in Private)
 
-
-
-
 ## How this was made
+
 This plugin took about 2 hours to build from start to finish using an evolutionary development approach.
 For details on what this looks like, please look at the files in the `docs` directory.
 
@@ -43,6 +43,7 @@ For details on what this looks like, please look at the files in the `docs` dire
 ### Installation
 
 #### Option 1: From GitHub Releases (Recommended)
+
 1. Download the latest `Prompt-Library-1.0.8.zip` from [Releases](../../releases)
 2. In Rider: **File > Settings > Plugins > ⚙️ > Install Plugin from Disk...**
 3. Select the downloaded zip file
@@ -53,6 +54,7 @@ For details on what this looks like, please look at the files in the `docs` dire
 **Prerequisites**: JDK 21, JetBrains Rider 2025.2+ (latest) or Rider 2024.3–2025.1 (legacy)
 
 ##### For Rider 2025.2+ (Latest)
+
 ```bash
 git clone https://github.com/your-org/TiltPromptLibraryPlugins.git
 cd TiltPromptLibraryPlugins
@@ -61,6 +63,7 @@ cd TiltPromptLibraryPlugins
 ```
 
 ##### For Rider 2024.3–2025.1 (Legacy)
+
 ```bash
 git clone https://github.com/your-org/TiltPromptLibraryPlugins.git
 cd TiltPromptLibraryPlugins
@@ -69,16 +72,17 @@ cd TiltPromptLibraryPlugins
 ```
 
 Then install the generated zip file in Rider:
+
 1. **File > Settings > Plugins > ⚙️ > Install Plugin from Disk...**
 2. Select `build/distributions/Prompt-Library-1.0.8.zip`
 3. Restart Rider
 
 ## 🔧 Compatibility
 
-| Rider Version | Plugin Version | Java Version | Build Command |
-|---------------|----------------|--------------|---------------|
-| 2025.2+ | Latest | JDK 21 | `./gradlew buildPlugin` (Windows: `./gradlew.bat buildPlugin`) |
-| 2024.3–2025.1 | Legacy | JDK 17 or 21 | `./gradlew -b build-legacy.gradle.kts buildPlugin` (Windows: `./gradlew.bat -b build-legacy.gradle.kts buildPlugin`) |
+| Rider Version | Plugin Version | Java Version | Build Command                                                                                                        |
+| ------------- | -------------- | ------------ | -------------------------------------------------------------------------------------------------------------------- |
+| 2025.2+       | Latest         | JDK 21       | `./gradlew buildPlugin` (Windows: `./gradlew.bat buildPlugin`)                                                       |
+| 2024.3–2025.1 | Legacy         | JDK 17 or 21 | `./gradlew -b build-legacy.gradle.kts buildPlugin` (Windows: `./gradlew.bat -b build-legacy.gradle.kts buildPlugin`) |
 
 Note: We target Rider 2025.2 for development; legacy build remains for back-compat testing.
 
@@ -101,12 +105,9 @@ Note: We target Rider 2025.2 for development; legacy build remains for back-comp
 ### JSON Format
 
 Export creates clean, editable JSON:
+
 ```json
-[
-  "Write a unit test for a login function",
-  "Explain dependency injection in C#",
-  "Create a SQL query for user analytics"
-]
+["Write a unit test for a login function", "Explain dependency injection in C#", "Create a SQL query for user analytics"]
 ```
 
 ### Storage model and migration
@@ -117,6 +118,7 @@ Export creates clean, editable JSON:
 - Deleting a group moves its prompts into Private/Unfiled.
 
 Import accepts multiple formats:
+
 - **Simple string arrays** (as above) - most user-friendly
 - **Objects with text field**: `[{"text": "prompt"}]` - generates IDs automatically
 - **Full objects**: `[{"id": "uuid", "text": "prompt", "createdAt": "2024-01-01T00:00:00Z"}]`
@@ -170,6 +172,7 @@ src/main/kotlin/com/example/promptlibrary/
 4. **Maintain compatibility** - ensure changes work across Rider versions 2024.1+
 
 See also:
+
 - [Development kickoff guide](docs/KICKOFF.md) - For new contributors
 - [Work tracking log](docs/WORK_TRACKING.md) - Complete development history
 
@@ -234,6 +237,7 @@ This plugin was built as a demonstration of **evolutionary software development*
 ## 📋 Development History
 
 The complete evolutionary implementation plan and development log can be found in:
+
 - **[docs/WORK_TRACKING.md](docs/WORK_TRACKING.md)** - Detailed step-by-step development history
 - **[docs/KICKOFF.md](docs/KICKOFF.md)** - Original project kickoff and guidelines
 
@@ -255,55 +259,65 @@ The complete evolutionary implementation plan and development log can be found i
 - ✅ Create, edit, delete prompts with confirmation dialogs
 - ✅ Copy prompts by clicking text with clipboard notifications
 - ✅ Real-time search filters prompt list predictably
+
 ## GitHub Sync — YAML repository data model and workflow
 
 This plugin exports only the Shared namespace to a Git repository using a simple, merge‑friendly YAML layout. Private prompts never leave your machine.
 
 Data location
+
 - The exported tree lives under a configurable subfolder (default: prompts). Configure this and other Git settings in Settings → Prompt Library.
 
 Repository layout
+
 - <promptsSubdir>/
   - <GroupName>/
-    - _group.yaml          — group metadata only (id, name, kind, tags, description)
+    - \_group.yaml — group metadata only (id, name, kind, tags, description)
     - prompts/
-      - p-<uuid>.yaml      — one file per prompt in this group
-    - <ChildGroup>/        — nested groups repeat the same structure
+      - p-<uuid>.yaml — one file per prompt in this group
+    - <ChildGroup>/ — nested groups repeat the same structure
 
 What’s exported (Shared only)
-- Groups: metadata goes to <Group>/_group.yaml; children are represented by subfolders.
+
+- Groups: metadata goes to <Group>/\_group.yaml; children are represented by subfolders.
 - Prompts: public prompts become p-<id>.yaml files. We strip private=true and write deterministic YAML (KAML with encodeDefaults=true) for stable diffs.
 - Private prompts: never exported.
 
 Import and Load Repo
+
 - “Load Repo” reads the YAML tree from the working copy and replaces the Shared namespace in the UI. A toast shows: “Imported N Shared group(s) from Git (remote‑wins).”
 
 Sync flow (remote‑wins)
-1) Pull latest from Git
-2) Load remote YAML (Shared)
-3) Merge remote‑wins with local state
+
+1. Pull latest from Git
+2. Load remote YAML (Shared)
+3. Merge remote‑wins with local state
    - If a prompt exists locally in Shared but is missing on the remote, we keep it locally by moving it to Private/Unfiled (no synthetic groups). A toast reports how many were kept.
-4) Clean rewrite of the YAML tree (we delete and recreate the prompts subdir to avoid stale files)
-5) Commit and push using the selected strategy:
+4. Clean rewrite of the YAML tree (we delete and recreate the prompts subdir to avoid stale files)
+5. Commit and push using the selected strategy:
    - Direct: commit to current branch and push
    - Branch+PR: create a short‑lived branch, commit, push, and open a compare/PR link when possible
 
 Toasts and feedback
+
 - Sync summary: “Shared changes: +A ~U -D” (files added/updated/deleted in the exported tree)
 - Kept locals: “Kept K local prompt(s) in Private/Unfiled (not on remote).”
 - First‑time setup: “Initialized empty repo” after an allow‑empty init commit
 
 Shared/Private UX (relevant to sync)
+
 - Two roots in the tree: Shared and Private; roots show no prompts.
 - Private “Unfiled” is pinned at the top and cannot be renamed or deleted.
 - Shared groups cannot be deleted. Move To… lists only groups (not roots).
 
 Why multi‑file instead of a single YAML
+
 - Small diffs and fewer conflicts (one file per prompt)
 - Review clarity (PRs show exactly the prompt(s) touched)
 - Scales to large libraries; structure mirrors the UI
 
 Advanced settings (Settings → Prompt Library)
+
 - Remote URL or Local Path (working copy)
 - Prompts subfolder (default: prompts)
 - Branch name
@@ -311,7 +325,6 @@ Advanced settings (Settings → Prompt Library)
 - Auto‑fetch (fetch only) toggle and cadence
 
 Note: JSON import/export remains available as a quick, human‑friendly interchange format; Git sync uses the YAML repository layout above.
-
 
 ## 📄 License
 

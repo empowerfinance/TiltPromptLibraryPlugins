@@ -206,9 +206,80 @@ border = BorderFactory.createCompoundBorder(
 ✅ **Theme Compatibility**: Works with light and dark themes  
 ✅ **DPI Scaling**: Uses JBUI for proper scaling
 
-## Latest Update: Complete UI Restructure - VS Code Parity (2026-01-16)
+## Latest Update: Unified Add/Edit Composer (2026-01-17)
 
-### Major Changes - Full Layout Overhaul
+### Major Simplification: Merged Add and Edit into Single Composer
+
+**Removed separate edit dialog - now the composer handles both adding and editing!**
+
+This matches the VS Code extension's streamlined approach where the Quick Add composer serves dual purpose:
+
+1. **Unified Composer**
+
+   - Single component for both adding new prompts and editing existing ones
+   - Click "Edit" button → prompt loads into composer
+   - Button changes from "Add prompt" to "Update prompt"
+   - Cancel button appears in edit mode
+
+2. **Edit Mode Behavior**
+
+   - Clicking "Edit" in detail panel loads prompt into composer
+   - Title and text fields populate with existing values
+   - "Update prompt" button saves changes
+   - "Cancel" button exits edit mode and clears fields
+   - Selecting a different group exits edit mode
+
+3. **Removed Components**
+
+   - `EditPromptDialog.kt` - No longer needed
+   - Separate edit dialog window
+   - Modal dialog for editing
+
+4. **Benefits**
+   - Simpler, more streamlined UX matching VS Code
+   - No context switching between add and edit
+   - Consistent editing experience
+   - Less code to maintain
+
+### Previous Update: Send to Editor Feature (2026-01-17)
+
+#### New Feature: Direct Editor Insertion
+
+**Added "Send to Editor" button to insert prompts directly into the active editor!**
+
+This feature provides the same functionality as the VS Code extension's "Send to Augment" feature, but adapted for IntelliJ Platform:
+
+1. **Send to Editor Button**
+
+   - New button in Prompt Detail Panel
+   - Located between "Copy" and "Edit" buttons
+   - Inserts prompt text at cursor position in active editor
+
+2. **Technical Implementation**
+
+   - Uses `EditorModificationUtil.insertStringAtCaret()` for insertion
+   - Wrapped in `WriteCommandAction` for undo/redo support
+   - Gets active editor via `FileEditorManager`
+
+3. **User Flow**
+
+   - Click a prompt in the tree to select it
+   - Click "Send to Editor" button
+   - Prompt text is inserted at cursor position
+   - Works with any file type
+
+4. **Notifications**
+
+   - Success: "Prompt Inserted"
+   - Error: "No Active Editor" if no file is open
+
+5. **Documentation**
+   - See `docs/SEND_TO_EDITOR.md` for full details
+   - Includes usage examples and technical details
+
+### Previous Update: Complete UI Restructure - VS Code Parity (2026-01-16)
+
+#### Major Changes - Full Layout Overhaul
 
 **Complete restructure to match VS Code extension layout exactly!**
 

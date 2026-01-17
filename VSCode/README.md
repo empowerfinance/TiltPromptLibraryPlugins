@@ -4,14 +4,15 @@ A VS Code extension for organizing and managing reusable prompts with GitHub syn
 
 ## ✨ Features
 
-- **Quick Add Panel** - Fast prompt creation with auto-title generation
+- **Unified Interface** - Single panel for viewing, adding, and editing prompts
+- **Smart Save Button** - Only enabled when changes are detected
 - **Prompt Groups** - Organize prompts in Shared/Private namespaces
-- **One-Click Copy** - Click any prompt to copy to clipboard
+- **One-Click Edit** - Click any prompt to load it for immediate editing
 - **Send to Augment** - 📤 One-click send prompts directly to Augment chat
 - **GitHub Sync** - Export shared prompts as merge-friendly YAML
 - **Import/Export** - JSON backup and restore
 - **Duplicate Detection** - Automatic prevention via normalized text
-- **Search & Filter** - Real-time prompt filtering (coming soon)
+- **Search & Filter** - Real-time prompt filtering
 
 ## 🚀 Quick Start
 
@@ -36,17 +37,20 @@ npm run compile
 ### Usage
 
 1. **Open Prompt Library** - Click the Prompt Library icon in the Activity Bar
-2. **Add Prompts** - Select a group, then use the Quick Add panel
-3. **Copy or Send** - Click 📋 to copy, or 📤 to send directly to Augment chat
-4. **Organize** - Create groups under Shared or Private
-5. **Sync to GitHub** - Use Sync Ops to push/pull shared prompts
+2. **Add Prompts** - Select a group, type in the "View, Add and Edit" panel, click "Add Prompt"
+3. **Edit Prompts** - Click any prompt to load it, make changes, click "Save Changes"
+4. **Copy or Send** - Click 📋 to copy, or 📤 to send directly to Augment chat
+5. **Organize** - Create groups under Shared or Private
+6. **Sync to GitHub** - Use Sync Ops toolbar buttons to push/pull shared prompts
 
 ## 📋 Views
 
-- **Quick Add** - Compose and add new prompts to the selected group
-- **Prompt Groups** - Tree view of Shared/Private groups and prompts
-- **Prompt** - View and copy prompt details
-- **Sync Ops** - GitHub sync operations and logs
+- **Prompt Groups** - Tree view of Shared/Private groups and prompts with toolbar buttons
+- **View, Add and Edit** - Unified interface for all prompt operations:
+  - **Add Mode** - Empty fields ready for new prompt creation
+  - **Edit Mode** - Load existing prompts with change detection
+  - Smart save button (only enabled when changes detected)
+  - Auto-title generation from first 20 characters
 
 ## 🤖 Augment Integration
 

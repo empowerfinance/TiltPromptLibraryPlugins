@@ -18,52 +18,6 @@ import * as os from 'os';
 import * as fs from 'fs';
 
 
-class PromptDetailViewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = 'promptDetailView';
-  private view?: vscode.WebviewView;
-  private lastTitle: string = '';
-  private lastText: string = '';
-
-  resolveWebviewView(webviewView: vscode.WebviewView) {
-    this.view = webviewView;
-    webviewView.webview.options = { enableScripts: true };
-    this.render();
-  }
-
-  showPrompt(title: string, text: string) {
-    this.lastTitle = title;
-    this.lastText = text;
-    this.render();
-  }
-
-  private render() {
-    if (!this.view) return;
-    const esc = (s: string) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const title = esc(this.lastTitle || 'Prompt');
-    const body = esc(this.lastText);
-    const html = `<!DOCTYPE html><html><head>
-      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
-      <style>
-        :root { --accent: var(--vscode-focusBorder); --border: var(--vscode-widget-border); --card-bg: var(--vscode-editorWidget-background); }
-        * { box-sizing: border-box; }
-        body { font-family: var(--vscode-font-family); margin: 0; color: var(--vscode-foreground); }
-        .container { padding: 16px; }
-        .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px; box-shadow: 0 1px 0 rgba(0,0,0,.2), 0 8px 24px rgba(0,0,0,.08); }
-        .title { font-weight: 700; font-size: 13px; margin: 0 0 8px 0; }
-        .pre { white-space: pre-wrap; line-height: 1.5; font-family: var(--vscode-editor-font-family, Consolas, Menlo, monospace); font-size: 12px; }
-      </style>
-    </head><body>
-      <div class="container">
-        <div class="card">
-          <div class="title">${title}</div>
-          <div class="pre">${body}</div>
-        </div>
-      </div>
-    </body></html>`;
-    this.view.webview.html = html;
-  }
-}
-
 class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'promptLibraryView';
   private view?: vscode.WebviewView;
@@ -330,7 +284,6 @@ export function activate(context: vscode.ExtensionContext) {
   const groups = new GroupsProvider(store);
   groups.init();
   const provider = new PromptLibraryViewProvider(store, context.globalState, groups);
-  const detailProvider = new PromptDetailViewProvider();
 
 
   // Auto-refresh tree + webview whenever the library changes
@@ -359,17 +312,22 @@ export function activate(context: vscode.ExtensionContext) {
         const pid = (item as any).promptId as string;
         const p = await store.getPromptById(pid);
         if (p) {
+          // Bring container into focus FIRST to ensure webview is resolved
+          try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch { }
+
           await vscode.env.clipboard.writeText(p.text || '');
-          const title = (p.title && p.title.trim()) ? p.title : (p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim() || 'Prompt';
-          detailProvider.showPrompt(title, p.text || '');
+
           // Also switch the Prompt Library context to the prompt's group so composer is enabled
           const gid = (item as any).groupId as (string | undefined);
           if (gid) {
             const g = groups.getGroupById(gid);
             await provider.setSelectedGroup({ id: gid, name: g?.name ?? gid });
           }
-          // Bring container into focus
-          try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch { }
+
+          // Populate the composer with this prompt's content for viewing/editing
+          // (do this AFTER ensuring view is visible and group is selected)
+          provider.populateComposer({ id: pid, title: p.title, text: p.text || '' });
+
           vscode.window.setStatusBarMessage('Prompt copied to clipboard', 1500);
         }
       } catch (err) {
@@ -423,8 +381,6 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(PromptLibraryViewProvider.viewType, provider),
-    vscode.window.registerWebviewViewProvider(PromptDetailViewProvider.viewType, detailProvider),
-
     dnd,
     treeView,
     // Prompt item commands (used by inline actions in the Groups tree)
@@ -434,10 +390,16 @@ export function activate(context: vscode.ExtensionContext) {
         if (!pid) return;
         const p = await store.getPromptById(pid);
         if (!p) return;
-        await vscode.env.clipboard.writeText(p.text || '');
-        const title = (() => { const t = (p.title ?? '').trim(); return t && !/^(null|undefined|~)$/i.test(t) ? t : ((p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim() || 'Prompt'); })();
-        detailProvider.showPrompt(title, p.text || '');
+
+        // Bring container into focus FIRST to ensure webview is resolved
         try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch { }
+
+        await vscode.env.clipboard.writeText(p.text || '');
+
+        // Populate the composer with this prompt's content for viewing/editing
+        // (do this AFTER ensuring view is visible)
+        provider.populateComposer({ id: pid, title: p.title, text: p.text || '' });
+
         vscode.window.setStatusBarMessage('Prompt copied to clipboard', 1500);
       } catch (e) { log.warn('openPrompt failed: ' + String((e as any)?.message || e)); }
     }),

@@ -1,7 +1,7 @@
 {
   "name": "prompt-library",
   "displayName": "Prompt Library",
-  "description": "A VS Code sidebar for managing shared/private prompt libraries with search and import/export.",
+  "description": "Unified prompt library with one-click editing, GitHub sync, and Augment integration. Organize prompts in shared/private groups.",
   "version": "0.0.1",
   "publisher": "tilt",
   "repository": {
@@ -18,7 +18,6 @@
   "activationEvents": [
     "onView:promptLibraryGroups",
     "onView:promptLibraryView",
-    "onView:promptDetailView",
     "onCommand:promptLibrary.syncOps",
     "onCommand:promptLibrary.syncPullAndImport",
     "onCommand:promptLibrary.syncPullOverwriteAndImport"
@@ -55,7 +54,8 @@
       },
       {
         "command": "promptLibrary.openSettings",
-        "title": "Prompt Library: Open Settings"
+        "title": "Prompt Library: Open Settings",
+        "icon": "$(settings-gear)"
       },
       {
         "command": "promptLibrary.sendToAugment",
@@ -96,7 +96,8 @@
       },
       {
         "command": "promptLibrary.syncOps",
-        "title": "Prompt Library: Sync Ops"
+        "title": "Prompt Library: Sync Ops",
+        "icon": "$(sync)"
       },
       {
         "command": "promptLibrary.syncPullAndImport",
@@ -189,25 +190,31 @@
     "views": {
       "promptLibrary": [
         {
-          "type": "webview",
-          "id": "promptLibraryView",
-          "name": "Quick Add",
-          "icon": "$(add)"
-        },
-        {
           "id": "promptLibraryGroups",
           "name": "Prompt Groups",
           "icon": "$(folder)"
         },
         {
           "type": "webview",
-          "id": "promptDetailView",
-          "name": "Prompt",
-          "icon": "$(comment)"
+          "id": "promptLibraryView",
+          "name": "View, Add and Edit",
+          "icon": "$(edit)"
         }
       ]
     },
     "menus": {
+      "view/title": [
+        {
+          "command": "promptLibrary.syncOps",
+          "when": "view == promptLibraryGroups",
+          "group": "navigation@1"
+        },
+        {
+          "command": "promptLibrary.openSettings",
+          "when": "view == promptLibraryGroups",
+          "group": "navigation@2"
+        }
+      ],
       "view/item/context": [
         {
           "command": "promptLibrary.addGroup",

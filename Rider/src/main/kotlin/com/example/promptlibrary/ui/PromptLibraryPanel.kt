@@ -6,10 +6,7 @@ import com.example.promptlibrary.repository.PromptRepository
 import com.example.promptlibrary.ui.components.PromptComposer
 import com.example.promptlibrary.ui.components.SaveResult
 import com.example.promptlibrary.ui.components.GroupTreePanel
-import com.example.promptlibrary.ui.components.PromptDetailPanel
 import com.example.promptlibrary.ui.components.GroupNode
-import com.example.promptlibrary.ui.dialogs.EditPromptDialog
-import com.example.promptlibrary.ui.dialogs.EditResult
 import com.example.promptlibrary.ui.dialogs.ExportDialog
 import com.example.promptlibrary.ui.dialogs.ImportDialog
 import com.example.promptlibrary.ui.dialogs.ImportResult
@@ -38,12 +35,9 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
     private val repository = PromptRepository()
     private var selectedGroupId: String? = null
     private var selectedGroupName: String? = null
+    private var editingGroupId: String? = null
 
-    // Prompt detail panel
-    private val promptDetailPanel = PromptDetailPanel(
-        onEdit = { prompt, groupId -> editPrompt(prompt, groupId) },
-        onDelete = { prompt, groupId -> deletePrompt(prompt, groupId) }
-    )
+
 
     // Group tree component
     private val groupTreePanel = GroupTreePanel(
@@ -52,7 +46,10 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
             selectedGroupId = groupId
             selectedGroupName = getGroupName(groupId)
             updateComposerState()
-            promptDetailPanel.clear()
+            // Exit edit mode when selecting a different group
+            if (::promptComposer.isInitialized) {
+                promptComposer.exitEditMode()
+            }
         },
         onPromptSelected = { prompt, groupId ->
             handlePromptSelected(prompt, groupId)
@@ -264,50 +261,47 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
             })
         }
 
-        // Vertical layout: tree -> detail -> composer
+        // Vertical layout: tree -> composer
         val mainContent = JPanel(BorderLayout()).apply {
             // Tree section with toolbar
             val treeSection = JPanel(BorderLayout()).apply {
                 add(treeToolbar, BorderLayout.NORTH)
                 add(ScrollPaneFactory.createScrollPane(groupTreePanel, true), BorderLayout.CENTER)
-                preferredSize = JBUI.size(0, 300)
+                preferredSize = JBUI.size(0, 400)
             }
 
-            // Detail section
-            val detailSection = JPanel(BorderLayout()).apply {
-                add(promptDetailPanel, BorderLayout.CENTER)
-                preferredSize = JBUI.size(0, 150)
-            }
-
-            // Vertical split: tree on top, detail on bottom
-            val verticalSplit = JSplitPane(JSplitPane.VERTICAL_SPLIT).apply {
-                topComponent = treeSection
-                bottomComponent = detailSection
-                resizeWeight = 0.65
-                dividerSize = 4
-            }
-
-            add(verticalSplit, BorderLayout.CENTER)
+            add(treeSection, BorderLayout.CENTER)
         }
 
         add(toolbar, BorderLayout.NORTH)
         add(mainContent, BorderLayout.CENTER)
 
-        // Prompt composer
-        promptComposer = PromptComposer { text, title ->
-            val currentSelection = selectedGroupId
-            val addedPrompt = repository.addPrompt(text, title)
-            if (addedPrompt != null) {
-                val targetGid = currentSelection ?: repository.ensureUnfiledGroup().id
-                repository.movePromptToGroup(addedPrompt.id, targetGid)
-                // Restore focus to the group we just saved into
-                selectedGroupId = targetGid
-                groupTreePanel.rebuildTree()
-                SaveResult.Success
-            } else {
-                SaveResult.Duplicate
+        // Prompt composer with both add and update callbacks
+        promptComposer = PromptComposer(
+            onSave = { text, title ->
+                val currentSelection = selectedGroupId
+                val addedPrompt = repository.addPrompt(text, title)
+                if (addedPrompt != null) {
+                    val targetGid = currentSelection ?: repository.ensureUnfiledGroup().id
+                    repository.movePromptToGroup(addedPrompt.id, targetGid)
+                    // Restore focus to the group we just saved into
+                    selectedGroupId = targetGid
+                    groupTreePanel.rebuildTree()
+                    SaveResult.Success
+                } else {
+                    SaveResult.Duplicate
+                }
+            },
+            onUpdate = { prompt, text, title ->
+                val updated = repository.updatePrompt(prompt.id, text, title)
+                if (updated != null) {
+                    groupTreePanel.rebuildTree()
+                    SaveResult.Success
+                } else {
+                    SaveResult.Duplicate
+                }
             }
-        }
+        )
         add(promptComposer, BorderLayout.SOUTH)
 
         // One-time migration: move any private-root prompts into Unfiled group
@@ -329,8 +323,8 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         CopyPasteManagerEx.getInstance().setContents(StringSelection(prompt.text))
         Notifications.Bus.notify(Notification("PromptLibrary", "Prompt copied", "", NotificationType.INFORMATION))
 
-        // Show in detail panel
-        promptDetailPanel.setPrompt(prompt, groupId)
+        // Load prompt directly into composer for editing
+        promptComposer.enterEditMode(prompt, groupId)
 
         // Update selected group for composer
         selectedGroupId = groupId
@@ -344,22 +338,7 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         return group?.name
     }
 
-    private fun editPrompt(prompt: Prompt, groupId: String) {
-        EditPromptDialog(
-            prompt = prompt,
-            parent = this,
-            onSave = { newText ->
-                val updated = repository.updatePrompt(prompt.id, newText)
-                if (updated != null) {
-                    groupTreePanel.rebuildTree()
-                    promptDetailPanel.setPrompt(updated, groupId)
-                    EditResult.Success
-                } else {
-                    EditResult.Duplicate
-                }
-            }
-        ).show()
-    }
+
 
     private fun deletePrompt(prompt: Prompt, groupId: String) {
         val res = JOptionPane.showConfirmDialog(
@@ -371,7 +350,6 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         if (res == JOptionPane.YES_OPTION) {
             repository.deletePrompt(prompt.id)
             groupTreePanel.rebuildTree()
-            promptDetailPanel.clear()
             Notifications.Bus.notify(Notification("PromptLibrary", "Prompt deleted", "", NotificationType.INFORMATION))
         }
     }

@@ -1,5 +1,6 @@
 package com.example.promptlibrary.ui.components
 
+import com.example.promptlibrary.model.Prompt
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
@@ -8,7 +9,10 @@ class PromptComposerTest {
     @Test
     fun `composer should be created with disabled state by default`() {
         // Given
-        val composer = PromptComposer { _, _ -> SaveResult.Success }
+        val composer = PromptComposer(
+            onSave = { _, _ -> SaveResult.Success },
+            onUpdate = { _, _, _ -> SaveResult.Success }
+        )
 
         // Then
         assertThat(composer).isNotNull
@@ -17,7 +21,10 @@ class PromptComposerTest {
     @Test
     fun `updateState should enable composer when group is selected`() {
         // Given
-        val composer = PromptComposer { _, _ -> SaveResult.Success }
+        val composer = PromptComposer(
+            onSave = { _, _ -> SaveResult.Success },
+            onUpdate = { _, _, _ -> SaveResult.Success }
+        )
 
         // When
         composer.updateState(groupSelected = true, groupName = "Test Group")
@@ -29,7 +36,10 @@ class PromptComposerTest {
     @Test
     fun `updateState should disable composer when no group is selected`() {
         // Given
-        val composer = PromptComposer { _, _ -> SaveResult.Success }
+        val composer = PromptComposer(
+            onSave = { _, _ -> SaveResult.Success },
+            onUpdate = { _, _, _ -> SaveResult.Success }
+        )
 
         // When
         composer.updateState(groupSelected = false, groupName = null)
@@ -41,7 +51,10 @@ class PromptComposerTest {
     @Test
     fun `clear should empty the text area`() {
         // Given
-        val composer = PromptComposer { _, _ -> SaveResult.Success }
+        val composer = PromptComposer(
+            onSave = { _, _ -> SaveResult.Success },
+            onUpdate = { _, _, _ -> SaveResult.Success }
+        )
         composer.setText("Some text")
 
         // When
@@ -54,7 +67,10 @@ class PromptComposerTest {
     @Test
     fun `setText and getText should work correctly`() {
         // Given
-        val composer = PromptComposer { _, _ -> SaveResult.Success }
+        val composer = PromptComposer(
+            onSave = { _, _ -> SaveResult.Success },
+            onUpdate = { _, _, _ -> SaveResult.Success }
+        )
         val testText = "Test prompt text"
 
         // When
@@ -102,10 +118,13 @@ class PromptComposerTest {
     fun `composer should handle empty text gracefully`() {
         // Given
         var saveCallbackInvoked = false
-        val composer = PromptComposer { _, _ ->
-            saveCallbackInvoked = true
-            SaveResult.Success
-        }
+        val composer = PromptComposer(
+            onSave = { _, _ ->
+                saveCallbackInvoked = true
+                SaveResult.Success
+            },
+            onUpdate = { _, _, _ -> SaveResult.Success }
+        )
 
         // When
         composer.setText("")
@@ -118,7 +137,10 @@ class PromptComposerTest {
     @Test
     fun `composer should handle whitespace-only text`() {
         // Given
-        val composer = PromptComposer { _, _ -> SaveResult.Success }
+        val composer = PromptComposer(
+            onSave = { _, _ -> SaveResult.Success },
+            onUpdate = { _, _, _ -> SaveResult.Success }
+        )
 
         // When
         composer.setText("   \n\t  ")

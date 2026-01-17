@@ -376,7 +376,7 @@ class PromptRepository {
      * Dedupes against ALL prompts (private + grouped). Returns updated prompt, or null if
      * not found or if the new text would create a duplicate.
      */
-    fun updatePrompt(id: String, newText: String): Prompt? {
+    fun updatePrompt(id: String, newText: String, newTitle: String? = null): Prompt? {
         val lib = getLibrary()
 
         // Helper: flatten group prompts
@@ -384,7 +384,7 @@ class PromptRepository {
 
         val allPrompts = lib.privatePrompts + flatten(lib.groups)
         val current = allPrompts.firstOrNull { it.id == id } ?: return null
-        val updated = current.withUpdatedText(newText)
+        val updated = current.copy(text = newText, title = newTitle)
         val normalizedNew = updated.normalizedText()
 
         val collision = allPrompts.any { it.id != id && it.normalizedText() == normalizedNew }

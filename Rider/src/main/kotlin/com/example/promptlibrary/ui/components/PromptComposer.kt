@@ -1,5 +1,6 @@
 package com.example.promptlibrary.ui.components
 
+import com.example.promptlibrary.model.Prompt
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
@@ -13,13 +14,18 @@ import java.awt.Font
 import javax.swing.*
 
 /**
- * A UI component for composing new prompts with save functionality.
+ * A unified UI component for both adding new prompts and editing existing ones.
  *
  * This component handles the text input area and save button, with state management
  * for enabling/disabling based on whether a valid group is selected.
+ *
+ * Modes:
+ * - Add mode: Creates new prompts
+ * - Edit mode: Updates existing prompts
  */
 class PromptComposer(
-    private val onSave: (String, String?) -> SaveResult
+    private val onSave: (String, String?) -> SaveResult,
+    private val onUpdate: (Prompt, String, String?) -> SaveResult
 ) : JPanel(BorderLayout()) {
 
     private val titleField = JTextField().apply {
@@ -32,10 +38,22 @@ class PromptComposer(
     }
 
     private val saveButton = JButton("Add prompt")
+    private val cancelButton = JButton("Cancel").apply {
+        isVisible = false
+    }
+    private val addNewButton = JButton("Add New").apply {
+        isVisible = false
+    }
     private val hintLabel = JLabel("")
     private val selectedGroupLabel = JLabel("No group selected")
 
     private var isGroupSelected = false
+    private var editingPrompt: Prompt? = null
+    private var editingGroupId: String? = null
+
+    // Track original values for change detection
+    private var originalTitle: String = ""
+    private var originalText: String = ""
 
     init {
         // Container for both cards
@@ -52,7 +70,7 @@ class PromptComposer(
             )
             background = UIManager.getColor("Panel.background")
 
-            val titleLabel = JLabel("Quick Add").apply {
+            val titleLabel = JLabel("View, Add and Edit").apply {
                 font = font.deriveFont(Font.BOLD, 12f)
             }
 
@@ -118,11 +136,34 @@ class PromptComposer(
         }
         composerCard.add(centerPanel, BorderLayout.CENTER)
 
-        // Save button with modern styling
-        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
+        // Button panel with Add New, Save, and Cancel
+        val buttonPanel = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.emptyTop(6)
 
-            saveButton.apply {
+            // Left side: Add New button
+            val leftButtons = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+                isOpaque = false
+                addNewButton.apply {
+                    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                    addActionListener {
+                        exitEditMode()
+                    }
+                }
+                add(addNewButton)
+            }
+
+            // Right side: Save and Cancel buttons
+            val rightButtons = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0)).apply {
+                isOpaque = false
+
+                cancelButton.apply {
+                    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                    addActionListener {
+                        exitEditMode()
+                    }
+                }
+
+                saveButton.apply {
                 cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
                 putClientProperty("JButton.buttonType", "default")
 
@@ -131,17 +172,36 @@ class PromptComposer(
                     if (text.isNotEmpty()) {
                         val rawTitle = titleField.text.trim()
                         val title = if (rawTitle.isEmpty()) null else rawTitle
-                        val result = onSave(text, title)
+
+                        val result = if (editingPrompt != null) {
+                            // Edit mode
+                            onUpdate(editingPrompt!!, text, title)
+                        } else {
+                            // Add mode
+                            onSave(text, title)
+                        }
+
                         when (result) {
                             is SaveResult.Success -> {
-                                textArea.text = ""
-                                titleField.text = ""
+                                if (editingPrompt != null) {
+                                    // Update original values to reflect the save
+                                    originalTitle = title ?: ""
+                                    originalText = text
+                                    // Disable save button since there are no unsaved changes
+                                    updateSaveButtonState()
+                                    exitEditMode()
+                                } else {
+                                    textArea.text = ""
+                                    titleField.text = ""
+                                    originalTitle = ""
+                                    originalText = ""
+                                }
                                 // Visual feedback
                                 Notifications.Bus.notify(
                                     Notification(
                                         "PromptLibrary",
-                                        "Prompt saved",
-                                        "Your prompt has been added successfully",
+                                        if (editingPrompt != null) "Prompt updated" else "Prompt saved",
+                                        if (editingPrompt != null) "Your prompt has been updated successfully" else "Your prompt has been added successfully",
                                         NotificationType.INFORMATION
                                     )
                                 )
@@ -150,7 +210,7 @@ class PromptComposer(
                                 Notifications.Bus.notify(
                                     Notification(
                                         "PromptLibrary",
-                                        "Duplicate prompt not added",
+                                        "Duplicate prompt",
                                         "A similar prompt already exists",
                                         NotificationType.WARNING
                                     )
@@ -170,7 +230,12 @@ class PromptComposer(
                     }
                 }
             }
-            add(saveButton)
+                add(cancelButton)
+                add(saveButton)
+            }
+
+            add(leftButtons, BorderLayout.WEST)
+            add(rightButtons, BorderLayout.EAST)
             isOpaque = false
         }
         composerCard.add(buttonPanel, BorderLayout.SOUTH)
@@ -178,13 +243,23 @@ class PromptComposer(
         container.add(composerCard)
         add(container, BorderLayout.CENTER)
 
-        // Auto-suggest title from first 20 chars if empty
+        // Auto-suggest title from first 20 chars if empty + change detection
         textArea.document.addDocumentListener(object : javax.swing.event.DocumentListener {
-            override fun insertUpdate(e: javax.swing.event.DocumentEvent?) = updateTitleSuggestion()
-            override fun removeUpdate(e: javax.swing.event.DocumentEvent?) = updateTitleSuggestion()
-            override fun changedUpdate(e: javax.swing.event.DocumentEvent?) = updateTitleSuggestion()
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent?) {
+                updateTitleSuggestion()
+                updateSaveButtonState()
+            }
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent?) {
+                updateTitleSuggestion()
+                updateSaveButtonState()
+            }
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent?) {
+                updateTitleSuggestion()
+                updateSaveButtonState()
+            }
 
             private fun updateTitleSuggestion() {
+                if (editingPrompt != null) return // Don't auto-suggest in edit mode
                 if (titleField.text.trim().isEmpty()) {
                     val text = textArea.text.replace(Regex("[\r\n]+"), " ").take(20).trim()
                     titleField.text = text
@@ -192,10 +267,40 @@ class PromptComposer(
             }
         })
 
+        // Change detection for title field
+        titleField.document.addDocumentListener(object : javax.swing.event.DocumentListener {
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent?) = updateSaveButtonState()
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent?) = updateSaveButtonState()
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent?) = updateSaveButtonState()
+        })
+
         // Initialize state
         updateState(false, null)
     }
-    
+
+    /**
+     * Check if current values differ from original values.
+     */
+    private fun hasChanges(): Boolean {
+        if (editingPrompt == null) return false
+        val currentTitle = titleField.text.trim()
+        val currentText = textArea.text.trim()
+        return currentTitle != originalTitle || currentText != originalText
+    }
+
+    /**
+     * Update save button state based on changes.
+     */
+    private fun updateSaveButtonState() {
+        if (editingPrompt != null) {
+            // Edit mode: only enable if changes detected
+            saveButton.isEnabled = hasChanges()
+        } else {
+            // Add mode: enable if group selected and text not empty
+            saveButton.isEnabled = isGroupSelected && textArea.text.trim().isNotEmpty()
+        }
+    }
+
     /**
      * Updates the composer state based on whether a group is selected.
      *
@@ -248,11 +353,66 @@ class PromptComposer(
     }
     
     /**
+     * Enters edit mode for the given prompt.
+     * Changes the composer to edit the existing prompt instead of creating a new one.
+     */
+    fun enterEditMode(prompt: Prompt, groupId: String) {
+        editingPrompt = prompt
+        editingGroupId = groupId
+
+        // Store original values for change detection
+        originalTitle = prompt.title?.trim() ?: ""
+        originalText = prompt.text.trim()
+
+        // Populate fields
+        titleField.text = prompt.title ?: ""
+        textArea.text = prompt.text
+
+        // Update UI
+        saveButton.text = "Save Changes"
+        saveButton.isEnabled = false // Disabled until changes are made
+        cancelButton.isVisible = true
+        addNewButton.isVisible = true // Show "Add New" button in edit mode
+        selectedGroupLabel.text = "Editing prompt"
+
+        // Enable fields
+        titleField.isEditable = true
+        textArea.isEditable = true
+
+        // Focus text area
+        textArea.requestFocusInWindow()
+        textArea.caretPosition = textArea.text.length
+    }
+
+    /**
+     * Exits edit mode and returns to add mode.
+     */
+    fun exitEditMode() {
+        editingPrompt = null
+        editingGroupId = null
+
+        // Clear original values
+        originalTitle = ""
+        originalText = ""
+
+        // Clear fields
+        textArea.text = ""
+        titleField.text = ""
+
+        // Update UI
+        saveButton.text = "Add prompt"
+        cancelButton.isVisible = false
+        addNewButton.isVisible = false // Hide "Add New" button in add mode
+
+        // Restore state based on group selection
+        updateState(isGroupSelected, selectedGroupLabel.text.removePrefix("Selected group: "))
+    }
+
+    /**
      * Clears the text area and title field.
      */
     fun clear() {
-        textArea.text = ""
-        titleField.text = ""
+        exitEditMode()
     }
 
     /**
