@@ -231,21 +231,6 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
             border = JBUI.Borders.emptyBottom(2)
         }
 
-        // Vertical layout: tree -> composer
-        val mainContent = JPanel(BorderLayout()).apply {
-            // Tree section with toolbar
-            val treeSection = JPanel(BorderLayout()).apply {
-                add(treeToolbar, BorderLayout.NORTH)
-                add(ScrollPaneFactory.createScrollPane(groupTreePanel, true), BorderLayout.CENTER)
-                preferredSize = JBUI.size(0, 400)
-            }
-
-            add(treeSection, BorderLayout.CENTER)
-        }
-
-        add(toolbar, BorderLayout.NORTH)
-        add(mainContent, BorderLayout.CENTER)
-
         // Prompt composer with both add and update callbacks
         promptComposer = PromptComposer(
             onSave = { text, title ->
@@ -272,7 +257,23 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
                 }
             }
         )
-        add(promptComposer, BorderLayout.SOUTH)
+
+        // Tree section with toolbar
+        val treeSection = JPanel(BorderLayout()).apply {
+            add(treeToolbar, BorderLayout.NORTH)
+            add(ScrollPaneFactory.createScrollPane(groupTreePanel, true), BorderLayout.CENTER)
+        }
+
+        // Vertical split pane: tree (top) <-> composer (bottom)
+        val splitPane = com.intellij.ui.JBSplitter(true).apply {
+            firstComponent = treeSection
+            secondComponent = promptComposer
+            proportion = 0.6f // 60% tree, 40% composer initially
+            setHonorComponentsMinimumSize(true)
+        }
+
+        add(toolbar, BorderLayout.NORTH)
+        add(splitPane, BorderLayout.CENTER)
 
         // One-time migration: move any private-root prompts into Unfiled group
         val moved = repository.migratePrivateRootPromptsToUnfiled()

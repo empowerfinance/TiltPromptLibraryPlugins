@@ -301,14 +301,35 @@ class GroupTreePanel(
      */
     fun rebuildTree() {
         val prevSelected = selectedGroupId
+
+        // Save expansion state before rebuilding
+        val expandedGroupIds = mutableSetOf<String>()
+        val treeRoot = groupTreeModel.root as? DefaultMutableTreeNode
+        if (treeRoot != null) {
+            fun collectExpanded(node: DefaultMutableTreeNode) {
+                val uo = node.userObject
+                if (uo is GroupNode) {
+                    val path = TreePath(node.path)
+                    if (groupTree.isExpanded(path)) {
+                        expandedGroupIds.add(uo.group.id)
+                    }
+                }
+                for (i in 0 until node.childCount) {
+                    val child = node.getChildAt(i) as DefaultMutableTreeNode
+                    collectExpanded(child)
+                }
+            }
+            collectExpanded(treeRoot)
+        }
+
         val root = DefaultMutableTreeNode("Root")
-        
+
         // Two namespaces: Shared and Private
         val sharedNode = DefaultMutableTreeNode(SharedRoot)
         val privateNode = DefaultMutableTreeNode(PrivateRoot)
         root.add(sharedNode)
         root.add(privateNode)
-        
+
         fun addNodes(parent: DefaultMutableTreeNode, groups: List<Group>) {
             for (g in groups) {
                 val groupNode = DefaultMutableTreeNode(GroupNode(g))
@@ -324,23 +345,45 @@ class GroupTreePanel(
                 if (g.children.isNotEmpty()) addNodes(groupNode, g.children)
             }
         }
-        
+
         // Populate namespaces from repository per-namespace lists
         addNodes(sharedNode, repository.getSharedGroups())
-        
+
         // Private: pin Unfiled at top
         val privGroups = repository.getPrivateGroups()
         val unfiled = privGroups.firstOrNull { it.name.trim().equals("Unfiled", ignoreCase = true) }
         if (unfiled != null) addNodes(privateNode, listOf(unfiled))
         addNodes(privateNode, privGroups.filter { it.id != unfiled?.id })
-        
+
         groupTreeModel.setRoot(root)
         groupTreeModel.reload()
-        groupTree.expandRow(0)
-        
+
+        val newTreeRoot = groupTreeModel.root as DefaultMutableTreeNode
+
+        // Always expand Shared and Private root nodes
+        groupTree.expandRow(0) // Expand the invisible root
+        for (i in 0 until groupTreeModel.getChildCount(newTreeRoot)) {
+            val child = groupTreeModel.getChild(newTreeRoot, i) as DefaultMutableTreeNode
+            val childPath = TreePath(child.path)
+            groupTree.expandPath(childPath)
+        }
+
+        // Restore expansion state for group nodes
+        fun restoreExpansion(node: DefaultMutableTreeNode) {
+            val uo = node.userObject
+            if (uo is GroupNode && expandedGroupIds.contains(uo.group.id)) {
+                val path = TreePath(node.path)
+                groupTree.expandPath(path)
+            }
+            for (i in 0 until node.childCount) {
+                val child = node.getChildAt(i) as DefaultMutableTreeNode
+                restoreExpansion(child)
+            }
+        }
+        restoreExpansion(newTreeRoot)
+
         // Try to restore previous selection (by group id)
         if (prevSelected != null) {
-            val treeRoot = groupTreeModel.root as DefaultMutableTreeNode
             fun find(node: DefaultMutableTreeNode): TreePath? {
                 val uo = node.userObject
                 if (uo is GroupNode && uo.group.id == prevSelected) return TreePath(node.path)
@@ -351,12 +394,7 @@ class GroupTreePanel(
                 }
                 return null
             }
-            find(treeRoot)?.let { groupTree.selectionPath = it }
-        }
-        
-        // Expand all rows
-        for (i in 0 until groupTree.rowCount) {
-            groupTree.expandRow(i)
+            find(newTreeRoot)?.let { groupTree.selectionPath = it }
         }
     }
     

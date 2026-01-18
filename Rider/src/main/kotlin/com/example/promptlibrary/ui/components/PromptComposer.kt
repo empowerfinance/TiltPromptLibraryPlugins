@@ -56,49 +56,43 @@ class PromptComposer(
     private var originalText: String = ""
 
     init {
-        // Container for both cards
-        val container = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = JBUI.Borders.empty(4, 0, 0, 0)
-        }
-
-        // First card: Quick Add header with selected group info
-        val headerCard = JPanel(BorderLayout()).apply {
+        // Single unified card containing everything
+        val unifiedCard = JPanel(BorderLayout()).apply {
             border = BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(JBColor.border(), 1, true),
                 JBUI.Borders.empty(8)
             )
             background = UIManager.getColor("Panel.background")
+        }
 
+        // Header section at the top
+        val headerSection = JPanel(BorderLayout()).apply {
             val titleLabel = JLabel("View, Add and Edit").apply {
-                font = font.deriveFont(Font.BOLD, 12f)
+                font = font.deriveFont(Font.BOLD, 14f)
             }
 
             selectedGroupLabel.apply {
                 foreground = JBColor.namedColor("Label.infoForeground", JBColor.GRAY)
                 font = font.deriveFont(10f)
-                border = JBUI.Borders.emptyTop(2)
             }
 
             val leftPanel = JPanel().apply {
                 layout = BoxLayout(this, BoxLayout.Y_AXIS)
                 add(titleLabel)
+                add(Box.createVerticalStrut(2))
                 add(selectedGroupLabel)
                 isOpaque = false
             }
 
             add(leftPanel, BorderLayout.WEST)
+            border = JBUI.Borders.emptyBottom(12)
+            isOpaque = false
         }
-        container.add(headerCard)
-        container.add(Box.createVerticalStrut(4))
+        unifiedCard.add(headerSection, BorderLayout.NORTH)
 
-        // Second card: Title field, text area, and save button
-        val composerCard = JPanel(BorderLayout()).apply {
-            border = BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(JBColor.border(), 1, true),
-                JBUI.Borders.empty(8)
-            )
-            background = UIManager.getColor("Panel.background")
+        // Content panel for form fields
+        val contentPanel = JPanel(BorderLayout()).apply {
+            isOpaque = false
         }
 
         // Title field section
@@ -113,15 +107,15 @@ class PromptComposer(
             border = JBUI.Borders.emptyBottom(8)
             isOpaque = false
         }
-        composerCard.add(titleSection, BorderLayout.NORTH)
+        contentPanel.add(titleSection, BorderLayout.NORTH)
 
         // Center panel for text area and hint
         val centerPanel = JPanel(BorderLayout()).apply {
-            // Compact text area with rounded scroll pane
+            // Text area with rounded scroll pane - grows vertically with panel
             val scrollPane = JScrollPane(textArea).apply {
                 border = BorderFactory.createLineBorder(JBColor.border(), 1, true)
-                preferredSize = Dimension(0, 70)
-                minimumSize = Dimension(0, 70)
+                minimumSize = Dimension(0, 70) // Minimum height
+                // No preferredSize - allows it to grow with the split pane
             }
             add(scrollPane, BorderLayout.CENTER)
 
@@ -134,7 +128,7 @@ class PromptComposer(
             add(hintLabel, BorderLayout.SOUTH)
             isOpaque = false
         }
-        composerCard.add(centerPanel, BorderLayout.CENTER)
+        contentPanel.add(centerPanel, BorderLayout.CENTER)
 
         // Button panel with Add New, Save, and Cancel
         val buttonPanel = JPanel(BorderLayout()).apply {
@@ -238,10 +232,10 @@ class PromptComposer(
             add(rightButtons, BorderLayout.EAST)
             isOpaque = false
         }
-        composerCard.add(buttonPanel, BorderLayout.SOUTH)
+        contentPanel.add(buttonPanel, BorderLayout.SOUTH)
 
-        container.add(composerCard)
-        add(container, BorderLayout.CENTER)
+        unifiedCard.add(contentPanel, BorderLayout.CENTER)
+        add(unifiedCard, BorderLayout.CENTER)
 
         // Auto-suggest title from first 20 chars if empty + change detection
         textArea.document.addDocumentListener(object : javax.swing.event.DocumentListener {
