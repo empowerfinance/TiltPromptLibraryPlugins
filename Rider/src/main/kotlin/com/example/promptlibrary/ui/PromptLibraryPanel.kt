@@ -59,6 +59,9 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         },
         onAddGroupToPrivate = {
             addGroupToNamespace("Private")
+        },
+        onEditGroup = { group ->
+            showEditGroupDialog(group)
         }
     )
 
@@ -103,17 +106,18 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
             add(JMenuItem("Rename Group").apply {
                 isEnabled = {
                     val sel = groupTreePanel.getLastSelectedNode() as? javax.swing.tree.DefaultMutableTreeNode
-                    val g = sel?.userObject as? Group
-                    if (g == null) false else !g.name.trim().equals("Unfiled", ignoreCase = true)
+                    val groupNode = sel?.userObject as? GroupNode
+                    if (groupNode == null) false else !groupNode.group.name.trim().equals("Unfiled", ignoreCase = true)
                 }()
                 addActionListener {
                     val sel = groupTreePanel.getLastSelectedNode() as? javax.swing.tree.DefaultMutableTreeNode
-                    val g = sel?.userObject as? Group ?: return@addActionListener
+                    val groupNode = sel?.userObject as? GroupNode ?: return@addActionListener
+                    val g = groupNode.group
                     val name = JOptionPane.showInputDialog(this@PromptLibraryPanel, "Rename group:", g.name)
                     val trimmed = name?.trim().orEmpty()
                     if (trimmed.isNotEmpty()) {
                         val ok = repository.renameGroup(g.id, trimmed)
-                        if (!ok) Notifications.Bus.notify(Notification("PromptLibrary", "Duplicate group name", "A group with that name already exists in Private.", NotificationType.WARNING))
+                        if (!ok) Notifications.Bus.notify(Notification("PromptLibrary", "Duplicate group name", "A group with that name already exists.", NotificationType.WARNING))
                         groupTreePanel.rebuildTree()
                     }
                 }
@@ -122,8 +126,9 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
                 // Only allow delete for groups under Private (not Shared), and never allow deleting Unfiled
                 isEnabled = {
                     val sel = groupTreePanel.getLastSelectedNode() as? javax.swing.tree.DefaultMutableTreeNode
-                    val g = sel?.userObject as? Group
-                    if (g == null) false else {
+                    val groupNode = sel?.userObject as? GroupNode
+                    if (groupNode == null) false else {
+                        val g = groupNode.group
                         val isShared = g.tags.contains("ns:shared")
                         val isUnfiled = g.name.trim().equals("Unfiled", ignoreCase = true)
                         !isShared && !isUnfiled
@@ -131,7 +136,8 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
                 }()
                 addActionListener {
                     val sel = groupTreePanel.getLastSelectedNode() as? javax.swing.tree.DefaultMutableTreeNode
-                    val g = sel?.userObject as? Group ?: return@addActionListener
+                    val groupNode = sel?.userObject as? GroupNode ?: return@addActionListener
+                    val g = groupNode.group
                     val res = JOptionPane.showConfirmDialog(this@PromptLibraryPanel, "Delete group '${g.name}'? Prompts will be moved to Private/Unfiled.", "Confirm Delete", JOptionPane.YES_NO_OPTION)
                     if (res == JOptionPane.YES_OPTION) {
                         val unfiled = repository.ensureUnfiledGroup()
@@ -220,51 +226,9 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
             add(overflowButton, BorderLayout.EAST)
         }
 
-        // Tree toolbar with group management buttons
+        // Tree toolbar (empty for now - group management is done via edit icons in tree)
         val treeToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 2, 2)).apply {
             border = JBUI.Borders.emptyBottom(2)
-
-            add(iconButton(AllIcons.General.Add, "Add Group") {
-                val options = arrayOf("Shared", "Private")
-                val target = JOptionPane.showInputDialog(this@PromptLibraryPanel, "Add group to:", "Add Group", JOptionPane.PLAIN_MESSAGE, null, options, options.last()) as? String
-                val name = JOptionPane.showInputDialog(this@PromptLibraryPanel, "New group name:", "Add Group", JOptionPane.PLAIN_MESSAGE)
-                val trimmed = name?.trim().orEmpty()
-                if (!trimmed.isNullOrEmpty()) {
-                    val newGroup = if (target == "Shared") repository.addSharedGroup(trimmed) else repository.addPrivateGroup(trimmed)
-                    selectedGroupId = newGroup.id
-                    selectedGroupName = newGroup.name
-                    groupTreePanel.rebuildTree()
-                    updateComposerState()
-                }
-            })
-            add(iconButton(AllIcons.Actions.Edit, "Rename Group") {
-                val sel = groupTreePanel.getLastSelectedNode() as? javax.swing.tree.DefaultMutableTreeNode
-                val groupNode = sel?.userObject as? GroupNode ?: return@iconButton
-                val g = groupNode.group
-                val name = JOptionPane.showInputDialog(this@PromptLibraryPanel, "Rename group:", g.name)
-                val trimmed = name?.trim().orEmpty()
-                if (trimmed.isNotEmpty()) {
-                    val ok = repository.renameGroup(g.id, trimmed)
-                    if (!ok) {
-                        Notifications.Bus.notify(Notification("PromptLibrary", "Duplicate group name", "A group with that name already exists.", NotificationType.WARNING))
-                    }
-                    groupTreePanel.rebuildTree()
-                }
-            })
-            add(iconButton(AllIcons.General.Remove, "Delete Group") {
-                val sel = groupTreePanel.getLastSelectedNode() as? javax.swing.tree.DefaultMutableTreeNode
-                val groupNode = sel?.userObject as? GroupNode ?: return@iconButton
-                val g = groupNode.group
-                if (g.tags.contains("ns:shared")) {
-                    Notifications.Bus.notify(Notification("PromptLibrary", "Not allowed", "Shared groups cannot be deleted", NotificationType.WARNING))
-                } else {
-                    val res = JOptionPane.showConfirmDialog(this@PromptLibraryPanel, "Delete group '${g.name}'? Prompts will be moved to Private/Unfiled.", "Confirm Delete", JOptionPane.YES_NO_OPTION)
-                    if (res == JOptionPane.YES_OPTION) {
-                        repository.deleteGroupPreservePrompts(g.id)
-                        groupTreePanel.rebuildTree()
-                    }
-                }
-            })
         }
 
         // Vertical layout: tree -> composer
@@ -440,6 +404,85 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
                 )
             }
         ).show()
+    }
+
+    private fun showEditGroupDialog(group: Group) {
+        // Check if this is the Unfiled group
+        if (group.name.trim().equals("Unfiled", ignoreCase = true)) {
+            Notifications.Bus.notify(
+                Notification(
+                    "PromptLibrary",
+                    "Cannot Edit",
+                    "The 'Unfiled' group cannot be renamed or deleted.",
+                    NotificationType.WARNING
+                )
+            )
+            return
+        }
+
+        val isShared = group.tags.contains("ns:shared")
+
+        // Show dialog with Rename and Delete options
+        val options = if (isShared) {
+            arrayOf("Rename", "Cancel")
+        } else {
+            arrayOf("Rename", "Delete", "Cancel")
+        }
+
+        val choice = JOptionPane.showOptionDialog(
+            this,
+            "Edit group: ${group.name}",
+            "Edit Group",
+            JOptionPane.DEFAULT_OPTION,
+            JOptionPane.PLAIN_MESSAGE,
+            null,
+            options,
+            options[0]
+        )
+
+        when (choice) {
+            0 -> { // Rename
+                val newName = JOptionPane.showInputDialog(this, "Rename group:", group.name)
+                val trimmed = newName?.trim().orEmpty()
+                if (trimmed.isNotEmpty()) {
+                    val ok = repository.renameGroup(group.id, trimmed)
+                    if (!ok) {
+                        Notifications.Bus.notify(
+                            Notification(
+                                "PromptLibrary",
+                                "Duplicate group name",
+                                "A group with that name already exists.",
+                                NotificationType.WARNING
+                            )
+                        )
+                    }
+                    groupTreePanel.rebuildTree()
+                }
+            }
+            1 -> { // Delete (only for Private groups)
+                if (!isShared) {
+                    val res = JOptionPane.showConfirmDialog(
+                        this,
+                        "Delete group '${group.name}'? Prompts will be moved to Private/Unfiled.",
+                        "Confirm Delete",
+                        JOptionPane.YES_NO_OPTION
+                    )
+                    if (res == JOptionPane.YES_OPTION) {
+                        val unfiled = repository.ensureUnfiledGroup()
+                        repository.deleteGroupPreservePrompts(group.id)
+                        Notifications.Bus.notify(
+                            Notification(
+                                "PromptLibrary",
+                                "Group deleted",
+                                "Moved prompts to '${unfiled.name}'.",
+                                NotificationType.INFORMATION
+                            )
+                        )
+                        groupTreePanel.rebuildTree()
+                    }
+                }
+            }
+        }
     }
 
     // Git Sync helpers (methods must be inside class)

@@ -42,7 +42,8 @@ class GroupTreePanel(
     private val onGroupSelected: (String?) -> Unit,
     private val onPromptSelected: (Prompt, String) -> Unit,
     private val onAddGroupToShared: () -> Unit = {},
-    private val onAddGroupToPrivate: () -> Unit = {}
+    private val onAddGroupToPrivate: () -> Unit = {},
+    private val onEditGroup: (Group) -> Unit = {}
 ) : JPanel(BorderLayout()) {
 
     private val groupTreeModel = DefaultTreeModel(DefaultMutableTreeNode("Library"))
@@ -58,7 +59,7 @@ class GroupTreePanel(
     }
 
     /**
-     * Sets up mouse listener to detect clicks on "+ Add Group" text.
+     * Sets up mouse listener to detect clicks on "+ Add Group" text and edit icons.
      */
     private fun setupMouseListener() {
         groupTree.addMouseListener(object : MouseAdapter() {
@@ -66,26 +67,44 @@ class GroupTreePanel(
                 val path = groupTree.getPathForLocation(e.x, e.y) ?: return
                 val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
                 val userObject = node.userObject
-
-                // Only handle Shared/Private root nodes
-                if (userObject !is SharedRoot && userObject !is PrivateRoot) return
-
-                // Get the row bounds - this tells us where the tree node content is
                 val rowBounds = groupTree.getPathBounds(path) ?: return
 
-                // The "+ Add Group" text appears right after the label
-                // Based on logs: label ends around X=60-70, text is from ~70-140
-                val labelWidth = 65 // Width of "Shared"/"Private" + icon
-                val addGroupTextWidth = 75 // Width of "+ Add Group" text
-                val clickableAreaStart = rowBounds.x + labelWidth
-                val clickableAreaEnd = rowBounds.x + labelWidth + addGroupTextWidth
+                // Handle Shared/Private root nodes - "+ Add Group" text
+                if (userObject is SharedRoot || userObject is PrivateRoot) {
+                    val labelWidth = 65 // Width of "Shared"/"Private" + icon
+                    val addGroupTextWidth = 75 // Width of "+ Add Group" text
+                    val clickableAreaStart = rowBounds.x + labelWidth
+                    val clickableAreaEnd = rowBounds.x + labelWidth + addGroupTextWidth
 
-                println("[GroupTreePanel] Click at x=${e.x}, rowBounds.x=${rowBounds.x}, range=$clickableAreaStart-$clickableAreaEnd")
+                    if (e.x >= clickableAreaStart && e.x <= clickableAreaEnd) {
+                        when (userObject) {
+                            is SharedRoot -> onAddGroupToShared()
+                            is PrivateRoot -> onAddGroupToPrivate()
+                        }
+                    }
+                    return
+                }
 
-                if (e.x >= clickableAreaStart && e.x <= clickableAreaEnd) {
-                    when (userObject) {
-                        is SharedRoot -> onAddGroupToShared()
-                        is PrivateRoot -> onAddGroupToPrivate()
+                // Handle GroupNode - edit icon
+                if (userObject is GroupNode) {
+                    val isUnfiled = userObject.group.name.trim().equals("Unfiled", ignoreCase = true)
+                    if (isUnfiled) return // No edit icon for Unfiled
+
+                    // Calculate the actual width of the group name label
+                    val metrics = groupTree.getFontMetrics(groupTree.font)
+                    val textWidth = metrics.stringWidth(userObject.group.name)
+                    val iconWidth = 20 // Folder icon width
+                    val spacing = 8 // Spacing between icon and text
+                    val labelWidth = iconWidth + spacing + textWidth
+                    val editIconWidth = 20 // Width of edit icon
+                    val clickableAreaStart = rowBounds.x + labelWidth
+                    val clickableAreaEnd = rowBounds.x + labelWidth + editIconWidth
+
+                    println("[GroupTreePanel] GroupNode click: x=${e.x}, rowBounds.x=${rowBounds.x}, labelWidth=$labelWidth, range=$clickableAreaStart-$clickableAreaEnd, group=${userObject.group.name}")
+
+                    if (e.x >= clickableAreaStart && e.x <= clickableAreaEnd) {
+                        println("[GroupTreePanel] Edit icon clicked for group: ${userObject.group.name}")
+                        onEditGroup(userObject.group)
                     }
                 }
             }
@@ -93,7 +112,7 @@ class GroupTreePanel(
     }
 
     /**
-     * Sets up hover effect to show hand cursor over "+ Add Group" text.
+     * Sets up hover effect to show hand cursor over "+ Add Group" text and edit icons.
      */
     private fun setupHoverEffect() {
         groupTree.addMouseMotionListener(object : MouseAdapter() {
@@ -106,32 +125,54 @@ class GroupTreePanel(
 
                 val node = path.lastPathComponent as? DefaultMutableTreeNode
                 val userObject = node?.userObject
-
-                if (userObject !is SharedRoot && userObject !is PrivateRoot) {
-                    groupTree.cursor = java.awt.Cursor.getDefaultCursor()
-                    return
-                }
-
-                // Get the row bounds
                 val rowBounds = groupTree.getPathBounds(path)
                 if (rowBounds == null) {
                     groupTree.cursor = java.awt.Cursor.getDefaultCursor()
                     return
                 }
 
-                // Calculate where the "+ Add Group" text appears
-                val labelWidth = 65 // Width of "Shared"/"Private" + icon
-                val addGroupTextWidth = 75 // Width of "+ Add Group" text
-                val clickableAreaStart = rowBounds.x + labelWidth
-                val clickableAreaEnd = rowBounds.x + labelWidth + addGroupTextWidth
+                // Handle Shared/Private root nodes - "+ Add Group" text
+                if (userObject is SharedRoot || userObject is PrivateRoot) {
+                    val labelWidth = 65
+                    val addGroupTextWidth = 75
+                    val clickableAreaStart = rowBounds.x + labelWidth
+                    val clickableAreaEnd = rowBounds.x + labelWidth + addGroupTextWidth
 
-                println("[GroupTreePanel] Hover at x=${e.x}, rowBounds.x=${rowBounds.x}, range=$clickableAreaStart-$clickableAreaEnd")
-
-                if (e.x >= clickableAreaStart && e.x <= clickableAreaEnd) {
-                    groupTree.cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
-                } else {
-                    groupTree.cursor = java.awt.Cursor.getDefaultCursor()
+                    if (e.x >= clickableAreaStart && e.x <= clickableAreaEnd) {
+                        groupTree.cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                    } else {
+                        groupTree.cursor = java.awt.Cursor.getDefaultCursor()
+                    }
+                    return
                 }
+
+                // Handle GroupNode - edit icon
+                if (userObject is GroupNode) {
+                    val isUnfiled = userObject.group.name.trim().equals("Unfiled", ignoreCase = true)
+                    if (isUnfiled) {
+                        groupTree.cursor = java.awt.Cursor.getDefaultCursor()
+                        return
+                    }
+
+                    // Calculate the actual width of the group name label
+                    val metrics = groupTree.getFontMetrics(groupTree.font)
+                    val textWidth = metrics.stringWidth(userObject.group.name)
+                    val iconWidth = 20 // Folder icon width
+                    val spacing = 8 // Spacing between icon and text
+                    val labelWidth = iconWidth + spacing + textWidth
+                    val editIconWidth = 20
+                    val clickableAreaStart = rowBounds.x + labelWidth
+                    val clickableAreaEnd = rowBounds.x + labelWidth + editIconWidth
+
+                    if (e.x >= clickableAreaStart && e.x <= clickableAreaEnd) {
+                        groupTree.cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                    } else {
+                        groupTree.cursor = java.awt.Cursor.getDefaultCursor()
+                    }
+                    return
+                }
+
+                groupTree.cursor = java.awt.Cursor.getDefaultCursor()
             }
         })
     }
@@ -155,7 +196,7 @@ class GroupTreePanel(
                 val node = value as? DefaultMutableTreeNode
                 val userObject = node?.userObject
 
-                // Only add "+ Add Group" text for Shared and Private root nodes
+                // Add "+ Add Group" text for Shared and Private root nodes
                 if (userObject is SharedRoot || userObject is PrivateRoot) {
                     val panel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
                         isOpaque = false
@@ -175,6 +216,31 @@ class GroupTreePanel(
                                 java.awt.Color(150, 150, 150)
                             )
                         })
+                    }
+                    return panel
+                }
+
+                // Add edit icon for GroupNode items (except Unfiled)
+                if (userObject is GroupNode) {
+                    val isUnfiled = userObject.group.name.trim().equals("Unfiled", ignoreCase = true)
+
+                    val panel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+                        isOpaque = false
+                        background = if (sel) backgroundSelectionColor else backgroundNonSelectionColor
+
+                        // Label with folder icon
+                        add(JBLabel(userObject.toString()).apply {
+                            icon = if (expanded) openIcon else closedIcon
+                            foreground = if (sel) textSelectionColor else textNonSelectionColor
+                        })
+
+                        // Edit icon (pencil) - only for non-Unfiled groups
+                        if (!isUnfiled) {
+                            add(JBLabel().apply {
+                                icon = AllIcons.Actions.Edit
+                                toolTipText = "Edit group"
+                            })
+                        }
                     }
                     return panel
                 }
