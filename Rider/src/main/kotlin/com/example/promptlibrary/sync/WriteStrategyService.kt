@@ -116,8 +116,14 @@ object WriteStrategyService {
                 // If nothing to commit, we still need to check if we're behind remote
                 val hasLocalCommit = commitResult.success()
 
-                // STEP 3: Pull with rebase (now safe because local changes are committed)
-                val currentBranch = GitUtils.currentBranch(project, repoRoot) ?: "main"
+                // STEP 3: Clean up git state and ensure we're on a branch, then pull with rebase
+                val currentBranch = GitUtils.cleanupAndEnsureOnBranch(project, repoRoot)
+                if (currentBranch == null) {
+                    val errMsg = "Not on a branch. Please checkout a branch manually in terminal."
+                    SyncLog.error(errMsg)
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
+                    latch.countDown(); return@executeOnPooledThread
+                }
                 SyncLog.info("Fetching from origin...")
 
                 // Fetch first
@@ -134,7 +140,12 @@ object WriteStrategyService {
                 }
                 val pullResult = git.runCommand(pullHandler)
                 if (!pullResult.success()) {
-                    val errMsg = "Pull failed: ${pullResult.errorOutputAsJoinedString}. Please resolve conflicts manually."
+                    // Check if we're in a conflict state and abort the rebase to leave repo clean
+                    if (GitUtils.isRebaseInProgress(repoRoot)) {
+                        SyncLog.warn("Rebase conflict detected, aborting to leave repo in clean state...")
+                        GitUtils.abortRebaseIfNeeded(project, repoRoot)
+                    }
+                    val errMsg = "Pull failed due to conflicts. Your local changes conflict with remote. Use 'Force Pull & Sync' to discard local and get remote version."
                     SyncLog.error(errMsg)
                     Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
                     latch.countDown(); return@executeOnPooledThread
@@ -183,7 +194,14 @@ object WriteStrategyService {
         val latch = java.util.concurrent.CountDownLatch(1)
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val currentBranch = GitUtils.currentBranch(project, repoRoot) ?: "main"
+                // Clean up git state and ensure we're on a branch first
+                val currentBranch = GitUtils.cleanupAndEnsureOnBranch(project, repoRoot)
+                if (currentBranch == null) {
+                    val errMsg = "Not on a branch. Please checkout a branch manually in terminal."
+                    SyncLog.error(errMsg)
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
+                    latch.countDown(); return@executeOnPooledThread
+                }
 
                 // STEP 1: Stage all changes FIRST (before pull, to avoid "unstaged changes" error)
                 SyncLog.info("Staging all changes...")
@@ -213,7 +231,12 @@ object WriteStrategyService {
                     endOptions()
                 })
                 if (!pullResult.success()) {
-                    val errMsg = "Pull failed: ${pullResult.errorOutputAsJoinedString}. Please resolve conflicts manually."
+                    // Check if we're in a conflict state and abort the rebase to leave repo clean
+                    if (GitUtils.isRebaseInProgress(repoRoot)) {
+                        SyncLog.warn("Rebase conflict detected, aborting to leave repo in clean state...")
+                        GitUtils.abortRebaseIfNeeded(project, repoRoot)
+                    }
+                    val errMsg = "Pull failed due to conflicts. Your local changes conflict with remote. Use 'Force Pull & Sync' to discard local and get remote version."
                     SyncLog.error(errMsg)
                     Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
                     latch.countDown(); return@executeOnPooledThread

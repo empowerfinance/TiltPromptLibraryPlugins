@@ -106,8 +106,13 @@ object GitPullService {
 
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                // Get current branch name
-                val currentBranch = GitUtils.currentBranch(project, repoRoot) ?: "main"
+                // Clean up any broken git state and ensure we're on a branch
+                val currentBranch = GitUtils.cleanupAndEnsureOnBranch(project, repoRoot)
+                if (currentBranch == null) {
+                    result = PullResult(false, "Not on a branch and couldn't checkout default branch. Please manually checkout a branch in terminal.")
+                    latch.countDown()
+                    return@executeOnPooledThread
+                }
 
                 // Fetch from origin first
                 SyncLog.info("Fetching from origin...")
@@ -128,8 +133,13 @@ object GitPullService {
                     SyncLog.info("Pull successful")
                     PullResult(true)
                 } else {
-                    val errMsg = pullResult.errorOutputAsJoinedString
-                    SyncLog.error("Pull failed: $errMsg")
+                    // If rebase failed with conflicts, abort to leave repo clean
+                    if (GitUtils.isRebaseInProgress(repoRoot)) {
+                        SyncLog.warn("Rebase conflict detected, aborting to leave repo in clean state...")
+                        GitUtils.abortRebaseIfNeeded(project, repoRoot)
+                    }
+                    val errMsg = "Pull failed due to conflicts. Use 'Force Pull & Sync' to discard local changes."
+                    SyncLog.error(errMsg)
                     PullResult(false, errMsg)
                 }
             } catch (e: Exception) {
@@ -142,6 +152,79 @@ object GitPullService {
         }
         latch.await()
         return result
+    }
+
+    /**
+     * Synchronous fetch from origin. Blocks until complete.
+     */
+    fun fetchOnly(project: Project, repoRoot: File): Boolean {
+        SyncLog.info("Fetching from origin...")
+        val git = Git.getInstance()
+        val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(repoRoot) ?: return false
+
+        var success = false
+        val latch = CountDownLatch(1)
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val handler = GitLineHandler(project, vf, GitCommand.FETCH).apply {
+                    addParameters("origin")
+                }
+                val result = git.runCommand(handler)
+                success = result.success()
+                if (success) {
+                    SyncLog.info("Fetch successful")
+                } else {
+                    SyncLog.error("Fetch failed: ${result.errorOutputAsJoinedString}")
+                }
+            } catch (e: Exception) {
+                SyncLog.error("Fetch error: ${e.message}")
+            } finally {
+                latch.countDown()
+            }
+        }
+        latch.await()
+        return success
+    }
+
+    /**
+     * Hard reset local branch to match origin. Discards all local changes.
+     */
+    fun hardResetToOrigin(project: Project, repoRoot: File, branchName: String): Boolean {
+        SyncLog.info("Hard resetting to origin/$branchName...")
+        val git = Git.getInstance()
+        val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(repoRoot) ?: return false
+
+        var success = false
+        val latch = CountDownLatch(1)
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                // First ensure we're on the right branch
+                val currentBranch = GitUtils.cleanupAndEnsureOnBranch(project, repoRoot)
+                if (currentBranch == null) {
+                    SyncLog.error("Could not checkout branch")
+                    latch.countDown()
+                    return@executeOnPooledThread
+                }
+
+                // Hard reset to origin
+                val handler = GitLineHandler(project, vf, GitCommand.RESET).apply {
+                    addParameters("--hard", "origin/$branchName")
+                }
+                val result = git.runCommand(handler)
+                success = result.success()
+                if (success) {
+                    SyncLog.info("Reset successful - now at origin/$branchName")
+                } else {
+                    SyncLog.error("Reset failed: ${result.errorOutputAsJoinedString}")
+                }
+            } catch (e: Exception) {
+                SyncLog.error("Reset error: ${e.message}")
+            } finally {
+                latch.countDown()
+            }
+        }
+        latch.await()
+        return success
     }
 }
 

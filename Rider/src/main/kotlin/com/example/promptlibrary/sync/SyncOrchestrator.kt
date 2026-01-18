@@ -13,6 +13,9 @@ import com.intellij.openapi.project.Project
 import java.io.File
 
 object SyncOrchestrator {
+    /**
+     * Full sync: pull from remote, merge, write YAML, commit & push
+     */
     fun sync(project: Project, repo: PromptRepository) {
         SyncLog.info("Starting sync...")
         val (rootDir, _) = GitRepoManager.ensureWorkingCopy(project)
@@ -65,6 +68,61 @@ object SyncOrchestrator {
                     }
                 } catch (e: Exception) {
                     val errMsg = "Sync error: ${e.message}"
+                    SyncLog.error(errMsg)
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
+                }
+            }
+        })
+    }
+
+    /**
+     * Force pull: hard reset to remote, discard all local changes, load into memory.
+     * NO commit/push - this is a one-way "get remote" operation.
+     */
+    fun forcePull(project: Project, repo: PromptRepository) {
+        SyncLog.info("Starting force pull (hard reset to remote)...")
+        val (rootDir, _) = GitRepoManager.ensureWorkingCopy(project)
+        if (rootDir == null) {
+            SyncLog.error("No working copy available")
+            return
+        }
+        val settings = PluginSettingsService.instance().data
+
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Prompt Library: Force Pull", false) {
+            override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
+                try {
+                    indicator.text = "Fetching from remote..."
+                    SyncLog.info("Fetching from origin...")
+                    GitPullService.fetchOnly(project, rootDir)
+
+                    // Use configured branch or detect default from remote
+                    val branchName = settings.branchName.ifBlank {
+                        GitUtils.getDefaultBranch(project, rootDir)
+                    }
+
+                    indicator.text = "Hard reset to origin..."
+                    SyncLog.info("Hard resetting to origin/$branchName...")
+                    val success = GitPullService.hardResetToOrigin(project, rootDir, branchName)
+                    if (!success) {
+                        SyncLog.error("Failed to reset to origin")
+                        Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Failed to reset to origin", NotificationType.ERROR))
+                        return
+                    }
+
+                    indicator.text = "Loading YAML..."
+                    SyncLog.info("Loading YAML from disk...")
+                    val remoteShared = GitYamlLoader.loadFromRoot(File(rootDir, settings.promptsSubdir))
+
+                    indicator.text = "Updating library..."
+                    SyncLog.info("Updating library with ${remoteShared.size} groups...")
+                    // Replace shared groups entirely with what's from remote
+                    repo.replaceSharedGroups(remoteShared)
+
+                    val msg = "Force pull complete: ${remoteShared.size} groups loaded"
+                    SyncLog.info(msg)
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", msg, NotificationType.INFORMATION))
+                } catch (e: Exception) {
+                    val errMsg = "Force pull error: ${e.message}"
                     SyncLog.error(errMsg)
                     Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
                 }

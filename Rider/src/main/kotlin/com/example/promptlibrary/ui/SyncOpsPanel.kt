@@ -318,14 +318,13 @@ class SyncOpsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private fun forcePullAndSync() {
         val res = JOptionPane.showConfirmDialog(
             this,
-            "This will discard any local changes and replace with remote. Continue?",
+            "This will discard ALL local changes and hard reset to remote. Continue?",
             "Force Pull & Sync",
             JOptionPane.YES_NO_OPTION
         )
         if (res == JOptionPane.YES_OPTION) {
-            SyncLog.info("Starting Force Pull & Sync...")
-            GitRepoManager.nukeWorkingCopy(project)
-            SyncOrchestrator.sync(project, repository)
+            SyncLog.info("Starting Force Pull (hard reset to origin)...")
+            SyncOrchestrator.forcePull(project, repository)
         }
     }
 
