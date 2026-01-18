@@ -16,10 +16,13 @@ data class PullResult(val success: Boolean, val error: String? = null)
 
 object GitPullService {
     fun fetch(project: Project, repoRoot: File) {
+        SyncLog.info("Fetching from all remotes...")
         val git = Git.getInstance()
         val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(repoRoot)
         if (vf == null) {
-            Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Repo path not found: ${repoRoot}", NotificationType.WARNING))
+            val msg = "Repo path not found: ${repoRoot}"
+            SyncLog.error(msg)
+            Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", msg, NotificationType.WARNING))
             return
         }
         ApplicationManager.getApplication().executeOnPooledThread {
@@ -30,21 +33,29 @@ object GitPullService {
                 }
                 val fetchResult = git.runCommand(fetchHandler)
                 if (fetchResult.success()) {
+                    SyncLog.info("Fetched remotes successfully")
                     Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Fetched remotes", NotificationType.INFORMATION))
                 } else {
-                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Fetch failed: ${fetchResult.errorOutputAsJoinedString}", NotificationType.ERROR))
+                    val errMsg = "Fetch failed: ${fetchResult.errorOutputAsJoinedString}"
+                    SyncLog.error(errMsg)
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
                 }
             } catch (e: Exception) {
-                Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Error: ${e.message}", NotificationType.ERROR))
+                val errMsg = "Error: ${e.message}"
+                SyncLog.error(errMsg)
+                Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
             }
         }
     }
 
     fun pull(project: Project, repoRoot: File, branchName: String?) {
+        SyncLog.info("Pulling from remote...")
         val git = Git.getInstance()
         val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(repoRoot)
         if (vf == null) {
-            Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Repo path not found: ${repoRoot}", NotificationType.WARNING))
+            val msg = "Repo path not found: ${repoRoot}"
+            SyncLog.error(msg)
+            Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", msg, NotificationType.WARNING))
             return
         }
         ApplicationManager.getApplication().executeOnPooledThread {
@@ -61,12 +72,17 @@ object GitPullService {
                 }
                 val result = git.runCommand(pullHandler)
                 if (result.success()) {
+                    SyncLog.info("Pulled successfully")
                     Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Pulled", NotificationType.INFORMATION))
                 } else {
-                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Pull failed: ${result.errorOutputAsJoinedString}", NotificationType.ERROR))
+                    val errMsg = "Pull failed: ${result.errorOutputAsJoinedString}"
+                    SyncLog.error(errMsg)
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
                 }
             } catch (e: Exception) {
-                Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Error: ${e.message}", NotificationType.ERROR))
+                val errMsg = "Error: ${e.message}"
+                SyncLog.error(errMsg)
+                Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
             }
         }
     }
@@ -76,9 +92,14 @@ object GitPullService {
      * Returns success=true if pull succeeded, or success=false with error message if failed.
      */
     fun pullSync(project: Project, repoRoot: File): PullResult {
+        SyncLog.info("Pulling (sync) from remote...")
         val git = Git.getInstance()
         val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(repoRoot)
-            ?: return PullResult(false, "Repo path not found: $repoRoot")
+            ?: run {
+                val msg = "Repo path not found: $repoRoot"
+                SyncLog.error(msg)
+                return PullResult(false, msg)
+            }
 
         var result = PullResult(false, "Unknown error")
         val latch = CountDownLatch(1)
@@ -89,6 +110,7 @@ object GitPullService {
                 val currentBranch = GitUtils.currentBranch(project, repoRoot) ?: "main"
 
                 // Fetch from origin first
+                SyncLog.info("Fetching from origin...")
                 val fetchHandler = GitLineHandler(project, vf, GitCommand.FETCH).apply {
                     addParameters("origin")
                     endOptions()
@@ -96,18 +118,24 @@ object GitPullService {
                 git.runCommand(fetchHandler)
 
                 // Then pull with rebase, explicitly specifying origin and branch
+                SyncLog.info("Pulling with rebase from origin/$currentBranch...")
                 val pullHandler = GitLineHandler(project, vf, GitCommand.PULL).apply {
                     addParameters("--rebase", "origin", currentBranch)
                     endOptions()
                 }
                 val pullResult = git.runCommand(pullHandler)
                 result = if (pullResult.success()) {
+                    SyncLog.info("Pull successful")
                     PullResult(true)
                 } else {
-                    PullResult(false, pullResult.errorOutputAsJoinedString)
+                    val errMsg = pullResult.errorOutputAsJoinedString
+                    SyncLog.error("Pull failed: $errMsg")
+                    PullResult(false, errMsg)
                 }
             } catch (e: Exception) {
-                result = PullResult(false, e.message ?: "Unknown error")
+                val errMsg = e.message ?: "Unknown error"
+                SyncLog.error("Pull error: $errMsg")
+                result = PullResult(false, errMsg)
             } finally {
                 latch.countDown()
             }

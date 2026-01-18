@@ -11,25 +11,22 @@ import com.example.promptlibrary.ui.dialogs.ExportDialog
 import com.example.promptlibrary.ui.dialogs.ImportDialog
 import com.example.promptlibrary.ui.dialogs.ImportResult
 import com.example.promptlibrary.ui.services.GitSyncService
+import com.example.promptlibrary.settings.PluginSettingsConfigurable
 import com.intellij.icons.AllIcons
 import com.intellij.ide.CopyPasteManagerEx
 import com.intellij.notification.Notification
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
+import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.ui.JBColor
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.util.ui.JBUI
 import kotlinx.serialization.json.*
 import java.awt.*
 import java.awt.datatransfer.StringSelection
-import java.io.File
 import javax.swing.*
 import javax.swing.filechooser.FileNameExtensionFilter
-import com.example.promptlibrary.sync.GitYamlLoader
-import com.example.promptlibrary.settings.PluginSettingsConfigurable
-import com.example.promptlibrary.settings.PluginSettingsService
-import com.intellij.openapi.options.ShowSettingsUtil
 
 class PromptLibraryPanel(private val project: com.intellij.openapi.project.Project) : JPanel(BorderLayout()) {
     private val repository = PromptRepository()
@@ -152,15 +149,11 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         border = JBUI.Borders.empty(4)
 
 
-        // Compact toolbar: primary icons (Sync, Import, Export) + overflow menu (advanced + settings + view)
+        // Compact toolbar: Import, Export + Settings button (Sync operations moved to Sync Ops tab)
         val toolbar = JPanel(BorderLayout(4, 0)).apply {
             border = JBUI.Borders.emptyBottom(4)
 
             val actions = JPanel(FlowLayout(FlowLayout.LEFT, 2, 0)).apply {
-                // Primary: Sync
-                add(iconButton(AllIcons.Actions.Refresh, "Sync: Pull, merge (remote wins), write YAML, commit & push") {
-                    runFullSync()
-                })
                 // Primary: Import
                 add(iconButton(AllIcons.ToolbarDecorator.Import, "Import prompts from JSON") {
                     showImportDialog()
@@ -171,31 +164,9 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
                 })
             }
 
-            // Overflow menu consolidating advanced git actions and settings
-            val overflowPopup = JPopupMenu().apply {
-                // Advanced Git actions
-                add(JMenuItem("Pull only").apply { addActionListener { pullFromGit() } })
-                add(JMenuItem("Load from Repo (into Shared)").apply { addActionListener { loadRepoIntoShared() } })
-                add(JMenuItem("Write to Git (commit & push)").apply { addActionListener { writeToGit() } })
-                addSeparator()
-                // Settings
-                add(JMenuItem("Settings…").apply { addActionListener { openSettings() } })
-                addSeparator()
-                // Destructive action
-                add(JMenuItem("Nuke local working copy…").apply {
-                    addActionListener {
-                        val res = JOptionPane.showConfirmDialog(
-                            this@PromptLibraryPanel,
-                            "Remove local working copy and re-sync?",
-                            "Confirm",
-                            JOptionPane.YES_NO_OPTION
-                        )
-                        if (res == JOptionPane.YES_OPTION) { nukeRepoAndResync() }
-                    }
-                })
-            }
-            val overflowButton = JButton(AllIcons.Actions.More).apply {
-                toolTipText = "More actions"
+            // Settings button
+            val settingsButton = JButton(AllIcons.General.Settings).apply {
+                toolTipText = "Settings"
                 isContentAreaFilled = false
                 isOpaque = false
                 isBorderPainted = false
@@ -217,13 +188,11 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
                     }
                 })
 
-                addActionListener {
-                    overflowPopup.show(this, 0, height)
-                }
+                addActionListener { openSettings() }
             }
 
             add(actions, BorderLayout.WEST)
-            add(overflowButton, BorderLayout.EAST)
+            add(settingsButton, BorderLayout.EAST)
         }
 
         // Tree toolbar (empty for now - group management is done via edit icons in tree)
@@ -486,48 +455,7 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         }
     }
 
-    // Git Sync helpers (methods must be inside class)
     private fun openSettings() {
         ShowSettingsUtil.getInstance().showSettingsDialog(null, PluginSettingsConfigurable::class.java)
-    }
-
-    private fun loadRepoIntoShared() {
-        val settings = PluginSettingsService.instance().data
-        val working = com.example.promptlibrary.sync.GitRepoManager.ensureWorkingCopy(project).first
-        if (working == null) {
-            JOptionPane.showMessageDialog(this@PromptLibraryPanel, "No working copy available. Set remote URL in settings.", "Git Sync", JOptionPane.WARNING_MESSAGE)
-            return
-        }
-        val root = File(working, settings.promptsSubdir)
-        if (!root.exists() || !root.isDirectory) {
-            JOptionPane.showMessageDialog(this@PromptLibraryPanel, "Invalid prompts subdir.", "Git Sync", JOptionPane.WARNING_MESSAGE)
-            return
-        }
-        try {
-            val groups = GitYamlLoader.loadFromRoot(root)
-            repository.replaceSharedGroups(groups)
-            groupTreePanel.rebuildTree()
-            Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Imported ${'$'}{groups.size} Shared group(s) from Git (remote-wins).", NotificationType.INFORMATION))
-        } catch (e: Exception) {
-            JOptionPane.showMessageDialog(this@PromptLibraryPanel, "Error loading YAML: ${'$'}{e.message}", "Git Sync", JOptionPane.ERROR_MESSAGE)
-        }
-    }
-
-    private fun pullFromGit() {
-        val settings = PluginSettingsService.instance().data
-        val working = com.example.promptlibrary.sync.GitRepoManager.ensureWorkingCopy(project).first ?: return
-        com.example.promptlibrary.sync.GitPullService.pull(project, working, settings.branchName)
-    }
-
-    private fun writeToGit() {
-        com.example.promptlibrary.sync.WriteStrategyService.write(project, repository)
-    }
-    private fun runFullSync() {
-        com.example.promptlibrary.sync.SyncOrchestrator.sync(project, repository)
-    }
-
-    private fun nukeRepoAndResync() {
-        com.example.promptlibrary.sync.GitRepoManager.nukeWorkingCopy(project)
-        runFullSync()
     }
 }

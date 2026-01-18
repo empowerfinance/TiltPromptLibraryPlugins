@@ -14,45 +14,59 @@ import java.io.File
 
 object SyncOrchestrator {
     fun sync(project: Project, repo: PromptRepository) {
+        SyncLog.info("Starting sync...")
         val (rootDir, _) = GitRepoManager.ensureWorkingCopy(project)
-        if (rootDir == null) return
+        if (rootDir == null) {
+            SyncLog.error("No working copy available")
+            return
+        }
         val settings = PluginSettingsService.instance().data
 
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Prompt Library: Sync", false) {
             override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
                 try {
                     indicator.text = "Saving edits..."
-                    // Flush any in-flight editor changes by reloading from repository source of truth
-                    // (UI handlers already persist on Save and on editor close; this is a defensive step)
-                    // No-op here since repository writes immediately on UI actions
+                    SyncLog.info("Saving edits...")
 
                     indicator.text = "Pulling latest..."
+                    SyncLog.info("Pulling latest from remote...")
                     GitPullService.pull(project, rootDir, settings.branchName)
 
                     indicator.text = "Loading remote YAML..."
+                    SyncLog.info("Loading remote YAML...")
                     val remoteShared = GitYamlLoader.loadFromRoot(File(rootDir, settings.promptsSubdir))
 
                     indicator.text = "Merging... (remote wins)"
+                    SyncLog.info("Merging (remote wins)...")
                     val (mergedShared, keptLocal) = mergeRemoteWins(remoteShared, repo)
 
                     indicator.text = "Writing YAML..."
+                    SyncLog.info("Writing YAML files...")
                     val yamlRoot = File(rootDir, settings.promptsSubdir)
                     val (added, updated, deleted) = GitYamlWriter.writeSharedGroups(yamlRoot, mergedShared)
-                    // Summary toast for file-level changes
-                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Shared changes: +${added} ~${updated} -${deleted}", NotificationType.INFORMATION))
+                    val changeMsg = "Shared changes: +${added} ~${updated} -${deleted}"
+                    SyncLog.info(changeMsg)
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", changeMsg, NotificationType.INFORMATION))
 
                     indicator.text = "Committing & pushing..."
+                    SyncLog.info("Committing & pushing...")
                     val success = WriteStrategyService.commitUsingStrategy(project, rootDir)
                     if (success) {
+                        SyncLog.info("Sync completed successfully")
                         Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Sync completed", NotificationType.INFORMATION))
                     } else {
+                        SyncLog.info("No changes to sync")
                         Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "No changes to sync", NotificationType.INFORMATION))
                     }
                     if (keptLocal > 0) {
-                        Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Kept ${keptLocal} local prompt(s) in Private/Unfiled (not on remote).", NotificationType.INFORMATION))
+                        val keptMsg = "Kept ${keptLocal} local prompt(s) in Private/Unfiled (not on remote)"
+                        SyncLog.info(keptMsg)
+                        Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", keptMsg, NotificationType.INFORMATION))
                     }
                 } catch (e: Exception) {
-                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Sync error: ${e.message}", NotificationType.ERROR))
+                    val errMsg = "Sync error: ${e.message}"
+                    SyncLog.error(errMsg)
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
                 }
             }
         })

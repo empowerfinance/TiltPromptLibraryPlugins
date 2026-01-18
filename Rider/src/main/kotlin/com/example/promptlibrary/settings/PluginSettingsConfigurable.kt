@@ -13,8 +13,6 @@ class PluginSettingsConfigurable : Configurable {
     private lateinit var autoFetchCheckbox: JCheckBox
     private lateinit var autoFetchMinutesField: JSpinner
 
-    private var listenersConnected = false
-
     override fun getDisplayName(): String = "Prompt Library: Git Sync"
 
     override fun createComponent(): JComponent {
@@ -73,64 +71,11 @@ class PluginSettingsConfigurable : Configurable {
             add(infoPanel)
 
             add(Box.createVerticalStrut(12))
-            add(JSeparator())
-            add(Box.createVerticalStrut(12))
 
-            // Destructive tools panel with two specific wipe actions and one full reset
-            val dangerPanel = JPanel().apply {
-                layout = BoxLayout(this, BoxLayout.X_AXIS)
-                val wipeShared = JButton("Wipe Shared library…").apply {
-                    toolTipText = "Remove all Shared groups locally. Use Sync to pull back from remote."
-                    addActionListener {
-                        val res = JOptionPane.showConfirmDialog(panel, "Remove all Shared groups locally?", "Confirm", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE)
-                        if (res == JOptionPane.YES_OPTION) {
-                            com.example.promptlibrary.repository.PromptRepository().wipeSharedGroups()
-                            JOptionPane.showMessageDialog(panel, "Shared groups removed locally.", "Prompt Library", JOptionPane.INFORMATION_MESSAGE)
-                        }
-                    }
-                }
-                val wipePrivate = JButton("Wipe Private library…").apply {
-                    toolTipText = "Remove all Private groups and private prompts locally."
-                    addActionListener {
-                        val res = JOptionPane.showConfirmDialog(panel, "Remove all Private groups and private prompts locally?", "Confirm", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE)
-                        if (res == JOptionPane.YES_OPTION) {
-                            com.example.promptlibrary.repository.PromptRepository().wipePrivateLibrary()
-                            JOptionPane.showMessageDialog(panel, "Private library removed locally.", "Prompt Library", JOptionPane.INFORMATION_MESSAGE)
-                        }
-                    }
-                }
-                val wipeAll = JButton("Wipe ALL local data…").apply {
-                    toolTipText = "Delete local prompt files and the local Git working copy. You will need to Sync to restore from remote."
-                    addActionListener {
-                        val msg = "This will permanently delete your local prompt library files and remove the local Git working copy. You will need to sync from remote to restore. Continue?"
-                        val res = JOptionPane.showConfirmDialog(panel, msg, "Confirm destructive action", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE)
-                        if (res == JOptionPane.YES_OPTION) {
-                            try {
-                                com.example.promptlibrary.repository.PromptRepository().wipeAllLocalData()
-                                com.example.promptlibrary.sync.GitRepoManager.nukeWorkingCopy(null)
-                                JOptionPane.showMessageDialog(panel, "Local data removed. Use Sync to download from remote.", "Prompt Library", JOptionPane.INFORMATION_MESSAGE)
-                            } catch (e: Exception) {
-                                JOptionPane.showMessageDialog(panel, "Failed to wipe local data: ${e.message}", "Error", JOptionPane.ERROR_MESSAGE)
-                            }
-                        }
-                    }
-                }
-                // Make buttons keep text better by constraining height
-                listOf(wipeShared, wipePrivate, wipeAll).forEach { b ->
-                    b.maximumSize = java.awt.Dimension(Int.MAX_VALUE, fieldHeight)
-                }
-                add(wipeShared)
-                add(Box.createHorizontalStrut(8))
-                add(wipePrivate)
-                add(Box.createHorizontalStrut(8))
-                add(wipeAll)
-            // Notify UI panels to refresh when destructive actions are taken
-            if (!listenersConnected) {
-                listenersConnected = true
-            }
-
-            }
-            add(dangerPanel)
+            // Note about destructive actions
+            add(JLabel("<html><i>Tip: Destructive actions (wipe library, reset) are available in the Sync Ops tab.</i></html>").apply {
+                foreground = com.intellij.ui.JBColor.GRAY
+            })
         }
         return panel as JPanel
     }

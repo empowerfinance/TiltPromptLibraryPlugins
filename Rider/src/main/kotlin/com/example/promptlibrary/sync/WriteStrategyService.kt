@@ -32,6 +32,26 @@ object WriteStrategyService {
         }
     }
 
+    // Public entry for SyncOpsPanel: write YAML files and direct commit
+    fun directCommit(project: Project, repository: PromptRepository) {
+        val repoRoot = workingCopy(project) ?: return
+        val settings = PluginSettingsService.instance().data
+        val yamlRoot = File(repoRoot, settings.promptsSubdir)
+        val shared = repository.getSharedGroups()
+        GitYamlWriter.writeSharedGroups(yamlRoot, shared)
+        directCommit(project, repoRoot)
+    }
+
+    // Public entry for SyncOpsPanel: write YAML files and create branch + PR
+    fun branchAndCommit(project: Project, repository: PromptRepository) {
+        val repoRoot = workingCopy(project) ?: return
+        val settings = PluginSettingsService.instance().data
+        val yamlRoot = File(repoRoot, settings.promptsSubdir)
+        val shared = repository.getSharedGroups()
+        GitYamlWriter.writeSharedGroups(yamlRoot, shared)
+        branchAndCommit(project, repoRoot)
+    }
+
     private fun workingCopy(project: Project): File? {
         val s = PluginSettingsService.instance().data
         return if (s.repoPath.isNotBlank()) File(s.repoPath) else GitRepoManager.ensureWorkingCopy(project).first
@@ -53,10 +73,13 @@ object WriteStrategyService {
     }
 
     private fun directCommit(project: Project, repoRoot: File): Boolean {
+        SyncLog.info("Direct commit: starting...")
         val git = Git.getInstance()
         val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(repoRoot)
             ?: run {
-                Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Repo path not found: ${repoRoot}", NotificationType.WARNING))
+                val msg = "Repo path not found: ${repoRoot}"
+                SyncLog.error(msg)
+                Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", msg, NotificationType.WARNING))
                 return false
             }
 
@@ -65,12 +88,14 @@ object WriteStrategyService {
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 // STEP 1: Stage all changes FIRST (before pull, to avoid "unstaged changes" error)
+                SyncLog.info("Staging all changes...")
                 git.runCommand(GitLineHandler(project, vf, GitCommand.ADD).apply {
                     addParameters("--all")
                     endOptions()
                 })
 
                 // STEP 2: Commit local changes (or initialize if unborn)
+                SyncLog.info("Committing changes...")
                 val commit = GitLineHandler(project, vf, GitCommand.COMMIT).apply {
                     addParameters("-m", "feat(prompts): sync prompt library")
                     endOptions()
@@ -83,6 +108,7 @@ object WriteStrategyService {
                     }
                     commitResult = git.runCommand(init)
                     if (commitResult.success()) {
+                        SyncLog.info("Initialized empty repo")
                         Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Initialized empty repo", NotificationType.INFORMATION))
                     }
                 }
@@ -92,6 +118,7 @@ object WriteStrategyService {
 
                 // STEP 3: Pull with rebase (now safe because local changes are committed)
                 val currentBranch = GitUtils.currentBranch(project, repoRoot) ?: "main"
+                SyncLog.info("Fetching from origin...")
 
                 // Fetch first
                 git.runCommand(GitLineHandler(project, vf, GitCommand.FETCH).apply {
@@ -100,28 +127,41 @@ object WriteStrategyService {
                 })
 
                 // Pull with rebase
+                SyncLog.info("Pulling with rebase from origin/$currentBranch...")
                 val pullHandler = GitLineHandler(project, vf, GitCommand.PULL).apply {
                     addParameters("--rebase", "origin", currentBranch)
                     endOptions()
                 }
                 val pullResult = git.runCommand(pullHandler)
                 if (!pullResult.success()) {
-                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Pull failed: ${pullResult.errorOutputAsJoinedString}. Please resolve conflicts manually.", NotificationType.ERROR))
+                    val errMsg = "Pull failed: ${pullResult.errorOutputAsJoinedString}. Please resolve conflicts manually."
+                    SyncLog.error(errMsg)
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
                     latch.countDown(); return@executeOnPooledThread
                 }
 
                 // STEP 4: Push to remote (if we had local changes)
                 if (hasLocalCommit) {
+                    SyncLog.info("Pushing to remote...")
                     val pushResult = git.runCommand(GitLineHandler(project, vf, GitCommand.PUSH))
                     committed = pushResult.success()
-                    if (pushResult.success()) Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Pushed changes", NotificationType.INFORMATION))
-                    else Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Push failed: ${pushResult.errorOutputAsJoinedString}", NotificationType.ERROR))
+                    if (pushResult.success()) {
+                        SyncLog.info("Pushed changes successfully")
+                        Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Pushed changes", NotificationType.INFORMATION))
+                    } else {
+                        val errMsg = "Push failed: ${pushResult.errorOutputAsJoinedString}"
+                        SyncLog.error(errMsg)
+                        Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
+                    }
                 } else {
+                    SyncLog.info("No changes to sync")
                     Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "No changes to sync", NotificationType.INFORMATION))
                     committed = true // No changes needed, consider it success
                 }
             } catch (e: Exception) {
-                Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Error: ${e.message}", NotificationType.ERROR))
+                val errMsg = "Error: ${e.message}"
+                SyncLog.error(errMsg)
+                Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
             } finally { latch.countDown() }
         }
         latch.await()
@@ -129,10 +169,13 @@ object WriteStrategyService {
     }
 
     private fun branchAndCommit(project: Project, repoRoot: File): Boolean {
+        SyncLog.info("Branch & PR: starting...")
         val git = Git.getInstance()
         val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(repoRoot)
             ?: run {
-                Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Repo path not found: ${repoRoot}", NotificationType.WARNING))
+                val msg = "Repo path not found: ${repoRoot}"
+                SyncLog.error(msg)
+                Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", msg, NotificationType.WARNING))
                 return false
             }
 
@@ -143,12 +186,14 @@ object WriteStrategyService {
                 val currentBranch = GitUtils.currentBranch(project, repoRoot) ?: "main"
 
                 // STEP 1: Stage all changes FIRST (before pull, to avoid "unstaged changes" error)
+                SyncLog.info("Staging all changes...")
                 git.runCommand(GitLineHandler(project, vf, GitCommand.ADD).apply {
                     addParameters("--all")
                     endOptions()
                 })
 
                 // STEP 2: Commit local changes on current branch first (if any)
+                SyncLog.info("Committing changes...")
                 val preCommit = git.runCommand(GitLineHandler(project, vf, GitCommand.COMMIT).apply {
                     addParameters("-m", "feat(prompts): sync prompt library (pre-branch)")
                     endOptions()
@@ -156,55 +201,73 @@ object WriteStrategyService {
                 val hadLocalChanges = preCommit.success()
 
                 // STEP 3: Fetch and pull with rebase (now safe because local changes are committed)
+                SyncLog.info("Fetching from origin...")
                 git.runCommand(GitLineHandler(project, vf, GitCommand.FETCH).apply {
                     addParameters("origin")
                     endOptions()
                 })
 
+                SyncLog.info("Pulling with rebase from origin/$currentBranch...")
                 val pullResult = git.runCommand(GitLineHandler(project, vf, GitCommand.PULL).apply {
                     addParameters("--rebase", "origin", currentBranch)
                     endOptions()
                 })
                 if (!pullResult.success()) {
-                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Pull failed: ${pullResult.errorOutputAsJoinedString}. Please resolve conflicts manually.", NotificationType.ERROR))
+                    val errMsg = "Pull failed: ${pullResult.errorOutputAsJoinedString}. Please resolve conflicts manually."
+                    SyncLog.error(errMsg)
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
                     latch.countDown(); return@executeOnPooledThread
                 }
 
                 // STEP 4: Create new branch
                 val name = "prompts/sync/" + java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmm").format(java.time.LocalDateTime.now())
+                SyncLog.info("Creating branch: $name")
                 val coRes = git.runCommand(GitLineHandler(project, vf, GitCommand.CHECKOUT).apply {
                     addParameters("-b", name)
                     endOptions()
                 })
                 if (!coRes.success()) {
-                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Branch create failed: ${coRes.errorOutputAsJoinedString}", NotificationType.ERROR))
+                    val errMsg = "Branch create failed: ${coRes.errorOutputAsJoinedString}"
+                    SyncLog.error(errMsg)
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
                     latch.countDown(); return@executeOnPooledThread
                 }
 
                 // If we had local changes, they're already committed, just push
                 if (!hadLocalChanges) {
+                    SyncLog.info("Nothing to commit")
                     Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Nothing to commit", NotificationType.INFORMATION))
                     latch.countDown(); return@executeOnPooledThread
                 }
 
                 // STEP 5: Push to remote
+                SyncLog.info("Pushing branch $name to origin...")
                 val pushResult = git.runCommand(GitLineHandler(project, vf, GitCommand.PUSH).apply {
                     addParameters("-u", "origin", name)
                     endOptions()
                 })
                 committed = pushResult.success()
-                if (pushResult.success()) Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Pushed branch ${name}", NotificationType.INFORMATION))
-                else Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Push failed: ${pushResult.errorOutputAsJoinedString}", NotificationType.ERROR))
+                if (pushResult.success()) {
+                    SyncLog.info("Pushed branch $name successfully")
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Pushed branch ${name}", NotificationType.INFORMATION))
+                } else {
+                    val errMsg = "Push failed: ${pushResult.errorOutputAsJoinedString}"
+                    SyncLog.error(errMsg)
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
+                }
 
                 // Try to open compare URL if remote looks like GitHub SSH
                 val remoteUrl = PluginSettingsService.instance().data.remoteRepoUrl
                 val m = Regex("git@github.com:([^/]+)/([^.]+)(?:.git)?").find(remoteUrl)
                 if (pushResult.success() && m != null) {
                     val (owner, repoName) = m.destructured
+                    SyncLog.info("Opening GitHub compare page...")
                     PRActions.openCompare(owner, repoName, currentBranch, name)
                 }
             } catch (e: Exception) {
-                Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Error: ${e.message}", NotificationType.ERROR))
+                val errMsg = "Error: ${e.message}"
+                SyncLog.error(errMsg)
+                Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
             } finally { latch.countDown() }
         }
         latch.await()
