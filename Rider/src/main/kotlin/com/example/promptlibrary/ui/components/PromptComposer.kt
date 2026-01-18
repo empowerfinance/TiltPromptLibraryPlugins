@@ -60,7 +60,7 @@ class PromptComposer(
         val unifiedCard = JPanel(BorderLayout()).apply {
             border = BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(JBColor.border(), 1, true),
-                JBUI.Borders.empty(8)
+                JBUI.Borders.empty(8, 4, 8, 4) // top, left, bottom, right - tight horizontal padding
             )
             background = UIManager.getColor("Panel.background")
         }

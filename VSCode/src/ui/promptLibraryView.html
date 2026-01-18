@@ -25,17 +25,17 @@
     }
 
     .container {
-      padding: 16px;
+      padding: 0;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 0;
     }
 
     h3.title {
       font-weight: 700;
       font-size: 14px;
-      letter-spacing: .2px;
-      margin: 0 0 4px 0;
+      letter-spacing: 0;
+      margin: 0 0 2px 0;
     }
 
     .muted {
@@ -45,9 +45,9 @@
     .card {
       background: var(--card-bg);
       border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 12px;
-      box-shadow: 0 1px 0 rgba(0, 0, 0, .2), 0 8px 24px rgba(0, 0, 0, .08);
+      border-radius: 4px;
+      padding: 4px 0 8px 0;
+      /* no horizontal padding */
     }
 
     .toolbar {
@@ -82,70 +82,65 @@
     }
 
     .btn {
-      padding: 6px 10px;
-      border-radius: 8px;
+      padding: 4px 8px;
+      border-radius: 4px;
       border: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.03);
-      color: var(--vscode-foreground);
+      background: var(--vscode-button-secondaryBackground);
+      color: var(--vscode-button-secondaryForeground);
       cursor: pointer;
-      transition: background .15s ease, transform .02s ease, border-color .15s ease, box-shadow .15s ease;
+      font-size: 12px;
+      transition: background .15s ease;
     }
 
     .btn:hover {
-      background: rgba(255, 255, 255, 0.06);
-    }
-
-    .btn:active {
-      transform: translateY(1px);
+      background: var(--vscode-button-secondaryHoverBackground);
     }
 
     .btn[disabled] {
-      opacity: .6;
+      opacity: .5;
       cursor: not-allowed;
     }
 
     .btn-primary {
-      background: var(--accent);
-      color: var(--vscode-button-foreground, #000);
-      border-color: var(--accent);
-      box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+      border-color: var(--vscode-button-background);
     }
 
     .btn-primary:hover {
-      filter: brightness(1.1);
-    }
-
-    .btn-primary:focus {
-      outline: none;
-      box-shadow: 0 0 0 2px rgba(255, 255, 255, .08), 0 0 0 3px var(--accent);
+      background: var(--vscode-button-hoverBackground);
     }
 
     input[type="text"],
     textarea {
       width: 100%;
-      border-radius: 8px;
+      border-radius: 4px;
       border: 1px solid var(--border);
       background: var(--vscode-input-background);
       color: var(--vscode-input-foreground, var(--vscode-foreground));
-      padding: 10px 12px;
+      padding: 6px 8px;
+      font-size: 12px;
       outline: none;
       transition: border-color .15s ease, box-shadow .15s ease;
     }
 
     textarea {
       resize: vertical;
-      min-height: 120px;
+      min-height: 70px;
+      font-family: var(--vscode-editor-font-family, monospace);
     }
 
     input[type="text"]::placeholder,
     textarea::placeholder {
       color: var(--muted);
+      opacity: 0.6;
     }
 
     input[type="text"]:focus,
     textarea:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+      outline: 1px solid var(--accent);
+      outline-offset: -1px;
     }
 
     .list {
@@ -214,17 +209,18 @@
   <div id="boot" style="display:none;">booting…</div>
   <div class="container">
     <div class="card">
-      <div id="sel" class="muted" style="margin-bottom:12px;">Loading…</div>
-      <div class="toolbar" style="margin-bottom:12px;">
-        <span id="counts" class="count"></span>
-        <div class="spacer"></div>
-      </div>
-      <label for="titleBox" class="muted" style="display:block;margin-bottom:6px;">Title (optional)</label>
+      <!-- Header section -->
+      <div id="sel" class="muted" style="margin-bottom:8px;font-size:10px;">Loading…</div>
+
+      <!-- Content section -->
+      <label for="titleBox" class="muted" style="display:block;margin-bottom:2px;font-size:10px;">Title (optional)</label>
       <input id="titleBox" type="text" placeholder="Defaults to first 20 characters of the prompt" disabled />
-      <div style="height:8px;"></div>
+      <div style="height:4px;"></div>
       <textarea id="composer" rows="8" placeholder="Select a prompt to view or edit, or select a group to add new" disabled></textarea>
-      <div style="height:10px;"></div>
-      <div class="toolbar" style="gap:8px; padding:0;">
+      <div style="height:4px;"></div>
+
+      <!-- Button section -->
+      <div class="toolbar" style="gap:4px; padding:0;">
         <button id="addNew" class="btn" disabled>Add New</button>
         <div class="spacer"></div>
         <button id="save" class="btn btn-primary" disabled>Add Prompt</button>

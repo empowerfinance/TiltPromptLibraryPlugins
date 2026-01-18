@@ -268,7 +268,7 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         val splitPane = com.intellij.ui.JBSplitter(true).apply {
             firstComponent = treeSection
             secondComponent = promptComposer
-            proportion = 0.6f // 60% tree, 40% composer initially
+            proportion = 0.5f // 50% tree, 50% composer initially
             setHonorComponentsMinimumSize(true)
         }
 
