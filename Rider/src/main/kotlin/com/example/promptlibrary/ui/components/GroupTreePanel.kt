@@ -70,14 +70,19 @@ class GroupTreePanel(
                 // Only handle Shared/Private root nodes
                 if (userObject !is SharedRoot && userObject !is PrivateRoot) return
 
+                // Get the row bounds - this tells us where the tree node content is
                 val rowBounds = groupTree.getPathBounds(path) ?: return
 
-                // Check if click is on the right side (where "+ Add Group" text is)
-                // The text starts approximately at rowBounds.x + rowBounds.width - 80
-                val clickableAreaStart = rowBounds.x + rowBounds.width - 80
+                // The "+ Add Group" text appears right after the label
+                // Based on logs: label ends around X=60-70, text is from ~70-140
+                val labelWidth = 65 // Width of "Shared"/"Private" + icon
+                val addGroupTextWidth = 75 // Width of "+ Add Group" text
+                val clickableAreaStart = rowBounds.x + labelWidth
+                val clickableAreaEnd = rowBounds.x + labelWidth + addGroupTextWidth
 
-                if (e.x >= clickableAreaStart) {
-                    println("[GroupTreePanel] Clicked '+ Add Group' for $userObject")
+                println("[GroupTreePanel] Click at x=${e.x}, rowBounds.x=${rowBounds.x}, range=$clickableAreaStart-$clickableAreaEnd")
+
+                if (e.x >= clickableAreaStart && e.x <= clickableAreaEnd) {
                     when (userObject) {
                         is SharedRoot -> onAddGroupToShared()
                         is PrivateRoot -> onAddGroupToPrivate()
@@ -107,16 +112,22 @@ class GroupTreePanel(
                     return
                 }
 
+                // Get the row bounds
                 val rowBounds = groupTree.getPathBounds(path)
                 if (rowBounds == null) {
                     groupTree.cursor = java.awt.Cursor.getDefaultCursor()
                     return
                 }
 
-                // Show hand cursor when over "+ Add Group" text area
-                val clickableAreaStart = rowBounds.x + rowBounds.width - 80
+                // Calculate where the "+ Add Group" text appears
+                val labelWidth = 65 // Width of "Shared"/"Private" + icon
+                val addGroupTextWidth = 75 // Width of "+ Add Group" text
+                val clickableAreaStart = rowBounds.x + labelWidth
+                val clickableAreaEnd = rowBounds.x + labelWidth + addGroupTextWidth
 
-                if (e.x >= clickableAreaStart) {
+                println("[GroupTreePanel] Hover at x=${e.x}, rowBounds.x=${rowBounds.x}, range=$clickableAreaStart-$clickableAreaEnd")
+
+                if (e.x >= clickableAreaStart && e.x <= clickableAreaEnd) {
                     groupTree.cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                 } else {
                     groupTree.cursor = java.awt.Cursor.getDefaultCursor()
@@ -146,33 +157,24 @@ class GroupTreePanel(
 
                 // Only add "+ Add Group" text for Shared and Private root nodes
                 if (userObject is SharedRoot || userObject is PrivateRoot) {
-                    val panel = JPanel(BorderLayout()).apply {
+                    val panel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
                         isOpaque = false
                         background = if (sel) backgroundSelectionColor else backgroundNonSelectionColor
 
-                        // Left side: default label with icon
-                        val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
-                            isOpaque = false
-                            add(JBLabel(userObject.toString()).apply {
-                                icon = if (expanded) openIcon else closedIcon
-                                foreground = if (sel) textSelectionColor else textNonSelectionColor
-                            })
-                        }
+                        // Label with icon
+                        add(JBLabel(userObject.toString()).apply {
+                            icon = if (expanded) openIcon else closedIcon
+                            foreground = if (sel) textSelectionColor else textNonSelectionColor
+                        })
 
-                        // Right side: "+ Add Group" text
-                        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 2, 0)).apply {
-                            isOpaque = false
-                            add(JBLabel("+ Add Group").apply {
-                                font = font.deriveFont(9.5f)
-                                foreground = JBColor(
-                                    java.awt.Color(100, 100, 100),
-                                    java.awt.Color(150, 150, 150)
-                                )
-                            })
-                        }
-
-                        add(leftPanel, BorderLayout.WEST)
-                        add(rightPanel, BorderLayout.EAST)
+                        // "+ Add Group" text right after the label
+                        add(JBLabel("+ Add Group").apply {
+                            font = font.deriveFont(9.5f)
+                            foreground = JBColor(
+                                java.awt.Color(100, 100, 100),
+                                java.awt.Color(150, 150, 150)
+                            )
+                        })
                     }
                     return panel
                 }
