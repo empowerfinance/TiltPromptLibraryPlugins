@@ -19,7 +19,7 @@ import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
 
 // Root objects for the tree
-object SharedRoot { override fun toString() = "Shared" }
+object SharedRoot { override fun toString() = "GitHub: PromptLibrary" }
 object PrivateRoot { override fun toString() = "Private" }
 
 // Wrapper for Group to display name in tree
@@ -71,7 +71,12 @@ class GroupTreePanel(
 
                 // Handle Shared/Private root nodes - "+ Add Group" text
                 if (userObject is SharedRoot || userObject is PrivateRoot) {
-                    val labelWidth = 65 // Width of "Shared"/"Private" + icon
+                    // Calculate label width based on actual text
+                    val metrics = groupTree.getFontMetrics(groupTree.font)
+                    val textWidth = metrics.stringWidth(userObject.toString())
+                    val iconWidth = 20 // Icon width
+                    val spacing = 8 // Spacing between icon and text
+                    val labelWidth = iconWidth + spacing + textWidth
                     val addGroupTextWidth = 75 // Width of "+ Add Group" text
                     val clickableAreaStart = rowBounds.x + labelWidth
                     val clickableAreaEnd = rowBounds.x + labelWidth + addGroupTextWidth
@@ -133,7 +138,12 @@ class GroupTreePanel(
 
                 // Handle Shared/Private root nodes - "+ Add Group" text
                 if (userObject is SharedRoot || userObject is PrivateRoot) {
-                    val labelWidth = 65
+                    // Calculate label width based on actual text
+                    val metrics = groupTree.getFontMetrics(groupTree.font)
+                    val textWidth = metrics.stringWidth(userObject.toString())
+                    val iconWidth = 20 // Icon width
+                    val spacing = 8 // Spacing between icon and text
+                    val labelWidth = iconWidth + spacing + textWidth
                     val addGroupTextWidth = 75
                     val clickableAreaStart = rowBounds.x + labelWidth
                     val clickableAreaEnd = rowBounds.x + labelWidth + addGroupTextWidth
@@ -202,9 +212,13 @@ class GroupTreePanel(
                         isOpaque = false
                         background = if (sel) backgroundSelectionColor else backgroundNonSelectionColor
 
-                        // Label with icon
+                        // Label with appropriate icon (GitHub for shared, lock for private)
                         add(JBLabel(userObject.toString()).apply {
-                            icon = if (expanded) openIcon else closedIcon
+                            icon = when (userObject) {
+                                is SharedRoot -> AllIcons.Vcs.Vendors.Github
+                                is PrivateRoot -> AllIcons.Nodes.Padlock
+                                else -> if (expanded) openIcon else closedIcon
+                            }
                             foreground = if (sel) textSelectionColor else textNonSelectionColor
                         })
 

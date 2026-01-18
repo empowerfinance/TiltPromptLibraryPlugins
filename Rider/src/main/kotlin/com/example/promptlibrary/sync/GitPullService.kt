@@ -10,6 +10,9 @@ import git4idea.commands.Git
 import git4idea.commands.GitCommand
 import git4idea.commands.GitLineHandler
 import java.io.File
+import java.util.concurrent.CountDownLatch
+
+data class PullResult(val success: Boolean, val error: String? = null)
 
 object GitPullService {
     fun fetch(project: Project, repoRoot: File) {
@@ -66,6 +69,51 @@ object GitPullService {
                 Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Error: ${e.message}", NotificationType.ERROR))
             }
         }
+    }
+
+    /**
+     * Synchronous pull that returns a result. Use this before push operations.
+     * Returns success=true if pull succeeded, or success=false with error message if failed.
+     */
+    fun pullSync(project: Project, repoRoot: File): PullResult {
+        val git = Git.getInstance()
+        val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(repoRoot)
+            ?: return PullResult(false, "Repo path not found: $repoRoot")
+
+        var result = PullResult(false, "Unknown error")
+        val latch = CountDownLatch(1)
+
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                // Get current branch name
+                val currentBranch = GitUtils.currentBranch(project, repoRoot) ?: "main"
+
+                // Fetch from origin first
+                val fetchHandler = GitLineHandler(project, vf, GitCommand.FETCH).apply {
+                    addParameters("origin")
+                    endOptions()
+                }
+                git.runCommand(fetchHandler)
+
+                // Then pull with rebase, explicitly specifying origin and branch
+                val pullHandler = GitLineHandler(project, vf, GitCommand.PULL).apply {
+                    addParameters("--rebase", "origin", currentBranch)
+                    endOptions()
+                }
+                val pullResult = git.runCommand(pullHandler)
+                result = if (pullResult.success()) {
+                    PullResult(true)
+                } else {
+                    PullResult(false, pullResult.errorOutputAsJoinedString)
+                }
+            } catch (e: Exception) {
+                result = PullResult(false, e.message ?: "Unknown error")
+            } finally {
+                latch.countDown()
+            }
+        }
+        latch.await()
+        return result
     }
 }
 

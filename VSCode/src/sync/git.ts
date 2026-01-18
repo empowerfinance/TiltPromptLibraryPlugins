@@ -167,7 +167,7 @@ export async function fetch(path: string, remote = 'origin'): Promise<boolean> {
 }
 
 export async function pull(path: string, remote = 'origin', branch?: string): Promise<boolean> {
-  const args = branch ? ['pull', remote, branch] : ['pull'];
+  const args = branch ? ['pull', '--rebase', remote, branch] : ['pull', '--rebase'];
   const res = await runGit(path, args);
   return res.code === 0;
 }

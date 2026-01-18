@@ -1,6 +1,21 @@
 import * as vscode from 'vscode';
 import { Group, Prompt } from '../model';
 
+const GITIGNORE_CONTENT = `# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+`;
+
 // Lightweight YAML emitters (no external deps) for our simple schema
 function yamlScalar(s: string): string {
   const needsQuotes = /[:\-#@!\n\r\t{}\[\],&*?]|^\s|\s$/.test(s);
@@ -72,8 +87,11 @@ export async function writeSharedGroups(rootDir: vscode.Uri, groups: Group[], pr
   // Snapshot before
   const before = await snapshotFiles(rootDir);
   // Clean rewrite (remove and recreate root)
-  try { await vscode.workspace.fs.delete(rootDir, { recursive: true }); } catch {}
+  try { await vscode.workspace.fs.delete(rootDir, { recursive: true }); } catch { }
   await vscode.workspace.fs.createDirectory(rootDir);
+
+  // Ensure .gitignore exists in repo root (parent of promptsSubdir)
+  await ensureGitignore(vscode.Uri.joinPath(rootDir, '..'));
 
   // Write group trees
   for (const g of groups) {
@@ -87,6 +105,17 @@ export async function writeSharedGroups(rootDir: vscode.Uri, groups: Group[], pr
   for (const k of before.keys()) if (!after.has(k)) deleted++;
   for (const k of after.keys()) if (before.has(k) && before.get(k) !== after.get(k)) updated++;
   return { added, updated, deleted };
+}
+
+async function ensureGitignore(repoRoot: vscode.Uri): Promise<void> {
+  const gitignorePath = vscode.Uri.joinPath(repoRoot, '.gitignore');
+  try {
+    await vscode.workspace.fs.stat(gitignorePath);
+    // File exists, don't overwrite
+  } catch {
+    // File doesn't exist, create it
+    await vscode.workspace.fs.writeFile(gitignorePath, Buffer.from(GITIGNORE_CONTENT, 'utf8'));
+  }
 }
 
 async function writeGroupDir(parent: vscode.Uri, g: Group, promptsSubdir: string) {

@@ -758,6 +758,26 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       try {
+        // STEP 1: Pull latest from remote first (to avoid push rejection)
+        log.info('Pulling latest from remote before sync...');
+        const pullSuccess = await gitPull(repoPath);
+        if (!pullSuccess) {
+          log.error('Pull failed - there may be merge conflicts');
+          vscode.window.showErrorMessage(
+            'Pull failed. There may be merge conflicts or the remote is unreachable. Please resolve manually in terminal:\n\ncd ' + repoPath + '\ngit pull',
+            'Open Terminal'
+          ).then(choice => {
+            if (choice === 'Open Terminal') {
+              const terminal = vscode.window.createTerminal({ name: 'Git Pull', cwd: repoPath });
+              terminal.show();
+              terminal.sendText('git status');
+            }
+          });
+          return;
+        }
+        log.info('Pull successful');
+
+        // STEP 2: Write YAML files
         log.info('Direct commit: writing YAML...');
         const lib = await store.getLibrary();
         const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
@@ -771,6 +791,8 @@ export function activate(context: vscode.ExtensionContext) {
         log.info(`Writing to prompts directory: ${promptsRoot.fsPath}`);
         const result = await writeSharedGroups(promptsRoot, sharedRoot.children, cfg.promptsSubdir);
         log.info(`Write result: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
+
+        // STEP 3: Stage and commit
         await stageAll(repoPath);
         log.info('Staged all changes');
         const msg = `Prompt Library sync: +${result.added}/~${result.updated}/-${result.deleted}`;
@@ -787,6 +809,8 @@ export function activate(context: vscode.ExtensionContext) {
           vscode.window.showInformationMessage('No changes to commit.');
           return;
         }
+
+        // STEP 4: Push to remote
         log.info('Pushing to remote...');
         const pushResult = await gitPush(repoPath);
         log.info(`Push result: success=${pushResult.success}`);
@@ -839,6 +863,26 @@ export function activate(context: vscode.ExtensionContext) {
       // Prefer configured branchName; fallback to timestamped branch
       const branch = cfg.branchName && cfg.branchName.trim() ? cfg.branchName.trim() : `prompt-sync/${new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16)}`;
       try {
+        // STEP 1: Pull latest from remote first (to avoid conflicts when branching)
+        log.info('Pulling latest from remote before creating branch...');
+        const pullSuccess = await gitPull(repoPath);
+        if (!pullSuccess) {
+          log.error('Pull failed - there may be merge conflicts');
+          vscode.window.showErrorMessage(
+            'Pull failed. There may be merge conflicts or the remote is unreachable. Please resolve manually in terminal:\n\ncd ' + repoPath + '\ngit pull',
+            'Open Terminal'
+          ).then(choice => {
+            if (choice === 'Open Terminal') {
+              const terminal = vscode.window.createTerminal({ name: 'Git Pull', cwd: repoPath });
+              terminal.show();
+              terminal.sendText('git status');
+            }
+          });
+          return;
+        }
+        log.info('Pull successful');
+
+        // STEP 2: Create new branch
         log.info(`Branch+PR: creating branch ${branch}...`);
         const cur = await getCurrentBranch(repoPath);
         log.info(`Current branch: ${cur}`);
@@ -850,7 +894,8 @@ export function activate(context: vscode.ExtensionContext) {
           vscode.window.showWarningMessage(`Failed to create branch: ${checkoutResult.error}`);
           return;
         }
-        // Write YAML
+
+        // STEP 3: Write YAML
         const lib = await store.getLibrary();
         const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
         if (!sharedRoot) {

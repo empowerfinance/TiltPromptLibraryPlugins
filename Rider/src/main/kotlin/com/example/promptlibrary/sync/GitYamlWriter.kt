@@ -15,12 +15,31 @@ import java.io.File
  *     <child>/...
  */
 object GitYamlWriter {
+    private const val GITIGNORE_CONTENT = """# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+"""
+
     // Returns triple of (added, updated, deleted) file counts across the Shared tree
     fun writeSharedGroups(rootDir: File, groups: List<Group>): Triple<Int, Int, Int> {
         val before = snapshotFiles(rootDir)
         // Clean rewrite to reflect current Shared state (removes stale groups like prior synthetic ones)
         if (rootDir.exists()) rootDir.deleteRecursively()
         rootDir.mkdirs()
+
+        // Ensure .gitignore exists in the parent (repo root)
+        ensureGitignore(rootDir.parentFile ?: rootDir)
+
         groups.forEach { writeGroupDir(rootDir, it) }
         val after = snapshotFiles(rootDir)
 
@@ -77,5 +96,12 @@ object GitYamlWriter {
     }
 
     private fun sanitize(name: String): String = name.replace(Regex("[^A-Za-z0-9._-]"), "-")
+
+    private fun ensureGitignore(repoRoot: File) {
+        val gitignore = File(repoRoot, ".gitignore")
+        if (!gitignore.exists()) {
+            gitignore.writeText(GITIGNORE_CONTENT)
+        }
+    }
 }
 
