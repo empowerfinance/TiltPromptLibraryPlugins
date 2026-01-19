@@ -32,7 +32,7 @@ describe('GroupsProvider', () => {
   afterEach(() => {
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {}
+    } catch { }
   });
 
   describe('initialization', () => {
@@ -48,16 +48,16 @@ describe('GroupsProvider', () => {
 
     it('should load library on first getChildren call', async () => {
       const children = await provider.getChildren();
-      
+
       expect(children).toHaveLength(2);
     });
 
     it('should emit change event on refresh', async () => {
       const listener = vi.fn();
       provider.onDidChangeTreeData(listener);
-      
+
       provider.refresh();
-      
+
       expect(listener).toHaveBeenCalled();
     });
   });
@@ -76,12 +76,12 @@ describe('GroupsProvider', () => {
 
     it('should return children of a group', async () => {
       await provider.init();
-      
+
       const roots = await provider.getChildren();
       const privateRoot = roots.find(r => (r as GroupItem).groupId === 'root-private') as GroupItem;
-      
+
       const children = await provider.getChildren(privateRoot);
-      
+
       // Should have Unfiled group
       expect(children.length).toBeGreaterThan(0);
       const unfiled = children.find(c => (c as GroupItem).groupId === 'grp-unfiled');
@@ -91,14 +91,14 @@ describe('GroupsProvider', () => {
     it('should return prompts from a group', async () => {
       await store.addPromptToGroup('grp-unfiled', 'Test prompt', 'Test Title');
       await provider.init();
-      
+
       const roots = await provider.getChildren();
       const privateRoot = roots.find(r => (r as GroupItem).groupId === 'root-private') as GroupItem;
       const children = await provider.getChildren(privateRoot);
       const unfiled = children.find(c => (c as GroupItem).groupId === 'grp-unfiled') as GroupItem;
-      
+
       const prompts = await provider.getChildren(unfiled);
-      
+
       expect(prompts).toHaveLength(1);
       expect(prompts[0]).toBeInstanceOf(PromptItem);
       expect((prompts[0] as PromptItem).label).toBe('Test Title');
@@ -107,29 +107,29 @@ describe('GroupsProvider', () => {
     it('should return empty array for prompt items', async () => {
       await store.addPromptToGroup('grp-unfiled', 'Test');
       await provider.init();
-      
+
       const roots = await provider.getChildren();
       const privateRoot = roots.find(r => (r as GroupItem).groupId === 'root-private') as GroupItem;
       const children = await provider.getChildren(privateRoot);
       const unfiled = children.find(c => (c as GroupItem).groupId === 'grp-unfiled') as GroupItem;
       const prompts = await provider.getChildren(unfiled);
       const prompt = prompts[0] as PromptItem;
-      
+
       const promptChildren = await provider.getChildren(prompt);
-      
+
       expect(promptChildren).toEqual([]);
     });
 
     it('should use fallback title for prompts without title', async () => {
       await store.addPromptToGroup('grp-unfiled', 'This is a long prompt text without title');
       await provider.init();
-      
+
       const roots = await provider.getChildren();
       const privateRoot = roots.find(r => (r as GroupItem).groupId === 'root-private') as GroupItem;
       const children = await provider.getChildren(privateRoot);
       const unfiled = children.find(c => (c as GroupItem).groupId === 'grp-unfiled') as GroupItem;
       const prompts = await provider.getChildren(unfiled);
-      
+
       expect((prompts[0] as PromptItem).label).toBe('This is a long promp');
     });
   });
@@ -137,9 +137,9 @@ describe('GroupsProvider', () => {
   describe('getGroupById', () => {
     it('should find group by id', async () => {
       await provider.init();
-      
+
       const group = provider.getGroupById('grp-unfiled');
-      
+
       expect(group).toBeDefined();
       expect(group?.id).toBe('grp-unfiled');
       expect(group?.name).toBe('Unfiled');
@@ -147,9 +147,9 @@ describe('GroupsProvider', () => {
 
     it('should return null for non-existent group', async () => {
       await provider.init();
-      
+
       const group = provider.getGroupById('non-existent');
-      
+
       expect(group).toBeNull();
     });
 
@@ -167,9 +167,9 @@ describe('GroupsProvider', () => {
       });
       await store['save'](lib);
       await provider.init();
-      
+
       const group = provider.getGroupById('grp-nested');
-      
+
       expect(group).toBeDefined();
       expect(group?.name).toBe('Nested');
     });
@@ -230,6 +230,101 @@ describe('GroupsProvider', () => {
       const newGroup = sharedRoot?.children.find(c => c.name === 'Shared Group');
 
       expect(newGroup?.kind).toBe('shared');
+    });
+
+    it('should set libraryId when adding group to virtual library root', async () => {
+      await provider.init();
+
+      vi.spyOn(vscode.window, 'showInputBox').mockResolvedValue('Library-Specific Group');
+
+      // Add group to a virtual library root node (e.g., lib-root-promptsProduct)
+      await provider.addGroup('lib-root-promptsProduct');
+
+      // The group should be added to root-shared with the libraryId set
+      const sharedRoot = provider.getGroupById('root-shared');
+      const newGroup = sharedRoot?.children.find(c => c.name === 'Library-Specific Group');
+
+      expect(newGroup).toBeDefined();
+      expect(newGroup?.libraryId).toBe('promptsProduct');
+      expect(newGroup?.kind).toBe('shared');
+    });
+
+    it('should set different libraryId for each library root', async () => {
+      await provider.init();
+
+      // Add to first library
+      vi.spyOn(vscode.window, 'showInputBox').mockResolvedValue('General Group');
+      await provider.addGroup('lib-root-general');
+
+      // Add to second library
+      vi.spyOn(vscode.window, 'showInputBox').mockResolvedValue('Platform Group');
+      await provider.addGroup('lib-root-platform');
+
+      const sharedRoot = provider.getGroupById('root-shared');
+      const generalGroup = sharedRoot?.children.find(c => c.name === 'General Group');
+      const platformGroup = sharedRoot?.children.find(c => c.name === 'Platform Group');
+
+      expect(generalGroup?.libraryId).toBe('general');
+      expect(platformGroup?.libraryId).toBe('platform');
+    });
+
+    it('should not set libraryId when adding to regular root-private', async () => {
+      await provider.init();
+
+      vi.spyOn(vscode.window, 'showInputBox').mockResolvedValue('Private Group');
+
+      await provider.addGroup('root-private');
+
+      const privateRoot = provider.getGroupById('root-private');
+      const newGroup = privateRoot?.children.find(c => c.name === 'Private Group');
+
+      expect(newGroup).toBeDefined();
+      expect(newGroup?.libraryId).toBeUndefined();
+    });
+
+    it('should normalize group name to PascalCase for folder path', async () => {
+      await provider.init();
+
+      vi.spyOn(vscode.window, 'showInputBox').mockResolvedValue('my new group');
+
+      await provider.addGroup('root-private');
+
+      const privateRoot = provider.getGroupById('root-private');
+      const newGroup = privateRoot?.children.find(c => c.name === 'my new group');
+
+      expect(newGroup).toBeDefined();
+      // The folderName should be PascalCase for filesystem
+      expect(newGroup?.folderName).toBe('MyNewGroup');
+      // But the display name (name) should be the original input
+      expect(newGroup?.name).toBe('my new group');
+    });
+
+    it('should set PascalCase folder name for hyphenated input', async () => {
+      await provider.init();
+
+      vi.spyOn(vscode.window, 'showInputBox').mockResolvedValue('my-api-group');
+
+      await provider.addGroup('root-private');
+
+      const privateRoot = provider.getGroupById('root-private');
+      const newGroup = privateRoot?.children.find(c => c.name === 'my-api-group');
+
+      expect(newGroup).toBeDefined();
+      expect(newGroup?.folderName).toBe('MyApiGroup');
+    });
+
+    it('should preserve PascalCase input as folder name', async () => {
+      await provider.init();
+
+      vi.spyOn(vscode.window, 'showInputBox').mockResolvedValue('MyExistingGroup');
+
+      await provider.addGroup('root-private');
+
+      const privateRoot = provider.getGroupById('root-private');
+      const newGroup = privateRoot?.children.find(c => c.name === 'MyExistingGroup');
+
+      expect(newGroup).toBeDefined();
+      expect(newGroup?.folderName).toBe('MyExistingGroup');
     });
   });
 
@@ -470,6 +565,229 @@ describe('GroupsProvider', () => {
       const prompts = await provider.getChildren(unfiled);
 
       expect(prompts).toHaveLength(1);
+    });
+  });
+
+  describe('multi-library getChildren filtering', () => {
+    it('should filter library children by libraryId', async () => {
+      // Setup: Add groups with different libraryIds
+      const lib = await store.getLibrary();
+      const sharedRoot = lib.groups.find(g => g.id === 'root-shared')!;
+      sharedRoot.children = [
+        {
+          id: 'grp-general-1',
+          name: 'General Group',
+          kind: 'shared',
+          libraryId: 'general',
+          tags: [],
+          children: [],
+          prompts: []
+        },
+        {
+          id: 'grp-platform-1',
+          name: 'Platform Group',
+          kind: 'shared',
+          libraryId: 'platform',
+          tags: [],
+          children: [],
+          prompts: []
+        },
+        {
+          id: 'grp-general-2',
+          name: 'Another General Group',
+          kind: 'shared',
+          libraryId: 'general',
+          tags: [],
+          children: [],
+          prompts: []
+        }
+      ];
+      await store['save'](lib);
+      await provider.init();
+
+      // Create a virtual library root item
+      const generalLibRoot = new GroupItem(
+        'lib-root-general',
+        'General',
+        vscode.TreeItemCollapsibleState.Expanded,
+        'library-root'
+      );
+
+      // Get children of the general library root
+      const generalChildren = await provider.getChildren(generalLibRoot);
+
+      // Should only contain groups with libraryId === 'general'
+      expect(generalChildren).toHaveLength(2);
+      expect(generalChildren.map(c => (c as GroupItem).groupId)).toContain('grp-general-1');
+      expect(generalChildren.map(c => (c as GroupItem).groupId)).toContain('grp-general-2');
+      expect(generalChildren.map(c => (c as GroupItem).groupId)).not.toContain('grp-platform-1');
+    });
+
+    it('should return empty array for library with no groups', async () => {
+      // Setup: Add groups only for one library
+      const lib = await store.getLibrary();
+      const sharedRoot = lib.groups.find(g => g.id === 'root-shared')!;
+      sharedRoot.children = [
+        {
+          id: 'grp-general-1',
+          name: 'General Group',
+          kind: 'shared',
+          libraryId: 'general',
+          tags: [],
+          children: [],
+          prompts: []
+        }
+      ];
+      await store['save'](lib);
+      await provider.init();
+
+      // Create a virtual library root item for a different library
+      const platformLibRoot = new GroupItem(
+        'lib-root-platform',
+        'Platform',
+        vscode.TreeItemCollapsibleState.Expanded,
+        'library-root'
+      );
+
+      // Get children of the platform library root (which has no groups)
+      const platformChildren = await provider.getChildren(platformLibRoot);
+
+      expect(platformChildren).toHaveLength(0);
+    });
+
+    it('should handle groups without libraryId (legacy groups)', async () => {
+      // Setup: Add groups without libraryId
+      const lib = await store.getLibrary();
+      const sharedRoot = lib.groups.find(g => g.id === 'root-shared')!;
+      sharedRoot.children = [
+        {
+          id: 'grp-legacy',
+          name: 'Legacy Group',
+          kind: 'shared',
+          // No libraryId - legacy group
+          tags: [],
+          children: [],
+          prompts: []
+        },
+        {
+          id: 'grp-general-1',
+          name: 'General Group',
+          kind: 'shared',
+          libraryId: 'general',
+          tags: [],
+          children: [],
+          prompts: []
+        }
+      ];
+      await store['save'](lib);
+      await provider.init();
+
+      // Create a virtual library root item
+      const generalLibRoot = new GroupItem(
+        'lib-root-general',
+        'General',
+        vscode.TreeItemCollapsibleState.Expanded,
+        'library-root'
+      );
+
+      // Get children of the general library root
+      const generalChildren = await provider.getChildren(generalLibRoot);
+
+      // Should only contain groups with explicit libraryId === 'general'
+      // Legacy groups without libraryId should NOT appear
+      expect(generalChildren).toHaveLength(1);
+      expect((generalChildren[0] as GroupItem).groupId).toBe('grp-general-1');
+    });
+
+    it('should distinguish groups with same base ID but different libraryId prefixes', async () => {
+      // This tests the fix for the bug where groups with the same base ID
+      // in different libraries would collide
+      const lib = await store.getLibrary();
+      const sharedRoot = lib.groups.find(g => g.id === 'root-shared')!;
+
+      // Simulate two libraries with groups that have the same base name but unique prefixed IDs
+      sharedRoot.children = [
+        {
+          id: 'lib1:grp-testgroup',  // Prefixed with library ID
+          name: 'TestGroup',
+          kind: 'shared',
+          libraryId: 'lib1',
+          tags: [],
+          children: [],
+          prompts: [
+            { id: 'lib1:p-1', text: 'Prompt from lib1', title: 'Lib1 Prompt', tags: [], createdAt: '', updatedAt: '', private: false }
+          ]
+        },
+        {
+          id: 'lib2:grp-testgroup',  // Same base ID, different library prefix
+          name: 'TestGroup',
+          kind: 'shared',
+          libraryId: 'lib2',
+          tags: [],
+          children: [],
+          prompts: [
+            { id: 'lib2:p-1', text: 'Prompt from lib2', title: 'Lib2 Prompt', tags: [], createdAt: '', updatedAt: '', private: false }
+          ]
+        }
+      ];
+      await store['save'](lib);
+      await provider.init();
+
+      // Verify both groups exist and have unique IDs
+      const reloadedLib = await store.getLibrary();
+      const reloadedShared = reloadedLib.groups.find(g => g.id === 'root-shared')!;
+
+      expect(reloadedShared.children).toHaveLength(2);
+      expect(reloadedShared.children[0].id).toBe('lib1:grp-testgroup');
+      expect(reloadedShared.children[1].id).toBe('lib2:grp-testgroup');
+
+      // Verify prompts also have unique IDs
+      expect(reloadedShared.children[0].prompts[0].id).toBe('lib1:p-1');
+      expect(reloadedShared.children[1].prompts[0].id).toBe('lib2:p-1');
+    });
+
+    it('should find correct group when IDs are prefixed with libraryId', async () => {
+      // This tests that store.findGroup works correctly with prefixed IDs
+      const lib = await store.getLibrary();
+      const sharedRoot = lib.groups.find(g => g.id === 'root-shared')!;
+
+      sharedRoot.children = [
+        {
+          id: 'enabledLibraries:grp-test',
+          name: 'Test',
+          kind: 'shared',
+          libraryId: 'enabledLibraries',
+          tags: [],
+          children: [],
+          prompts: []
+        },
+        {
+          id: 'promptsProduct:grp-test',
+          name: 'Test',
+          kind: 'shared',
+          libraryId: 'promptsProduct',
+          tags: [],
+          children: [],
+          prompts: []
+        }
+      ];
+      await store['save'](lib);
+
+      // Add a prompt to the second group (promptsProduct:grp-test)
+      const result = await store.addPromptToGroup('promptsProduct:grp-test', 'Test prompt text', 'Test Title');
+
+      expect(result.ok).toBe(true);
+      expect(result.groupId).toBe('promptsProduct:grp-test');
+
+      // Verify the prompt was added to the correct group
+      const updatedLib = await store.getLibrary();
+      const updatedShared = updatedLib.groups.find(g => g.id === 'root-shared')!;
+
+      // First group (enabledLibraries) should have no prompts
+      expect(updatedShared.children[0].prompts).toHaveLength(0);
+      // Second group (promptsProduct) should have the new prompt
+      expect(updatedShared.children[1].prompts).toHaveLength(1);
+      expect(updatedShared.children[1].prompts[0].text).toBe('Test prompt text');
     });
   });
 });

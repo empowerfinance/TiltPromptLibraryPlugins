@@ -110,7 +110,7 @@ class GroupTreePanelTest {
         val sharedRoot = SharedRoot
 
         // Then
-        assertThat(sharedRoot.toString()).isEqualTo("Shared")
+        assertThat(sharedRoot.toString()).isEqualTo("GitHub: PromptLibrary")
     }
 
     @Test

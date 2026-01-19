@@ -162,7 +162,56 @@ class GroupTest {
         fun `should not be equal when name differs`() {
             val group1 = Group(id = "g1", name = "Test1")
             val group2 = Group(id = "g1", name = "Test2")
-            
+
+            assertThat(group1).isNotEqualTo(group2)
+        }
+    }
+
+    @Nested
+    inner class LibraryIdTests {
+
+        @Test
+        fun `should default libraryId to null`() {
+            val group = Group(id = "g1", name = "Test")
+            assertThat(group.libraryId).isNull()
+        }
+
+        @Test
+        fun `should support custom libraryId`() {
+            val group = Group(id = "g1", name = "Test", libraryId = "platform")
+            assertThat(group.libraryId).isEqualTo("platform")
+        }
+
+        @Test
+        fun `should preserve libraryId in copy`() {
+            val original = Group(id = "g1", name = "Test", libraryId = "analytics")
+            val copy = original.copy(name = "Modified")
+
+            assertThat(copy.libraryId).isEqualTo("analytics")
+        }
+
+        @Test
+        fun `should support nested groups with different libraryIds`() {
+            val child = Group(id = "c1", name = "Child", libraryId = "lib-child")
+            val parent = Group(id = "p1", name = "Parent", libraryId = "lib-parent", children = listOf(child))
+
+            assertThat(parent.libraryId).isEqualTo("lib-parent")
+            assertThat(parent.children[0].libraryId).isEqualTo("lib-child")
+        }
+
+        @Test
+        fun `should be equal when libraryId matches`() {
+            val group1 = Group(id = "g1", name = "Test", libraryId = "platform")
+            val group2 = Group(id = "g1", name = "Test", libraryId = "platform")
+
+            assertThat(group1).isEqualTo(group2)
+        }
+
+        @Test
+        fun `should not be equal when libraryId differs`() {
+            val group1 = Group(id = "g1", name = "Test", libraryId = "platform")
+            val group2 = Group(id = "g1", name = "Test", libraryId = "analytics")
+
             assertThat(group1).isNotEqualTo(group2)
         }
     }

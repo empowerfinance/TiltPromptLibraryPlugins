@@ -22,11 +22,10 @@
     <depends>Git4Idea</depends>
 
 
-
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="Prompt Library" factoryClass="com.example.promptlibrary.PromptLibraryToolWindowFactory" anchor="left" />
-        <notificationGroup id="PromptLibrary" displayType="BALLOON" isLogByDefault="true"/>
-        <applicationConfigurable instance="com.example.promptlibrary.settings.PluginSettingsConfigurable" displayName="Prompt Library: Git Sync" />
-        <applicationService serviceImplementation="com.example.promptlibrary.settings.PluginSettingsService"/>
+        <notificationGroup id="PromptLibrary" displayType="BALLOON" isLogByDefault="true" />
+        <!-- Settings are now managed via the embedded Settings tab in the tool window -->
+        <applicationService serviceImplementation="com.example.promptlibrary.settings.PluginSettingsService" />
     </extensions>
 </idea-plugin>

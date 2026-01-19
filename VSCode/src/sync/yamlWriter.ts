@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { Group, Prompt } from '../model';
+import { LibraryConfig } from '../settings';
 
 const GITIGNORE_CONTENT = `# OS generated files
 .DS_Store
@@ -119,7 +121,9 @@ async function ensureGitignore(repoRoot: vscode.Uri): Promise<void> {
 }
 
 async function writeGroupDir(parent: vscode.Uri, g: Group, promptsSubdir: string) {
-  const dir = vscode.Uri.joinPath(parent, sanitize(g.name));
+  // Use folderName if available (PascalCase), otherwise fall back to name
+  const folderName = g.folderName || g.name;
+  const dir = vscode.Uri.joinPath(parent, sanitize(folderName));
   await vscode.workspace.fs.createDirectory(dir);
 
   const meta = vscode.Uri.joinPath(dir, '_group.yaml');
@@ -136,3 +140,60 @@ async function writeGroupDir(parent: vscode.Uri, g: Group, promptsSubdir: string
   for (const child of g.children) await writeGroupDir(dir, child, promptsSubdir);
 }
 
+// ============================================================================
+// Multi-Library Support Functions
+// ============================================================================
+
+/**
+ * Writes groups to a specific library within a repository.
+ *
+ * @param repoRoot - The root directory of the Git repository (as a file system path)
+ * @param library - The library configuration specifying where to write
+ * @param groups - The groups to write
+ * @param promptsSubdirName - The name of the prompts subdirectory within groups (default: 'prompts')
+ * @returns Write result statistics
+ *
+ * Example:
+ *   repoRoot = "~/PromptLibrary"
+ *   library.path = "platform"
+ *   Result: groups written to ~/PromptLibrary/platform/
+ */
+export async function writeToLibrary(
+  repoRoot: string,
+  library: LibraryConfig,
+  groups: Group[],
+  promptsSubdirName: string = 'prompts'
+): Promise<WriteResult> {
+  const libraryDir = vscode.Uri.file(path.join(repoRoot, library.path));
+  return writeSharedGroups(libraryDir, groups, promptsSubdirName);
+}
+
+/**
+ * Writes groups to multiple libraries.
+ *
+ * @param repoRoot - The root directory of the Git repository
+ * @param libraryGroups - Map of library ID to groups to write
+ * @param libraries - Array of library configurations
+ * @param promptsSubdirName - The name of the prompts subdirectory within groups
+ * @returns Map of library ID to write results
+ */
+export async function writeToLibraries(
+  repoRoot: string,
+  libraryGroups: Map<string, Group[]>,
+  libraries: LibraryConfig[],
+  promptsSubdirName: string = 'prompts'
+): Promise<Map<string, WriteResult>> {
+  const results = new Map<string, WriteResult>();
+
+  for (const library of libraries.filter(l => l.enabled)) {
+    const groups = libraryGroups.get(library.id) || [];
+    try {
+      const result = await writeToLibrary(repoRoot, library, groups, promptsSubdirName);
+      results.set(library.id, result);
+    } catch {
+      results.set(library.id, { added: 0, updated: 0, deleted: 0 });
+    }
+  }
+
+  return results;
+}

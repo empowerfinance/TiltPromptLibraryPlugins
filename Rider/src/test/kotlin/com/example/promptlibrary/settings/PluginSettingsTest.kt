@@ -94,11 +94,11 @@ class PluginSettingsTest {
     fun `default settings should match VS Code defaults`() {
         // Given
         val state = PluginSettingsService.State()
-        
+
         // Then - Match VS Code package.json defaults
         assertThat(state.remoteRepoUrl).isEqualTo("")
         assertThat(state.repoPath).isEqualTo("~/PromptLibrary")
-        assertThat(state.promptsSubdir).isEqualTo("prompts")
+        assertThat(state.promptsSubdir).isEqualTo("general") // Changed from "prompts" to "general"
         assertThat(state.branchName).isEqualTo("")
         assertThat(state.writeStrategy).isEqualTo(PluginSettingsService.WriteStrategy.DIRECT)
         assertThat(state.autoFetchEnabled).isEqualTo(false)

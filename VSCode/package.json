@@ -54,8 +54,28 @@
       },
       {
         "command": "promptLibrary.openSettings",
-        "title": "Prompt Library: Open Settings",
+        "title": "Settings",
         "icon": "$(settings-gear)"
+      },
+      {
+        "command": "promptLibrary.selectLibrary",
+        "title": "Prompt Library: Select Active Library",
+        "icon": "$(library)"
+      },
+      {
+        "command": "promptLibrary.manageLibraries",
+        "title": "Prompt Library: Manage Libraries",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "promptLibrary.showAllLibraries",
+        "title": "Prompt Library: Show All Libraries",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "promptLibrary.hideAllLibraries",
+        "title": "Prompt Library: Hide All Libraries",
+        "icon": "$(eye-closed)"
       },
       {
         "command": "promptLibrary.sendToAugment",
@@ -96,8 +116,13 @@
       },
       {
         "command": "promptLibrary.syncOps",
-        "title": "Prompt Library: Sync Ops",
-        "icon": "$(sync)"
+        "title": "Git Sync Operations",
+        "icon": "$(github)"
+      },
+      {
+        "command": "promptLibrary.refreshTree",
+        "title": "Refresh Libraries",
+        "icon": "$(refresh)"
       },
       {
         "command": "promptLibrary.syncPullAndImport",
@@ -131,6 +156,16 @@
         "command": "promptLibrary.deletePrompt",
         "title": "Delete Prompt",
         "icon": "$(trash)"
+      },
+      {
+        "command": "promptLibrary.createLibrary",
+        "title": "Create Library",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "promptLibrary.setActiveLibrary",
+        "title": "Set as Active Library",
+        "icon": "$(edit)"
       }
     ],
     "viewsContainers": {
@@ -157,8 +192,16 @@
         },
         "promptLibrary.promptsSubdir": {
           "type": "string",
-          "default": "prompts",
-          "description": "Subdirectory name for prompts under each group directory."
+          "default": "general",
+          "markdownDescription": "Active library for writing new prompts. **Tip:** Right-click a library in the tree view and select 'Set as Active Library' instead of editing this manually."
+        },
+        "promptLibrary.hiddenLibraries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Libraries to hide from the tree view. **Tip:** Use the 'Manage Libraries' command (Command Palette) for an easier UI to show/hide libraries."
         },
         "promptLibrary.branchName": {
           "type": "string",
@@ -205,14 +248,24 @@
     "menus": {
       "view/title": [
         {
-          "command": "promptLibrary.syncOps",
+          "command": "promptLibrary.refreshTree",
+          "when": "view == promptLibraryGroups",
+          "group": "navigation@0"
+        },
+        {
+          "command": "promptLibrary.createLibrary",
           "when": "view == promptLibraryGroups",
           "group": "navigation@1"
         },
         {
-          "command": "promptLibrary.openSettings",
+          "command": "promptLibrary.syncOps",
           "when": "view == promptLibraryGroups",
           "group": "navigation@2"
+        },
+        {
+          "command": "promptLibrary.openSettings",
+          "when": "view == promptLibraryGroups",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -225,6 +278,16 @@
           "command": "promptLibrary.addGroup",
           "when": "view == promptLibraryGroups && viewItem == root-shared",
           "group": "inline@1"
+        },
+        {
+          "command": "promptLibrary.addGroup",
+          "when": "view == promptLibraryGroups && viewItem == library-root",
+          "group": "inline@1"
+        },
+        {
+          "command": "promptLibrary.setActiveLibrary",
+          "when": "view == promptLibraryGroups && viewItem == library-root",
+          "group": "inline@2"
         },
         {
           "command": "promptLibrary.renameGroup",

@@ -7,9 +7,15 @@ import * as path from 'path';
 vi.mock('vscode', () => {
   enum FileType { File = 1, Directory = 2 }
   class Uri {
-    constructor(public fsPath: string) {}
+    constructor(public fsPath: string) { }
     static file(p: string) { return new Uri(path.resolve(p)); }
     static joinPath(base: Uri, ...parts: string[]) { return Uri.file(path.join(base.fsPath, ...parts)); }
+    with(change: { path?: string }) {
+      if (change.path) {
+        return new Uri(change.path);
+      }
+      return this;
+    }
   }
   const workspace = {
     fs: {
@@ -29,7 +35,8 @@ vi.mock('vscode', () => {
 });
 
 // Import after mocking
-import { readSharedGroups } from '../sync/yamlReader';
+import { readSharedGroups, readFromLibraries, readFromLibrary } from '../sync/yamlReader';
+import { LibraryConfig } from '../settings';
 import * as vscode from 'vscode';
 
 function write(p: string, content: string) {
@@ -89,7 +96,7 @@ describe('readSharedGroups (local repository import)', () => {
 
   afterAll(() => {
     // Cleanup temp directory
-    try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { }
   });
 
   it('reads groups and prompts from a local repo folder (with top-level "prompts" container)', async () => {
@@ -110,6 +117,144 @@ describe('readSharedGroups (local repository import)', () => {
     // Spot-check content was parsed
     expect(general!.prompts[0].text).toContain('Hello');
     expect(platform!.prompts[0].text).toContain('single line');
+  });
+});
+
+describe('readFromLibrary', () => {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-readlib-'));
+  const repoRoot = path.join(tmpRoot, 'MultiLibRepo');
+
+  beforeAll(() => {
+    // Create a library structure
+    write(path.join(repoRoot, 'platform', 'API', '_group.yaml'), [
+      'id: "grp-api"',
+      'name: "API"',
+      ''
+    ].join('\n'));
+
+    write(path.join(repoRoot, 'platform', 'API', 'prompts', 'endpoint.yaml'), [
+      'id: "endpoint"',
+      'title: "Endpoint"',
+      'text: "Create an API endpoint"',
+      ''
+    ].join('\n'));
+  });
+
+  afterAll(() => {
+    try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { }
+  });
+
+  it('reads groups from a specific library', async () => {
+    const library: LibraryConfig = {
+      id: 'platform',
+      path: 'platform',
+      displayName: 'Platform',
+      enabled: true
+    };
+
+    const groups = await readFromLibrary(repoRoot, library);
+
+    expect(groups.length).toBe(1);
+    expect(groups[0].name).toBe('API');
+    expect(groups[0].prompts.length).toBe(1);
+    expect(groups[0].prompts[0].id).toBe('endpoint');
+  });
+
+  it('returns empty array for non-existent library path', async () => {
+    const library: LibraryConfig = {
+      id: 'missing',
+      path: 'missing',
+      displayName: 'Missing',
+      enabled: true
+    };
+
+    const groups = await readFromLibrary(repoRoot, library);
+
+    expect(groups).toEqual([]);
+  });
+});
+
+describe('readFromLibraries', () => {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-readlibs-'));
+  const repoRoot = path.join(tmpRoot, 'MultiLibRepo');
+
+  beforeAll(() => {
+    // Create platform library
+    write(path.join(repoRoot, 'platform', 'API', '_group.yaml'), [
+      'id: "grp-api"',
+      'name: "API"',
+      ''
+    ].join('\n'));
+
+    write(path.join(repoRoot, 'platform', 'API', 'prompts', 'endpoint.yaml'), [
+      'id: "endpoint"',
+      'text: "Create an API endpoint"',
+      ''
+    ].join('\n'));
+
+    // Create analytics library
+    write(path.join(repoRoot, 'analytics', 'Reports', '_group.yaml'), [
+      'id: "grp-reports"',
+      'name: "Reports"',
+      ''
+    ].join('\n'));
+
+    write(path.join(repoRoot, 'analytics', 'Reports', 'prompts', 'dashboard.yaml'), [
+      'id: "dashboard"',
+      'text: "Create a dashboard"',
+      ''
+    ].join('\n'));
+  });
+
+  afterAll(() => {
+    try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { }
+  });
+
+  it('reads from multiple enabled libraries', async () => {
+    const libraries: LibraryConfig[] = [
+      { id: 'platform', path: 'platform', displayName: 'Platform', enabled: true },
+      { id: 'analytics', path: 'analytics', displayName: 'Analytics', enabled: true }
+    ];
+
+    const result = await readFromLibraries(repoRoot, libraries);
+
+    expect(result.size).toBe(2);
+    expect(result.get('platform')?.length).toBe(1);
+    expect(result.get('platform')?.[0].name).toBe('API');
+    expect(result.get('analytics')?.length).toBe(1);
+    expect(result.get('analytics')?.[0].name).toBe('Reports');
+  });
+
+  it('only reads from enabled libraries', async () => {
+    const libraries: LibraryConfig[] = [
+      { id: 'platform', path: 'platform', displayName: 'Platform', enabled: true },
+      { id: 'analytics', path: 'analytics', displayName: 'Analytics', enabled: false }
+    ];
+
+    const result = await readFromLibraries(repoRoot, libraries);
+
+    expect(result.size).toBe(1);
+    expect(result.has('platform')).toBe(true);
+    expect(result.has('analytics')).toBe(false);
+  });
+
+  it('returns empty map for empty library list', async () => {
+    const result = await readFromLibraries(repoRoot, []);
+
+    expect(result.size).toBe(0);
+  });
+
+  it('handles library load failures gracefully', async () => {
+    const libraries: LibraryConfig[] = [
+      { id: 'platform', path: 'platform', displayName: 'Platform', enabled: true },
+      { id: 'missing', path: 'missing', displayName: 'Missing', enabled: true }
+    ];
+
+    const result = await readFromLibraries(repoRoot, libraries);
+
+    expect(result.size).toBe(2);
+    expect(result.get('platform')?.length).toBe(1);
+    expect(result.get('missing')).toEqual([]);
   });
 });
 

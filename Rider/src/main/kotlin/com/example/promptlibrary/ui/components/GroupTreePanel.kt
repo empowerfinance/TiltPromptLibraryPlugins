@@ -3,6 +3,8 @@ package com.example.promptlibrary.ui.components
 import com.example.promptlibrary.model.Group
 import com.example.promptlibrary.model.Prompt
 import com.example.promptlibrary.repository.PromptRepository
+import com.example.promptlibrary.settings.PluginSettingsService
+import com.example.promptlibrary.settings.titleCase
 import com.intellij.icons.AllIcons
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
@@ -222,6 +224,33 @@ class GroupTreePanel(
                             foreground = if (sel) textSelectionColor else textNonSelectionColor
                         })
 
+                        // For SharedRoot, show the library folder indicator
+                        if (userObject is SharedRoot) {
+                            try {
+                                val enabledLibraries = PluginSettingsService.getEnabledLibraries()
+                                val activeLibrary = PluginSettingsService.getActiveLibrary()
+                                val libraryIndicator = if (enabledLibraries.size > 1) {
+                                    "📂 ${enabledLibraries.size} libraries"
+                                } else {
+                                    "📂 ${activeLibrary.path}"
+                                }
+                                add(JBLabel(libraryIndicator).apply {
+                                    font = font.deriveFont(9.5f)
+                                    foreground = JBColor(
+                                        java.awt.Color(80, 80, 80),
+                                        java.awt.Color(140, 140, 140)
+                                    )
+                                    toolTipText = if (enabledLibraries.size > 1) {
+                                        "Libraries: ${enabledLibraries.joinToString(", ") { it.displayName }}\nActive (for writing): ${activeLibrary.displayName}"
+                                    } else {
+                                        "Library folder: ${activeLibrary.path}"
+                                    }
+                                })
+                            } catch (_: Exception) {
+                                // Settings not available (e.g., in tests), skip library indicator
+                            }
+                        }
+
                         // "+ Add Group" text right after the label
                         add(JBLabel("+ Add Group").apply {
                             font = font.deriveFont(9.5f)
@@ -237,6 +266,8 @@ class GroupTreePanel(
                 // Add edit icon for GroupNode items (except Unfiled)
                 if (userObject is GroupNode) {
                     val isUnfiled = userObject.group.name.trim().equals("Unfiled", ignoreCase = true)
+                    val enabledLibraries = PluginSettingsService.getEnabledLibraries()
+                    val showLibraryBadge = enabledLibraries.size > 1 && userObject.group.libraryId != null
 
                     val panel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
                         isOpaque = false
@@ -248,6 +279,17 @@ class GroupTreePanel(
                             foreground = if (sel) textSelectionColor else textNonSelectionColor
                         })
 
+                        // Library badge - show when multiple libraries enabled
+                        if (showLibraryBadge) {
+                            add(JBLabel("[${titleCase(userObject.group.libraryId!!)}]").apply {
+                                font = font.deriveFont(9f)
+                                foreground = JBColor(
+                                    java.awt.Color(80, 80, 180),
+                                    java.awt.Color(140, 140, 220)
+                                )
+                            })
+                        }
+
                         // Edit icon (pencil) - only for non-Unfiled groups
                         if (!isUnfiled) {
                             add(JBLabel().apply {
@@ -257,6 +299,35 @@ class GroupTreePanel(
                         }
                     }
                     return panel
+                }
+
+                // Add library badge for PromptNode items when multiple libraries enabled
+                if (userObject is PromptNode) {
+                    val enabledLibraries = PluginSettingsService.getEnabledLibraries()
+                    val showLibraryBadge = enabledLibraries.size > 1 && userObject.prompt.libraryId != null
+
+                    if (showLibraryBadge) {
+                        val panel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+                            isOpaque = false
+                            background = if (sel) backgroundSelectionColor else backgroundNonSelectionColor
+
+                            // Prompt title with icon
+                            add(JBLabel(userObject.toString()).apply {
+                                icon = AllIcons.FileTypes.Text
+                                foreground = if (sel) textSelectionColor else textNonSelectionColor
+                            })
+
+                            // Library badge
+                            add(JBLabel("[${titleCase(userObject.prompt.libraryId!!)}]").apply {
+                                font = font.deriveFont(9f)
+                                foreground = JBColor(
+                                    java.awt.Color(80, 80, 180),
+                                    java.awt.Color(140, 140, 220)
+                                )
+                            })
+                        }
+                        return panel
+                    }
                 }
 
                 return this

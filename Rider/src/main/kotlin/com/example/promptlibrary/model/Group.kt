@@ -19,6 +19,7 @@ data class Group(
     val description: String? = null,
     val tags: List<String> = emptyList(),
     val children: List<Group> = emptyList(),
-    val prompts: List<Prompt> = emptyList()
+    val prompts: List<Prompt> = emptyList(),
+    val libraryId: String? = null  // Optional: which library this group belongs to
 )
 

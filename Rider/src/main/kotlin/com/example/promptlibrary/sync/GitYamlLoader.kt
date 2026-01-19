@@ -3,6 +3,7 @@
 import com.example.promptlibrary.model.Group
 import com.example.promptlibrary.model.Library
 import com.example.promptlibrary.model.Prompt
+import com.example.promptlibrary.settings.LibraryConfig
 import com.example.promptlibrary.yaml.GroupYaml
 import com.example.promptlibrary.yaml.PromptYaml
 import java.io.File
@@ -37,6 +38,51 @@ object GitYamlLoader {
         } else emptyList()
         val children = dir.listFiles { f -> f.isDirectory && File(f, "_group.yaml").exists() }?.mapNotNull { readGroupDir(it) } ?: emptyList()
         return group.copy(children = children, prompts = prompts)
+    }
+
+    // ============================================================================
+    // Multi-Library Support Functions
+    // ============================================================================
+
+    /**
+     * Reads groups from a specific library within a repository.
+     *
+     * @param repoRoot - The root directory of the Git repository
+     * @param library - The library configuration specifying which library to read
+     * @return List of groups found in the library
+     *
+     * Example folder structure:
+     *   ~/PromptLibrary/           <- repoRoot
+     *     platform/                <- library.path = "platform"
+     *       API/_group.yaml
+     *       API/prompts/p-xxx.yaml
+     */
+    fun loadFromLibrary(repoRoot: File, library: LibraryConfig): List<Group> {
+        val libraryDir = File(repoRoot, library.path)
+        return loadFromRoot(libraryDir)
+    }
+
+    /**
+     * Reads groups from multiple libraries and returns a combined result with library metadata.
+     *
+     * @param repoRoot - The root directory of the Git repository
+     * @param libraries - List of library configurations to read from
+     * @return Map of library ID to list of groups
+     */
+    fun loadFromLibraries(repoRoot: File, libraries: List<LibraryConfig>): Map<String, List<Group>> {
+        val result = mutableMapOf<String, List<Group>>()
+
+        for (library in libraries.filter { it.enabled }) {
+            try {
+                val groups = loadFromLibrary(repoRoot, library)
+                result[library.id] = groups
+            } catch (e: Exception) {
+                // If a library fails to load, we still continue with others
+                result[library.id] = emptyList()
+            }
+        }
+
+        return result
     }
 }
 

@@ -365,7 +365,7 @@ describe('git', () => {
       const result = await promise;
 
       expect(result).toBe(true);
-      expect(spawn).toHaveBeenCalledWith('/usr/bin/git', ['pull'], expect.any(Object));
+      expect(spawn).toHaveBeenCalledWith('/usr/bin/git', ['pull', '--rebase'], expect.any(Object));
     });
 
     it('should pull specific branch', async () => {
@@ -376,7 +376,7 @@ describe('git', () => {
       const result = await promise;
 
       expect(result).toBe(true);
-      expect(spawn).toHaveBeenCalledWith('/usr/bin/git', ['pull', 'origin', 'main'], expect.any(Object));
+      expect(spawn).toHaveBeenCalledWith('/usr/bin/git', ['pull', '--rebase', 'origin', 'main'], expect.any(Object));
     });
   });
 

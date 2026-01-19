@@ -1,6 +1,7 @@
 package com.example.promptlibrary
 
 import com.example.promptlibrary.ui.PromptLibraryPanel
+import com.example.promptlibrary.ui.SettingsPanel
 import com.example.promptlibrary.ui.SyncOpsPanel
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.DumbAware
@@ -23,6 +24,17 @@ class PromptLibraryToolWindowFactory : ToolWindowFactory, DumbAware {
         val syncOpsPanel = SyncOpsPanel(project)
         val syncOpsContent = contentFactory.createContent(syncOpsPanel, "Sync Ops", false)
         toolWindow.contentManager.addContent(syncOpsContent)
+
+        // Settings tab (new embedded settings)
+        try {
+            val settingsPanel = SettingsPanel(project)
+            val settingsContent = contentFactory.createContent(settingsPanel, "Settings", false)
+            toolWindow.contentManager.addContent(settingsContent)
+        } catch (e: Exception) {
+            // Log error if settings panel fails to initialize
+            com.intellij.openapi.diagnostic.Logger.getInstance(PromptLibraryToolWindowFactory::class.java)
+                .error("Failed to create Settings panel", e)
+        }
 
         // Register disposable for SyncOpsPanel cleanup
         Disposer.register(syncOpsContent, Disposable { syncOpsPanel.dispose() })

@@ -1,8 +1,9 @@
 package com.example.promptlibrary.ui
 
+import com.example.promptlibrary.events.LibraryEvents
 import com.example.promptlibrary.repository.PromptRepository
-import com.example.promptlibrary.settings.PluginSettingsConfigurable
 import com.example.promptlibrary.settings.PluginSettingsService
+import com.example.promptlibrary.settings.titleCase
 import com.example.promptlibrary.sync.*
 import com.example.promptlibrary.ui.dialogs.ExportDialog
 import com.example.promptlibrary.ui.dialogs.ImportDialog
@@ -11,8 +12,8 @@ import com.intellij.icons.AllIcons
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
-import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.JBColor
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.components.JBLabel
@@ -214,19 +215,46 @@ class SyncOpsPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     private fun createSettingsCard(): JPanel {
         return createCard("Current Settings") {
-            layout = GridLayout(0, 1, 4, 4)
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
 
             val settings = PluginSettingsService.instance().data
+            val activeLibrary = PluginSettingsService.getActiveLibrary()
+            val enabledLibraries = PluginSettingsService.getEnabledLibraries()
 
-            settingsLabels["repoPath"] = JLabel("repoPath: ${settings.repoPath.ifEmpty { "(not set)" }}")
-            settingsLabels["promptsSubdir"] = JLabel("promptsSubdir: ${settings.promptsSubdir}")
-            settingsLabels["writeStrategy"] = JLabel("writeStrategy: ${settings.writeStrategy}")
+            // Active Library indicator - prominent display
+            val libraryText = if (enabledLibraries.size > 1) {
+                "📚 Active: ${activeLibrary.displayName} (+${enabledLibraries.size - 1} more)"
+            } else {
+                "📚 Active Library: ${activeLibrary.displayName}"
+            }
+            val libraryLabel = JLabel(libraryText).apply {
+                font = font.deriveFont(Font.BOLD, 13f)
+                foreground = JBColor.namedColor("Link.activeForeground", JBColor(0x2470B3, 0x589DF6))
+                alignmentX = Component.LEFT_ALIGNMENT
+                if (enabledLibraries.size > 1) {
+                    toolTipText = "Enabled: ${enabledLibraries.joinToString(", ") { it.displayName }}"
+                }
+            }
+            add(libraryLabel)
+            add(Box.createVerticalStrut(8))
+
+            // Other settings
+            val settingsPanel = JPanel(GridLayout(0, 1, 2, 2)).apply {
+                isOpaque = false
+                alignmentX = Component.LEFT_ALIGNMENT
+            }
+
+            settingsLabels["repoPath"] = JLabel("Repository: ${settings.repoPath.ifEmpty { "(not set)" }}")
+            settingsLabels["promptsSubdir"] = JLabel("Library Path: ${settings.promptsSubdir}")
+            settingsLabels["writeStrategy"] = JLabel("Write Strategy: ${settings.writeStrategy}")
 
             settingsLabels.values.forEach { label ->
                 label.font = label.font.deriveFont(12f)
                 label.foreground = JBColor.namedColor("Label.disabledForeground", JBColor.GRAY)
-                add(label)
+                settingsPanel.add(label)
             }
+
+            add(settingsPanel)
         }
     }
 
@@ -339,9 +367,13 @@ class SyncOpsPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private fun openSettings() {
-        ShowSettingsUtil.getInstance().showSettingsDialog(null, PluginSettingsConfigurable::class.java)
-        // Refresh settings display after dialog closes
-        SwingUtilities.invokeLater { updateSettingsDisplay() }
+        // Switch to the Settings tab in the tool window
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Prompt Library")
+        toolWindow?.contentManager?.let { cm ->
+            cm.contents.find { it.displayName == "Settings" }?.let { settingsContent ->
+                cm.setSelectedContent(settingsContent)
+            }
+        }
     }
 
     private fun importJson() {
@@ -386,6 +418,7 @@ class SyncOpsPanel(private val project: Project) : JPanel(BorderLayout()) {
             Notifications.Bus.notify(
                 Notification("PromptLibrary", "Wipe Shared", "Shared groups removed locally.", NotificationType.INFORMATION)
             )
+            LibraryEvents.fireChanged()
         }
     }
 
@@ -403,6 +436,7 @@ class SyncOpsPanel(private val project: Project) : JPanel(BorderLayout()) {
             Notifications.Bus.notify(
                 Notification("PromptLibrary", "Wipe Private", "Private library removed locally.", NotificationType.INFORMATION)
             )
+            LibraryEvents.fireChanged()
         }
     }
 
@@ -422,6 +456,7 @@ class SyncOpsPanel(private val project: Project) : JPanel(BorderLayout()) {
                 Notifications.Bus.notify(
                     Notification("PromptLibrary", "Wipe All", "Local data removed. Use Sync to download from remote.", NotificationType.INFORMATION)
                 )
+                LibraryEvents.fireChanged()
             } catch (e: Exception) {
                 SyncLog.error("Failed to wipe local data: ${e.message}")
                 Notifications.Bus.notify(

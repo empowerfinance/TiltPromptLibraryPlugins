@@ -1,5 +1,6 @@
 package com.example.promptlibrary.ui
 
+import com.example.promptlibrary.events.LibraryEvents
 import com.example.promptlibrary.model.Group
 import com.example.promptlibrary.model.Prompt
 import com.example.promptlibrary.repository.PromptRepository
@@ -11,14 +12,14 @@ import com.example.promptlibrary.ui.dialogs.ExportDialog
 import com.example.promptlibrary.ui.dialogs.ImportDialog
 import com.example.promptlibrary.ui.dialogs.ImportResult
 import com.example.promptlibrary.ui.services.GitSyncService
-import com.example.promptlibrary.settings.PluginSettingsConfigurable
 import com.intellij.icons.AllIcons
 import com.intellij.ide.CopyPasteManagerEx
 import com.intellij.notification.Notification
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
-import com.intellij.openapi.options.ShowSettingsUtil
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.JBColor
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.util.ui.JBUI
@@ -256,6 +257,17 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         // Build initial tree
         groupTreePanel.rebuildTree()
 
+        // Subscribe to library change events to auto-refresh when settings or sync ops change
+        ApplicationManager.getApplication().messageBus.connect().subscribe(
+            LibraryEvents.TOPIC,
+            object : LibraryEvents.Listener {
+                override fun libraryChanged() {
+                    SwingUtilities.invokeLater {
+                        groupTreePanel.rebuildTree()
+                    }
+                }
+            }
+        )
     }
 
     private fun handlePromptSelected(prompt: Prompt, groupId: String) {
@@ -456,6 +468,12 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
     }
 
     private fun openSettings() {
-        ShowSettingsUtil.getInstance().showSettingsDialog(null, PluginSettingsConfigurable::class.java)
+        // Switch to the Settings tab in the tool window
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Prompt Library")
+        toolWindow?.contentManager?.let { cm ->
+            cm.contents.find { it.displayName == "Settings" }?.let { settingsContent ->
+                cm.setSelectedContent(settingsContent)
+            }
+        }
     }
 }

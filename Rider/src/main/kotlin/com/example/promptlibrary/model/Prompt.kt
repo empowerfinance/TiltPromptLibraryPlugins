@@ -14,7 +14,8 @@ data class Prompt(
     val updatedAt: String = Instant.now().toString(),
     val tags: List<String> = emptyList(),
     @SerialName("private")
-    val isPrivate: Boolean = false
+    val isPrivate: Boolean = false,
+    val libraryId: String? = null  // Optional: which library this prompt belongs to
 ) {
     /**
      * Creates a copy of this prompt with updated text and timestamp

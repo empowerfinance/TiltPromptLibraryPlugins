@@ -286,5 +286,57 @@ class PromptTest {
             assertThat(prompt1).isNotEqualTo(prompt2)
         }
     }
+
+    @Nested
+    inner class LibraryIdTests {
+
+        @Test
+        fun `should default libraryId to null`() {
+            val prompt = Prompt(text = "Text")
+            assertThat(prompt.libraryId).isNull()
+        }
+
+        @Test
+        fun `should support custom libraryId`() {
+            val prompt = Prompt(text = "Text", libraryId = "platform")
+            assertThat(prompt.libraryId).isEqualTo("platform")
+        }
+
+        @Test
+        fun `should preserve libraryId in copy`() {
+            val original = Prompt(text = "Original", libraryId = "analytics")
+            val copy = original.copy(text = "Modified")
+
+            assertThat(copy.libraryId).isEqualTo("analytics")
+        }
+
+        @Test
+        fun `should preserve libraryId in withUpdatedText`() {
+            val original = Prompt(text = "Original", libraryId = "platform")
+            val updated = original.withUpdatedText("Updated")
+
+            assertThat(updated.libraryId).isEqualTo("platform")
+        }
+
+        @Test
+        fun `should be equal when libraryId matches`() {
+            val prompt1 = Prompt(id = "p1", text = "Text", libraryId = "lib1",
+                createdAt = "2024-01-01T00:00:00Z", updatedAt = "2024-01-01T00:00:00Z")
+            val prompt2 = Prompt(id = "p1", text = "Text", libraryId = "lib1",
+                createdAt = "2024-01-01T00:00:00Z", updatedAt = "2024-01-01T00:00:00Z")
+
+            assertThat(prompt1).isEqualTo(prompt2)
+        }
+
+        @Test
+        fun `should not be equal when libraryId differs`() {
+            val prompt1 = Prompt(id = "p1", text = "Text", libraryId = "lib1",
+                createdAt = "2024-01-01T00:00:00Z", updatedAt = "2024-01-01T00:00:00Z")
+            val prompt2 = Prompt(id = "p1", text = "Text", libraryId = "lib2",
+                createdAt = "2024-01-01T00:00:00Z", updatedAt = "2024-01-01T00:00:00Z")
+
+            assertThat(prompt1).isNotEqualTo(prompt2)
+        }
+    }
 }
 

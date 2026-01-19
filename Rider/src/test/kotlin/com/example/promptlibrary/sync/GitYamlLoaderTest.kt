@@ -3,9 +3,11 @@ package com.example.promptlibrary.sync
 import com.example.promptlibrary.model.Group
 import com.example.promptlibrary.model.GroupKind
 import com.example.promptlibrary.model.Prompt
+import com.example.promptlibrary.settings.LibraryConfig
 import com.example.promptlibrary.yaml.GroupYaml
 import com.example.promptlibrary.yaml.PromptYaml
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -181,9 +183,143 @@ class GitYamlLoaderTest {
         File(promptsDir, "data.json").writeText("{}")
         
         val loaded = GitYamlLoader.loadFromRoot(rootDir)
-        
+
         assertThat(loaded[0].prompts).hasSize(1)
         assertThat(loaded[0].prompts[0].id).isEqualTo("valid")
+    }
+
+    @Nested
+    inner class LoadFromLibraryTests {
+
+        @Test
+        fun `should load from specific library`() {
+            val rootDir = tempDir.toFile()
+            val libraryDir = File(rootDir, "platform")
+            val groupDir = File(libraryDir, "API")
+            groupDir.mkdirs()
+
+            GroupYaml.writeGroup(Group(id = "api", name = "API"), File(groupDir, "_group.yaml"))
+
+            val library = LibraryConfig(id = "platform", path = "platform", displayName = "Platform")
+            val loaded = GitYamlLoader.loadFromLibrary(rootDir, library)
+
+            assertThat(loaded).hasSize(1)
+            assertThat(loaded[0].id).isEqualTo("api")
+        }
+
+        @Test
+        fun `should return empty list for non-existent library path`() {
+            val rootDir = tempDir.toFile()
+            val library = LibraryConfig(id = "missing", path = "missing", displayName = "Missing")
+
+            val loaded = GitYamlLoader.loadFromLibrary(rootDir, library)
+
+            assertThat(loaded).isEmpty()
+        }
+    }
+
+    @Nested
+    inner class LoadFromLibrariesTests {
+
+        @Test
+        fun `should load from multiple libraries`() {
+            val rootDir = tempDir.toFile()
+
+            // Create platform library
+            val platformDir = File(rootDir, "platform")
+            val platformGroup = File(platformDir, "API")
+            platformGroup.mkdirs()
+            GroupYaml.writeGroup(Group(id = "api", name = "API"), File(platformGroup, "_group.yaml"))
+
+            // Create analytics library
+            val analyticsDir = File(rootDir, "analytics")
+            val analyticsGroup = File(analyticsDir, "Reports")
+            analyticsGroup.mkdirs()
+            GroupYaml.writeGroup(Group(id = "reports", name = "Reports"), File(analyticsGroup, "_group.yaml"))
+
+            val libraries = listOf(
+                LibraryConfig(id = "platform", path = "platform", displayName = "Platform", enabled = true),
+                LibraryConfig(id = "analytics", path = "analytics", displayName = "Analytics", enabled = true)
+            )
+
+            val loaded = GitYamlLoader.loadFromLibraries(rootDir, libraries)
+
+            assertThat(loaded).hasSize(2)
+            assertThat(loaded["platform"]).hasSize(1)
+            assertThat(loaded["platform"]!![0].id).isEqualTo("api")
+            assertThat(loaded["analytics"]).hasSize(1)
+            assertThat(loaded["analytics"]!![0].id).isEqualTo("reports")
+        }
+
+        @Test
+        fun `should only load from enabled libraries`() {
+            val rootDir = tempDir.toFile()
+
+            // Create two libraries
+            listOf("enabled-lib", "disabled-lib").forEach { libName ->
+                val libDir = File(rootDir, libName)
+                val groupDir = File(libDir, "TestGroup")
+                groupDir.mkdirs()
+                GroupYaml.writeGroup(Group(id = "$libName-group", name = "TestGroup"), File(groupDir, "_group.yaml"))
+            }
+
+            val libraries = listOf(
+                LibraryConfig(id = "enabled-lib", path = "enabled-lib", displayName = "Enabled", enabled = true),
+                LibraryConfig(id = "disabled-lib", path = "disabled-lib", displayName = "Disabled", enabled = false)
+            )
+
+            val loaded = GitYamlLoader.loadFromLibraries(rootDir, libraries)
+
+            assertThat(loaded).hasSize(1)
+            assertThat(loaded.keys).containsExactly("enabled-lib")
+        }
+
+        @Test
+        fun `should return empty map when no libraries enabled`() {
+            val rootDir = tempDir.toFile()
+
+            val libraries = listOf(
+                LibraryConfig(id = "lib1", path = "lib1", displayName = "Lib 1", enabled = false),
+                LibraryConfig(id = "lib2", path = "lib2", displayName = "Lib 2", enabled = false)
+            )
+
+            val loaded = GitYamlLoader.loadFromLibraries(rootDir, libraries)
+
+            assertThat(loaded).isEmpty()
+        }
+
+        @Test
+        fun `should handle library load failures gracefully`() {
+            val rootDir = tempDir.toFile()
+
+            // Create one valid library
+            val validDir = File(rootDir, "valid")
+            val validGroup = File(validDir, "TestGroup")
+            validGroup.mkdirs()
+            GroupYaml.writeGroup(Group(id = "valid-group", name = "Valid"), File(validGroup, "_group.yaml"))
+
+            // Don't create the "missing" library directory
+
+            val libraries = listOf(
+                LibraryConfig(id = "valid", path = "valid", displayName = "Valid", enabled = true),
+                LibraryConfig(id = "missing", path = "missing", displayName = "Missing", enabled = true)
+            )
+
+            val loaded = GitYamlLoader.loadFromLibraries(rootDir, libraries)
+
+            assertThat(loaded).hasSize(2)
+            assertThat(loaded["valid"]).hasSize(1)
+            assertThat(loaded["missing"]).isEmpty() // Empty list, not null
+        }
+
+        @Test
+        fun `should return empty map for empty library list`() {
+            val rootDir = tempDir.toFile()
+
+            val loaded = GitYamlLoader.loadFromLibraries(rootDir, emptyList())
+
+            assertThat(loaded).isEmpty()
+        }
     }
 }
 

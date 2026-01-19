@@ -6,6 +6,7 @@ export interface Prompt {
   updatedAt: string; // ISO
   tags: string[];
   private: boolean;
+  libraryId?: string; // Optional: which library this prompt belongs to
 }
 
 export type GroupKind = 'shared' | 'private';
@@ -18,6 +19,8 @@ export interface Group {
   tags: string[];
   children: Group[];
   prompts: Prompt[];
+  libraryId?: string; // Optional: which library this group belongs to
+  folderName?: string; // Optional: PascalCase folder name for filesystem (if different from name)
 }
 
 export interface Library {

@@ -1,9 +1,11 @@
 ﻿package com.example.promptlibrary.sync
 
+import com.example.promptlibrary.events.LibraryEvents
 import com.example.promptlibrary.model.Group
 import com.example.promptlibrary.model.Prompt
 import com.example.promptlibrary.repository.PromptRepository
 import com.example.promptlibrary.settings.PluginSettingsService
+import com.example.promptlibrary.settings.titleCase
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
@@ -25,6 +27,10 @@ object SyncOrchestrator {
         }
         val settings = PluginSettingsService.instance().data
 
+        // Get the active library for multi-library support
+        val activeLibrary = PluginSettingsService.getActiveLibrary()
+        val libraryPath = PluginSettingsService.getActiveLibraryPath()
+
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Prompt Library: Sync", false) {
             override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
                 try {
@@ -36,17 +42,16 @@ object SyncOrchestrator {
                     GitPullService.pull(project, rootDir, settings.branchName)
 
                     indicator.text = "Loading remote YAML..."
-                    SyncLog.info("Loading remote YAML...")
-                    val remoteShared = GitYamlLoader.loadFromRoot(File(rootDir, settings.promptsSubdir))
+                    SyncLog.info("Loading remote YAML from library: ${activeLibrary.displayName} at $libraryPath")
+                    val remoteShared = GitYamlLoader.loadFromRoot(File(libraryPath))
 
                     indicator.text = "Merging... (remote wins)"
                     SyncLog.info("Merging (remote wins)...")
                     val (mergedShared, keptLocal) = mergeRemoteWins(remoteShared, repo)
 
                     indicator.text = "Writing YAML..."
-                    SyncLog.info("Writing YAML files...")
-                    val yamlRoot = File(rootDir, settings.promptsSubdir)
-                    val (added, updated, deleted) = GitYamlWriter.writeSharedGroups(yamlRoot, mergedShared)
+                    SyncLog.info("Writing YAML files to library: ${activeLibrary.displayName}")
+                    val (added, updated, deleted) = GitYamlWriter.writeSharedGroups(File(libraryPath), mergedShared)
                     val changeMsg = "Shared changes: +${added} ~${updated} -${deleted}"
                     SyncLog.info(changeMsg)
                     Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", changeMsg, NotificationType.INFORMATION))
@@ -66,6 +71,8 @@ object SyncOrchestrator {
                         SyncLog.info(keptMsg)
                         Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", keptMsg, NotificationType.INFORMATION))
                     }
+                    // Notify library listeners to refresh
+                    LibraryEvents.fireChanged()
                 } catch (e: Exception) {
                     val errMsg = "Sync error: ${e.message}"
                     SyncLog.error(errMsg)
@@ -78,6 +85,7 @@ object SyncOrchestrator {
     /**
      * Force pull: hard reset to remote, discard all local changes, load into memory.
      * NO commit/push - this is a one-way "get remote" operation.
+     * Reads from all enabled libraries and merges them.
      */
     fun forcePull(project: Project, repo: PromptRepository) {
         SyncLog.info("Starting force pull (hard reset to remote)...")
@@ -87,6 +95,12 @@ object SyncOrchestrator {
             return
         }
         val settings = PluginSettingsService.instance().data
+
+        // Get all enabled libraries for multi-library support
+        val enabledLibraries = PluginSettingsService.getEnabledLibraries()
+        val repoPath = PluginSettingsService.getEffectiveRepoPath()
+        val libraryNames = enabledLibraries.joinToString(", ") { it.displayName }
+        SyncLog.info("Enabled libraries: $libraryNames")
 
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Prompt Library: Force Pull", false) {
             override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
@@ -109,18 +123,36 @@ object SyncOrchestrator {
                         return
                     }
 
-                    indicator.text = "Loading YAML..."
-                    SyncLog.info("Loading YAML from disk...")
-                    val remoteShared = GitYamlLoader.loadFromRoot(File(rootDir, settings.promptsSubdir))
+                    indicator.text = "Loading YAML from ${enabledLibraries.size} libraries..."
+                    SyncLog.info("Loading YAML from ${enabledLibraries.size} libraries...")
+
+                    // Load from all enabled libraries
+                    val libraryGroupsMap = GitYamlLoader.loadFromLibraries(File(repoPath), enabledLibraries)
+
+                    // Merge all groups with library metadata
+                    val allGroups = mutableListOf<Group>()
+                    var totalPrompts = 0
+
+                    for ((libraryId, groups) in libraryGroupsMap) {
+                        // Add library metadata to groups and prompts
+                        val groupsWithMetadata = groups.map { g -> addLibraryMetadata(g, libraryId) }
+                        allGroups.addAll(groupsWithMetadata)
+                        val promptCount = countPrompts(groups)
+                        totalPrompts += promptCount
+                        SyncLog.info("Library '$libraryId': ${groups.size} groups, $promptCount prompts")
+                    }
 
                     indicator.text = "Updating library..."
-                    SyncLog.info("Updating library with ${remoteShared.size} groups...")
+                    SyncLog.info("Updating library with ${allGroups.size} groups from ${enabledLibraries.size} libraries...")
                     // Replace shared groups entirely with what's from remote
-                    repo.replaceSharedGroups(remoteShared)
+                    repo.replaceSharedGroups(allGroups)
 
-                    val msg = "Force pull complete: ${remoteShared.size} groups loaded"
+                    val msg = "Force pull complete: ${allGroups.size} groups, $totalPrompts prompts from ${enabledLibraries.size} library(ies)"
                     SyncLog.info(msg)
                     Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", msg, NotificationType.INFORMATION))
+
+                    // Notify library listeners to refresh
+                    LibraryEvents.fireChanged()
                 } catch (e: Exception) {
                     val errMsg = "Force pull error: ${e.message}"
                     SyncLog.error(errMsg)
@@ -152,6 +184,30 @@ object SyncOrchestrator {
             }
         }
         return remoteShared to movedCount
+    }
+
+    /**
+     * Recursively adds library metadata to a group and all its children/prompts.
+     */
+    private fun addLibraryMetadata(group: Group, libraryId: String): Group {
+        return group.copy(
+            libraryId = libraryId,
+            prompts = group.prompts.map { it.copy(libraryId = libraryId) },
+            children = group.children.map { addLibraryMetadata(it, libraryId) }
+        )
+    }
+
+    /**
+     * Counts total prompts in a list of groups (including nested children).
+     */
+    private fun countPrompts(groups: List<Group>): Int {
+        var count = 0
+        fun walk(g: Group) {
+            count += g.prompts.size
+            g.children.forEach { walk(it) }
+        }
+        groups.forEach { walk(it) }
+        return count
     }
 }
 

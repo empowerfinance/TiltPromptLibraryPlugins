@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { Group, Prompt } from '../model';
+import { LibraryConfig } from '../settings';
 
 interface GroupMeta { id: string; name: string }
 
@@ -16,7 +17,7 @@ function parseGroupMeta(content: string): GroupMeta | null {
     if (mName) { name = stripQuotes(mName[1].trim()); continue; }
   }
   if (!name) return null;
-  if (!id) id = `grp-${Math.random().toString(36).slice(2,8)}`;
+  if (!id) id = `grp-${Math.random().toString(36).slice(2, 8)}`;
   return { id, name };
 }
 
@@ -71,7 +72,7 @@ function parsePrompt(content: string): Omit<Prompt, 'createdAt' | 'updatedAt' | 
     }
     i++;
   }
-  if (!id) id = `p-${Math.random().toString(36).slice(2,8)}`;
+  if (!id) id = `p-${Math.random().toString(36).slice(2, 8)}`;
   if (!text) return null;
   const tnorm = (title ?? '').trim();
   const safeTitle = tnorm && !/^(null|undefined|~)$/i.test(tnorm) ? tnorm : undefined;
@@ -157,5 +158,60 @@ async function safeReadDir(uri: vscode.Uri): Promise<[string, vscode.FileType][]
 }
 async function safeReadFile(uri: vscode.Uri): Promise<string | null> {
   try { const b = await vscode.workspace.fs.readFile(uri); return Buffer.from(b).toString('utf8'); } catch { return null; }
+}
+
+// ============================================================================
+// Multi-Library Support Functions
+// ============================================================================
+
+/**
+ * Reads groups from a specific library within a repository.
+ *
+ * @param repoRoot - The root directory of the Git repository (as a file system path)
+ * @param library - The library configuration specifying which library to read
+ * @param promptsSubdirName - The name of the prompts subdirectory within groups (default: 'prompts')
+ * @returns Array of groups found in the library
+ *
+ * Example folder structure:
+ *   ~/PromptLibrary/           <- repoRoot
+ *     platform/                <- library.path = "platform"
+ *       API/_group.yaml
+ *       API/prompts/p-xxx.yaml
+ */
+export async function readFromLibrary(
+  repoRoot: string,
+  library: LibraryConfig,
+  promptsSubdirName: string = 'prompts'
+): Promise<Group[]> {
+  const libraryDir = vscode.Uri.file(repoRoot).with({ path: `${repoRoot}/${library.path}` });
+  return readSharedGroups(libraryDir, promptsSubdirName);
+}
+
+/**
+ * Reads groups from multiple libraries and returns a combined result with library metadata.
+ *
+ * @param repoRoot - The root directory of the Git repository
+ * @param libraries - Array of library configurations to read from
+ * @param promptsSubdirName - The name of the prompts subdirectory within groups
+ * @returns Map of library ID to array of groups
+ */
+export async function readFromLibraries(
+  repoRoot: string,
+  libraries: LibraryConfig[],
+  promptsSubdirName: string = 'prompts'
+): Promise<Map<string, Group[]>> {
+  const result = new Map<string, Group[]>();
+
+  for (const library of libraries.filter(l => l.enabled)) {
+    try {
+      const groups = await readFromLibrary(repoRoot, library, promptsSubdirName);
+      result.set(library.id, groups);
+    } catch {
+      // If a library fails to load, we still continue with others
+      result.set(library.id, []);
+    }
+  }
+
+  return result;
 }
 

@@ -2,6 +2,7 @@
 
 import com.example.promptlibrary.model.Group
 import com.example.promptlibrary.model.Prompt
+import com.example.promptlibrary.settings.LibraryConfig
 import com.example.promptlibrary.yaml.GroupYaml
 import com.example.promptlibrary.yaml.PromptYaml
 import java.io.File
@@ -102,6 +103,56 @@ Thumbs.db
         if (!gitignore.exists()) {
             gitignore.writeText(GITIGNORE_CONTENT)
         }
+    }
+
+    // ============================================================================
+    // Multi-Library Support Functions
+    // ============================================================================
+
+    /**
+     * Writes groups to a specific library within a repository.
+     *
+     * @param repoRoot - The root directory of the Git repository
+     * @param library - The library configuration specifying where to write
+     * @param groups - The groups to write
+     * @return Triple of (added, updated, deleted) file counts
+     *
+     * Example:
+     *   repoRoot = ~/PromptLibrary
+     *   library.path = "platform"
+     *   Result: groups written to ~/PromptLibrary/platform/
+     */
+    fun writeToLibrary(repoRoot: File, library: LibraryConfig, groups: List<Group>): Triple<Int, Int, Int> {
+        val libraryDir = File(repoRoot, library.path)
+        return writeSharedGroups(libraryDir, groups)
+    }
+
+    /**
+     * Writes groups to multiple libraries.
+     *
+     * @param repoRoot - The root directory of the Git repository
+     * @param libraryGroups - Map of library ID to groups to write
+     * @param libraries - List of library configurations
+     * @return Map of library ID to write results (Triple of added, updated, deleted)
+     */
+    fun writeToLibraries(
+        repoRoot: File,
+        libraryGroups: Map<String, List<Group>>,
+        libraries: List<LibraryConfig>
+    ): Map<String, Triple<Int, Int, Int>> {
+        val results = mutableMapOf<String, Triple<Int, Int, Int>>()
+
+        for (library in libraries.filter { it.enabled }) {
+            val groups = libraryGroups[library.id] ?: emptyList()
+            try {
+                val result = writeToLibrary(repoRoot, library, groups)
+                results[library.id] = result
+            } catch (e: Exception) {
+                results[library.id] = Triple(0, 0, 0)
+            }
+        }
+
+        return results
     }
 }
 

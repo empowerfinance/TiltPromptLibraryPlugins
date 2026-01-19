@@ -2,14 +2,14 @@
 import * as vscode from 'vscode';
 import { LibraryStore } from './store';
 import { GroupsProvider, GroupItem, PromptItem } from './groups';
-import { Prompt } from './model';
-import { getSettings } from './settings';
-import { writeSharedGroups } from './sync/yamlWriter';
+import { Prompt, Group } from './model';
+import { getSettings, getActiveLibrary, getLibraryPath, setActiveLibrary, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries } from './settings';
+import { writeSharedGroups, writeToLibrary } from './sync/yamlWriter';
 import { log } from './log';
 import { checkoutNewBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, getGitVersion } from './sync/hybridGit';
 import { tryBuildGithubCompareUrl, fetch as gitFetch, pull as gitPull, clone as gitClone, resetHardToRemote, cleanUntracked } from './sync/git';
 import { start as startScheduler } from './sync/scheduler';
-import { readSharedGroups } from './sync/yamlReader';
+import { readSharedGroups, readFromLibrary, readFromLibraries } from './sync/yamlReader';
 import { SyncOpsPanel } from './syncOps';
 import { loadHtmlTemplate, getNonce, generateCSP } from './ui/htmlLoader';
 
@@ -277,8 +277,39 @@ class PromptTreeDragAndDrop implements vscode.TreeDragAndDropController<GroupIte
   dispose() { }
 }
 
+// ============================================================================
+// Library Status Bar
+// ============================================================================
+
+let libraryStatusBarItem: vscode.StatusBarItem | undefined;
+
+function updateLibraryStatusBar(): void {
+  if (!libraryStatusBarItem) return;
+  const activeLibrary = getActiveLibrary();
+  const enabledLibraries = getEnabledLibraries();
+  const libraryCount = enabledLibraries.length;
+
+  if (libraryCount > 1) {
+    libraryStatusBarItem.text = `$(library) ${activeLibrary.displayName} (+${libraryCount - 1})`;
+    libraryStatusBarItem.tooltip = `Active Library: ${activeLibrary.displayName}\nEnabled Libraries: ${enabledLibraries.map(l => l.displayName).join(', ')}\nClick to switch active library`;
+  } else {
+    libraryStatusBarItem.text = `$(library) ${activeLibrary.displayName}`;
+    libraryStatusBarItem.tooltip = `Active Library: ${activeLibrary.displayName}\nClick to switch libraries`;
+  }
+  libraryStatusBarItem.show();
+}
+
 export function activate(context: vscode.ExtensionContext) {
   const store = new LibraryStore(context);
+
+  // Create status bar item for library indicator
+  libraryStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+  libraryStatusBarItem.command = 'promptLibrary.selectLibrary';
+  updateLibraryStatusBar();
+  context.subscriptions.push(libraryStatusBarItem);
+
+  // Update status bar when settings change
+  context.subscriptions.push(onSettingsChanged(() => updateLibraryStatusBar()));
 
 
   const groups = new GroupsProvider(store);
@@ -292,6 +323,55 @@ export function activate(context: vscode.ExtensionContext) {
     try { await provider.refresh(); } catch { }
   });
   context.subscriptions.push(storeSub);
+
+  // Auto-read from disk on activation if repo is configured
+  const cfg = getSettings();
+  if (cfg.repoPath) {
+    (async () => {
+      try {
+        log.info('Auto-reading libraries from disk on activation...');
+        const enabledLibraries = getEnabledLibraries();
+        const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries, 'prompts');
+
+        const addLibraryMetadata = (grps: Group[], libraryId: string): Group[] => {
+          return grps.map(g => {
+            // Prefix group ID with libraryId to make it unique across libraries
+            const uniqueGroupId = g.id.startsWith(`${libraryId}:`) ? g.id : `${libraryId}:${g.id}`;
+            return {
+              ...g,
+              id: uniqueGroupId,
+              kind: 'shared' as const,
+              libraryId,
+              prompts: g.prompts.map(p => ({
+                ...p,
+                id: p.id.startsWith(`${libraryId}:`) ? p.id : `${libraryId}:${p.id}`,
+                libraryId
+              })),
+              children: addLibraryMetadata(g.children || [], libraryId)
+            };
+          });
+        };
+
+        const allGroups: Group[] = [];
+        for (const [libraryId, grps] of libraryGroupsMap) {
+          const groupsWithMetadata = addLibraryMetadata(grps, libraryId);
+          allGroups.push(...groupsWithMetadata);
+        }
+
+        const lib = await store.getLibrary();
+        const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
+        if (sharedRoot) {
+          sharedRoot.children = allGroups;
+          sharedRoot.prompts = [];
+          await store.save(lib);
+          await groups.init();
+          log.info(`Auto-read complete: ${allGroups.length} groups from ${enabledLibraries.length} library(ies)`);
+        }
+      } catch (e: any) {
+        log.warn(`Auto-read on activation failed: ${e?.message || e}`);
+      }
+    })();
+  }
 
   // Start auto-fetch scheduler
   startScheduler(context);
@@ -561,6 +641,59 @@ export function activate(context: vscode.ExtensionContext) {
       if (done) { await provider.refresh(); await groups.init(); }
     }),
     vscode.commands.registerCommand('promptLibrary.refreshGroups', async () => { await groups.init(); }),
+    vscode.commands.registerCommand('promptLibrary.refreshTree', async () => {
+      const cfg = getSettings();
+      if (cfg.repoPath) {
+        try {
+          // Re-read all libraries from disk
+          const enabledLibraries = getEnabledLibraries();
+          const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries, 'prompts');
+
+          const addLibraryMetadata = (grps: Group[], libraryId: string): Group[] => {
+            return grps.map(g => {
+              const uniqueGroupId = g.id.startsWith(`${libraryId}:`) ? g.id : `${libraryId}:${g.id}`;
+              return {
+                ...g,
+                id: uniqueGroupId,
+                kind: 'shared' as const,
+                libraryId,
+                prompts: g.prompts.map(p => ({
+                  ...p,
+                  id: p.id.startsWith(`${libraryId}:`) ? p.id : `${libraryId}:${p.id}`,
+                  libraryId
+                })),
+                children: addLibraryMetadata(g.children || [], libraryId)
+              };
+            });
+          };
+
+          const allGroups: Group[] = [];
+          let totalPrompts = 0;
+          for (const [libraryId, grps] of libraryGroupsMap) {
+            const groupsWithMetadata = addLibraryMetadata(grps, libraryId);
+            allGroups.push(...groupsWithMetadata);
+            totalPrompts += grps.reduce((sum, g) => sum + (g.prompts?.length || 0), 0);
+          }
+
+          const lib = await store.getLibrary();
+          const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
+          if (sharedRoot) {
+            sharedRoot.children = allGroups;
+            sharedRoot.prompts = [];
+            await store.save(lib);
+            await groups.init();
+          }
+          log.info(`Refreshed: ${allGroups.length} groups, ${totalPrompts} prompts from ${enabledLibraries.length} libraries`);
+        } catch (e: any) {
+          log.error(`Refresh failed: ${e.message}`);
+          // Still try to refresh tree even if read fails
+          groups.refresh();
+        }
+      } else {
+        // No repo path, just refresh the tree
+        groups.refresh();
+      }
+    }),
     vscode.commands.registerCommand('promptLibrary.syncOps', () => {
       SyncOpsPanel.show(context);
     }),
@@ -571,19 +704,48 @@ export function activate(context: vscode.ExtensionContext) {
         log.info('Pull & Sync started...');
         const pulled = await gitPull(cfg.repoPath);
         if (!pulled) { log.warn('Pull failed'); vscode.window.showWarningMessage('Pull failed. See Sync Ops for details.'); }
-        const groupsFromRepo = await readSharedGroups(vscode.Uri.file(cfg.repoPath), cfg.promptsSubdir);
-        const countPrompts = (gs: any[]): number => gs.reduce((acc, g) => acc + (Array.isArray(g.prompts) ? g.prompts.length : 0) + countPrompts(g.children || []), 0);
-        const totalPrompts = countPrompts(groupsFromRepo as any);
+
+        // Read from all enabled libraries
+        const enabledLibraries = getEnabledLibraries();
+        const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries, 'prompts');
+
+        const addLibraryMetadata = (grps: Group[], libraryId: string): Group[] => {
+          return grps.map(g => {
+            const uniqueGroupId = g.id.startsWith(`${libraryId}:`) ? g.id : `${libraryId}:${g.id}`;
+            return {
+              ...g,
+              id: uniqueGroupId,
+              kind: 'shared' as const,
+              libraryId,
+              prompts: g.prompts.map(p => ({
+                ...p,
+                id: p.id.startsWith(`${libraryId}:`) ? p.id : `${libraryId}:${p.id}`,
+                libraryId
+              })),
+              children: addLibraryMetadata(g.children || [], libraryId)
+            };
+          });
+        };
+
+        const allGroups: Group[] = [];
+        let totalPrompts = 0;
+        for (const [libraryId, grps] of libraryGroupsMap) {
+          const groupsWithMetadata = addLibraryMetadata(grps, libraryId);
+          allGroups.push(...groupsWithMetadata);
+          const countPrompts = (gs: Group[]): number => gs.reduce((acc, g) => acc + (g.prompts?.length || 0) + countPrompts(g.children || []), 0);
+          totalPrompts += countPrompts(grps);
+        }
+
         const lib = await store.getLibrary();
         const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
         if (!sharedRoot) { vscode.window.showWarningMessage('Shared root not found'); log.warn('Shared root not found'); return; }
-        sharedRoot.children = groupsFromRepo.map(g => ({ ...g, kind: 'shared' }));
+        sharedRoot.children = allGroups;
         sharedRoot.prompts = [];
         await store.save(lib);
         await groups.init();
         await provider.refresh();
-        vscode.window.showInformationMessage(`Pull & Sync complete: ${groupsFromRepo.length} groups, ${totalPrompts} prompts.`);
-        log.info(`Pull & Sync complete: imported ${groupsFromRepo.length} top-level groups, ${totalPrompts} prompts.`);
+        vscode.window.showInformationMessage(`Pull & Sync complete: ${allGroups.length} groups, ${totalPrompts} prompts from ${enabledLibraries.length} library(ies).`);
+        log.info(`Pull & Sync complete: imported ${allGroups.length} top-level groups, ${totalPrompts} prompts from ${enabledLibraries.length} library(ies).`);
       } catch (e: any) {
         log.error(`Pull & Sync failed: ${e?.message || e}`);
         vscode.window.showWarningMessage('Pull & Sync failed. See Sync Ops for details.');
@@ -607,19 +769,48 @@ export function activate(context: vscode.ExtensionContext) {
           const cleaned = await cleanUntracked(cfg.repoPath);
           if (!cleaned) { log.warn('git clean -fd failed; some untracked files may remain.'); }
         } catch { }
-        const groupsFromRepo = await readSharedGroups(vscode.Uri.file(cfg.repoPath), cfg.promptsSubdir);
-        const countPrompts = (gs: any[]): number => gs.reduce((acc, g) => acc + (Array.isArray(g.prompts) ? g.prompts.length : 0) + countPrompts(g.children || []), 0);
-        const totalPrompts = countPrompts(groupsFromRepo as any);
+
+        // Read from all enabled libraries
+        const enabledLibraries = getEnabledLibraries();
+        const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries, 'prompts');
+
+        const addLibraryMetadata = (grps: Group[], libraryId: string): Group[] => {
+          return grps.map(g => {
+            const uniqueGroupId = g.id.startsWith(`${libraryId}:`) ? g.id : `${libraryId}:${g.id}`;
+            return {
+              ...g,
+              id: uniqueGroupId,
+              kind: 'shared' as const,
+              libraryId,
+              prompts: g.prompts.map(p => ({
+                ...p,
+                id: p.id.startsWith(`${libraryId}:`) ? p.id : `${libraryId}:${p.id}`,
+                libraryId
+              })),
+              children: addLibraryMetadata(g.children || [], libraryId)
+            };
+          });
+        };
+
+        const allGroups: Group[] = [];
+        let totalPrompts = 0;
+        for (const [libraryId, grps] of libraryGroupsMap) {
+          const groupsWithMetadata = addLibraryMetadata(grps, libraryId);
+          allGroups.push(...groupsWithMetadata);
+          const countPrompts = (gs: Group[]): number => gs.reduce((acc, g) => acc + (g.prompts?.length || 0) + countPrompts(g.children || []), 0);
+          totalPrompts += countPrompts(grps);
+        }
+
         const lib = await store.getLibrary();
         const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
         if (!sharedRoot) { vscode.window.showWarningMessage('Shared root not found'); log.warn('Shared root not found'); return; }
-        sharedRoot.children = groupsFromRepo.map(g => ({ ...g, kind: 'shared' }));
+        sharedRoot.children = allGroups;
         sharedRoot.prompts = [];
         await store.save(lib);
         await groups.init();
         await provider.refresh();
-        vscode.window.showInformationMessage(`Overwrite Pull & Sync complete: ${groupsFromRepo.length} groups, ${totalPrompts} prompts.`);
-        log.info(`Overwrite Pull & Sync complete: imported ${groupsFromRepo.length} top-level groups, ${totalPrompts} prompts.`);
+        vscode.window.showInformationMessage(`Overwrite Pull & Sync complete: ${allGroups.length} groups, ${totalPrompts} prompts from ${enabledLibraries.length} library(ies).`);
+        log.info(`Overwrite Pull & Sync complete: imported ${allGroups.length} top-level groups, ${totalPrompts} prompts from ${enabledLibraries.length} library(ies).`);
       } catch (e: any) {
         log.error(`Overwrite Pull & Sync failed: ${e?.message || e}`);
         vscode.window.showWarningMessage('Overwrite Pull & Sync failed. See Sync Ops for details.');
@@ -672,6 +863,195 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('promptLibrary.openSettings', async () => {
       await vscode.commands.executeCommand('workbench.action.openSettings', 'promptLibrary');
     }),
+    vscode.commands.registerCommand('promptLibrary.selectLibrary', async () => {
+      const cfg = getSettings();
+      if (!cfg.repoPath) {
+        vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.');
+        return;
+      }
+
+      // Discover available libraries in the repo
+      const libraries = discoverLibraries(cfg.repoPath);
+      const activeLibrary = getActiveLibrary();
+
+      // Create quick pick items
+      const items = libraries.map(lib => ({
+        label: lib.displayName,
+        description: lib.path,
+        detail: lib.id === activeLibrary.id ? '$(check) Currently active' : undefined,
+        libraryPath: lib.path
+      }));
+
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select a library to activate',
+        title: 'Prompt Library: Select Library'
+      });
+
+      if (selected) {
+        await setActiveLibrary(selected.libraryPath);
+        updateLibraryStatusBar();
+        vscode.window.showInformationMessage(`Switched to library: ${selected.label}`);
+        log.info(`Switched to library: ${selected.label} (${selected.libraryPath})`);
+        // Refresh the groups view
+        await groups.init();
+      }
+    }),
+    vscode.commands.registerCommand('promptLibrary.manageLibraries', async () => {
+      const cfg = getSettings();
+      if (!cfg.repoPath) {
+        vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.');
+        return;
+      }
+
+      // Discover available libraries in the repo
+      const availableLibraries = discoverLibraries(cfg.repoPath);
+      const currentlyHidden = getHiddenLibraryPaths();
+      const activeLibrary = getActiveLibrary();
+
+      // Create multi-select quick pick items (picked = visible, not picked = hidden)
+      const items: vscode.QuickPickItem[] = availableLibraries.map(lib => ({
+        label: lib.displayName,
+        description: lib.path,
+        detail: lib.id === activeLibrary.id ? '$(edit) Active library (always visible)' : undefined,
+        picked: !currentlyHidden.includes(lib.id) // Visible if NOT in hidden list
+      }));
+
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select libraries to show (unselected will be hidden)',
+        title: 'Prompt Library: Manage Libraries',
+        canPickMany: true
+      });
+
+      if (selected !== undefined) {
+        // Calculate which libraries should be hidden (not selected, except active)
+        const selectedPaths = selected.map(item => item.description!);
+        const toHide = availableLibraries
+          .filter(lib => !selectedPaths.includes(lib.path) && lib.id !== activeLibrary.id)
+          .map(lib => lib.id);
+
+        await setHiddenLibraries(toHide);
+
+        const visibleCount = availableLibraries.length - toHide.length;
+        vscode.window.showInformationMessage(`Showing ${visibleCount} of ${availableLibraries.length} libraries`);
+        log.info(`Hidden libraries: ${toHide.length > 0 ? toHide.join(', ') : '(none)'}`);
+
+        // Refresh the groups view
+        await groups.init();
+      }
+    }),
+    vscode.commands.registerCommand('promptLibrary.showAllLibraries', async () => {
+      await showAllLibraries();
+      vscode.window.showInformationMessage('All libraries are now visible');
+      log.info('Cleared hidden libraries list - all libraries visible');
+      await groups.init();
+    }),
+    vscode.commands.registerCommand('promptLibrary.hideAllLibraries', async () => {
+      const activeLibrary = getActiveLibrary();
+      await hideAllLibraries();
+      vscode.window.showInformationMessage(`All libraries hidden except active: ${activeLibrary.displayName}`);
+      log.info('Hidden all libraries except active');
+      await groups.init();
+    }),
+    vscode.commands.registerCommand('promptLibrary.createLibrary', async () => {
+      const cfg = getSettings();
+      if (!cfg.repoPath) {
+        vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.');
+        return;
+      }
+
+      const libraryName = await vscode.window.showInputBox({
+        prompt: 'Enter a name for the new library',
+        placeHolder: 'e.g. marketing, product, engineering',
+        validateInput: (value) => {
+          if (!value || value.trim().length === 0) {
+            return 'Library name is required';
+          }
+          // Check for valid folder name characters
+          if (!/^[a-zA-Z0-9_-]+$/.test(value.trim())) {
+            return 'Library name can only contain letters, numbers, hyphens, and underscores';
+          }
+          // Check if already exists
+          const libraryPath = path.join(cfg.repoPath, value.trim());
+          if (fs.existsSync(libraryPath)) {
+            return `Library "${value}" already exists`;
+          }
+          return undefined;
+        }
+      });
+
+      if (!libraryName) return;
+
+      try {
+        const libraryPath = path.join(cfg.repoPath, libraryName.trim());
+
+        // Create the library folder with a default group
+        const defaultGroupPath = path.join(libraryPath, 'General');
+        fs.mkdirSync(defaultGroupPath, { recursive: true });
+
+        // Create a _group.yaml file for the default group
+        const groupYamlContent = `name: General\ndescription: Default group for ${libraryName}\n`;
+        fs.writeFileSync(path.join(defaultGroupPath, '_group.yaml'), groupYamlContent);
+
+        vscode.window.showInformationMessage(`Library "${libraryName}" created successfully!`);
+        log.info(`Created new library: ${libraryName} at ${libraryPath}`);
+
+        // Refresh to show the new library
+        await groups.init();
+
+        // Ask if they want to set it as active
+        const setActive = await vscode.window.showQuickPick(['Yes', 'No'], {
+          placeHolder: `Set "${libraryName}" as the active library for writing?`
+        });
+        if (setActive === 'Yes') {
+          await setActiveLibrary(libraryName.trim());
+          updateLibraryStatusBar();
+          await groups.init();
+        }
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`Failed to create library: ${e?.message || e}`);
+        log.error(`Failed to create library: ${e?.message || e}`);
+      }
+    }),
+    vscode.commands.registerCommand('promptLibrary.setActiveLibrary', async (item?: GroupItem) => {
+      const cfg = getSettings();
+      if (!cfg.repoPath) {
+        vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.');
+        return;
+      }
+
+      let libraryId: string | undefined;
+
+      if (item && item.groupId) {
+        // Extract library ID from the group item
+        // Library root items have groupId like "lib:library-name" or just the library folder name
+        libraryId = item.groupId.replace('lib:', '');
+      } else {
+        // No item passed, show a picker
+        const availableLibraries = discoverLibraries(cfg.repoPath);
+        const activeLibrary = getActiveLibrary();
+
+        const items = availableLibraries.map(lib => ({
+          label: lib.displayName,
+          description: lib.id === activeLibrary.id ? '(currently active)' : undefined,
+          libraryId: lib.id
+        }));
+
+        const selected = await vscode.window.showQuickPick(items, {
+          placeHolder: 'Select a library to set as active (for writing new prompts)'
+        });
+
+        if (!selected) return;
+        libraryId = selected.libraryId;
+      }
+
+      if (libraryId) {
+        await setActiveLibrary(libraryId);
+        updateLibraryStatusBar();
+        vscode.window.showInformationMessage(`"${libraryId}" is now the active library`);
+        log.info(`Set active library to: ${libraryId}`);
+        await groups.init();
+      }
+    }),
     vscode.commands.registerCommand('promptLibrary.syncWriteNow', async () => {
       const cfg = getSettings();
       if (!cfg.repoPath) { vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.'); return; }
@@ -681,9 +1061,13 @@ export function activate(context: vscode.ExtensionContext) {
         const lib = await store.getLibrary();
         const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
         if (!sharedRoot) { vscode.window.showWarningMessage('Shared root not found'); log.warn('Shared root not found'); return; }
-        const promptsRoot = vscode.Uri.file(path.join(cfg.repoPath, cfg.promptsSubdir));
-        log.info(`Writing to prompts directory: ${promptsRoot.fsPath}`);
-        const result = await writeSharedGroups(promptsRoot, sharedRoot.children, cfg.promptsSubdir);
+
+        // Use library-aware writing: write to library folder (promptsSubdir)
+        const activeLibrary = getActiveLibrary();
+        const libraryPath = getLibraryPath(cfg.repoPath, activeLibrary);
+        log.info(`Writing to library: ${activeLibrary.displayName} at ${libraryPath}`);
+
+        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children, 'prompts');
         const ms = Date.now() - started;
         vscode.window.showInformationMessage(`Sync write complete. Added ${result.added}, updated ${result.updated}, deleted ${result.deleted}.`);
         log.info(`Sync write complete in ${ms}ms. Added ${result.added}, updated ${result.updated}, deleted ${result.deleted}.`);
@@ -697,19 +1081,58 @@ export function activate(context: vscode.ExtensionContext) {
       if (!cfg.repoPath) { vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.'); return; }
       try {
         log.info('Sync read started...');
-        const groupsFromRepo = await readSharedGroups(vscode.Uri.file(cfg.repoPath), cfg.promptsSubdir);
-        const countPrompts = (gs: any[]): number => gs.reduce((acc, g) => acc + (Array.isArray(g.prompts) ? g.prompts.length : 0) + countPrompts(g.children || []), 0);
-        const totalPrompts = countPrompts(groupsFromRepo as any);
+
+        // Get all enabled libraries
+        const enabledLibraries = getEnabledLibraries();
+        log.info(`Reading from ${enabledLibraries.length} libraries: ${enabledLibraries.map(l => l.displayName).join(', ')}`);
+
+        // Read from all enabled libraries
+        const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries, 'prompts');
+
+        // Helper to add library metadata to groups and prompts recursively
+        const addLibraryMetadata = (groups: Group[], libraryId: string): Group[] => {
+          return groups.map(g => {
+            const uniqueGroupId = g.id.startsWith(`${libraryId}:`) ? g.id : `${libraryId}:${g.id}`;
+            return {
+              ...g,
+              id: uniqueGroupId,
+              kind: 'shared' as const,
+              libraryId,
+              prompts: g.prompts.map(p => ({
+                ...p,
+                id: p.id.startsWith(`${libraryId}:`) ? p.id : `${libraryId}:${p.id}`,
+                libraryId
+              })),
+              children: addLibraryMetadata(g.children || [], libraryId)
+            };
+          });
+        };
+
+        // Merge all library groups into one array
+        const allGroups: Group[] = [];
+        let totalPrompts = 0;
+        const countPrompts = (gs: Group[]): number =>
+          gs.reduce((acc, g) => acc + (g.prompts?.length || 0) + countPrompts(g.children || []), 0);
+
+        for (const [libraryId, groups] of libraryGroupsMap) {
+          const groupsWithMetadata = addLibraryMetadata(groups, libraryId);
+          allGroups.push(...groupsWithMetadata);
+          totalPrompts += countPrompts(groups);
+          log.info(`Library "${libraryId}": ${groups.length} groups, ${countPrompts(groups)} prompts`);
+        }
+
         const lib = await store.getLibrary();
         const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
         if (!sharedRoot) { vscode.window.showWarningMessage('Shared root not found'); log.warn('Shared root not found'); return; }
-        sharedRoot.children = groupsFromRepo.map(g => ({ ...g, kind: 'shared' }));
+        sharedRoot.children = allGroups;
         sharedRoot.prompts = [];
         await store.save(lib);
         await groups.init();
         await provider.refresh();
-        vscode.window.showInformationMessage(`Sync read complete: ${groupsFromRepo.length} groups, ${totalPrompts} prompts.`);
-        log.info(`Sync read complete: imported ${groupsFromRepo.length} top-level groups, ${totalPrompts} prompts.`);
+
+        const libraryNames = enabledLibraries.map(l => l.displayName).join(', ');
+        vscode.window.showInformationMessage(`Sync read complete: ${allGroups.length} groups, ${totalPrompts} prompts from ${enabledLibraries.length} library(ies).`);
+        log.info(`Sync read complete: imported ${allGroups.length} top-level groups, ${totalPrompts} prompts from libraries: ${libraryNames}.`);
       } catch (e: any) {
         log.error(`Sync read failed: ${e?.message || e}`);
         vscode.window.showWarningMessage('Sync read failed. See Sync Status for details.');
@@ -787,9 +1210,13 @@ export function activate(context: vscode.ExtensionContext) {
           return;
         }
         log.info(`Found shared root with ${sharedRoot.children.length} children`);
-        const promptsRoot = vscode.Uri.file(path.join(repoPath, cfg.promptsSubdir));
-        log.info(`Writing to prompts directory: ${promptsRoot.fsPath}`);
-        const result = await writeSharedGroups(promptsRoot, sharedRoot.children, cfg.promptsSubdir);
+
+        // Use library-aware writing: write to library folder (promptsSubdir)
+        const activeLibrary = getActiveLibrary();
+        const libraryPath = getLibraryPath(repoPath, activeLibrary);
+        log.info(`Writing to library: ${activeLibrary.displayName} at ${libraryPath}`);
+
+        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children, 'prompts');
         log.info(`Write result: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
 
         // STEP 3: Stage and commit
@@ -904,9 +1331,13 @@ export function activate(context: vscode.ExtensionContext) {
           return;
         }
         log.info(`Found shared root with ${sharedRoot.children.length} children`);
-        const promptsRoot = vscode.Uri.file(path.join(repoPath, cfg.promptsSubdir));
-        log.info(`Writing to prompts directory: ${promptsRoot.fsPath}`);
-        const result = await writeSharedGroups(promptsRoot, sharedRoot.children, cfg.promptsSubdir);
+
+        // Use library-aware writing: write to library folder (promptsSubdir)
+        const activeLibrary = getActiveLibrary();
+        const libraryPath = getLibraryPath(repoPath, activeLibrary);
+        log.info(`Writing to library: ${activeLibrary.displayName} at ${libraryPath}`);
+
+        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children, 'prompts');
         log.info(`Write result: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
         await stageAll(repoPath);
         log.info('Staged all changes');

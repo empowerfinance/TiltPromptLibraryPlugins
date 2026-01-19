@@ -2,8 +2,9 @@
 import * as vscode from 'vscode';
 import { Group, Library, Prompt } from './model';
 import { LibraryStore } from './store';
-import { getSettings } from './settings';
+import { getSettings, getEnabledLibraries, getActiveLibrary, LibraryConfig, toPascalCase } from './settings';
 import { getRemoteUrl, isGitRepo } from './sync/git';
+import { log } from './log';
 
 function genId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -17,7 +18,7 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
   private repoLabel: string | null = null;
   private showShared: boolean = true;
 
-  constructor(private readonly store: LibraryStore) {}
+  constructor(private readonly store: LibraryStore) { }
 
   async init() {
     this.library = await this.store.load();
@@ -56,18 +57,13 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
       let repoName: string | null = null;
       const m = urlStr.match(/[\/:]([^\/:]+)\/([^\/:]+?)(?:\.git)?$/);
       if (m) {
-        repoName = m[2]?.replace(/\.git$/,'') || null;
+        repoName = m[2]?.replace(/\.git$/, '') || null;
       } else {
         const seg = urlStr.split('/').pop() || '';
-        repoName = seg.replace(/\.git$/,'') || null;
+        repoName = seg.replace(/\.git$/, '') || null;
       }
-      if (repoName && /github\.com/i.test(urlStr)) {
-        this.repoLabel = `GitHub: ${repoName}`;
-      } else if (repoName) {
-        this.repoLabel = `Remote: ${repoName}`;
-      } else {
-        this.repoLabel = null;
-      }
+      // Just use the repo name without prefix
+      this.repoLabel = repoName || null;
     } catch {
       this.repoLabel = null;
       this.showShared = false;
@@ -84,24 +80,92 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
     if (!this.library) {
       this.library = await this.store.load();
     }
+
+    const enabledLibraries = getEnabledLibraries();
+    const activeLibrary = getActiveLibrary();
+    const showMultipleLibraries = enabledLibraries.length > 1 && this.showShared;
+
     if (!element) {
-      // roots are top-level groups in library; hide Shared when sharing isn't configured
-      let roots = (this.library?.groups ?? []);
-      if (!this.showShared) roots = roots.filter(g => g.id !== 'root-shared');
-      return roots.map(g => toItem(g, this.repoLabel));
+      // Build root nodes: one per enabled library (if multiple) OR single shared root, plus private
+      const items: GroupItem[] = [];
+
+      if (this.showShared) {
+        if (showMultipleLibraries) {
+          // Create a separate root node for each enabled library
+          for (const lib of enabledLibraries) {
+            const libraryRootItem = this.createLibraryRootItem(lib, activeLibrary);
+            items.push(libraryRootItem);
+          }
+        } else {
+          // Single library mode: show the old root-shared node
+          const sharedRoot = this.library?.groups.find(g => g.id === 'root-shared');
+          if (sharedRoot) {
+            items.push(toItem(sharedRoot, this.repoLabel, false));
+          }
+        }
+      }
+
+      // Always show private root
+      const privateRoot = this.library?.groups.find(g => g.id === 'root-private');
+      if (privateRoot) {
+        items.push(toItem(privateRoot, this.repoLabel, false));
+      }
+
+      return items;
     }
+
     // If the selected element is a prompt, it has no children
     if (element instanceof PromptItem || element.contextValue === 'prompt') return [];
+
+    // Handle virtual library root nodes (e.g., lib-root-general)
+    if (element.groupId.startsWith('lib-root-')) {
+      const libraryId = element.groupId.replace('lib-root-', '');
+      return this.getLibraryChildren(libraryId);
+    }
+
     const group = this.findGroup(element.groupId);
     if (!group) return [];
-    const groupItems = group.children.map(g => toItem(g, this.repoLabel));
+    const groupItems = group.children.map(g => toItem(g, this.repoLabel, false));
     const promptItems = group.prompts.map(p => new PromptItem(
       p.id,
       group.id,
       (((p.title ?? '').trim()) && !/^(null|undefined|~)$/i.test((p.title ?? '').trim())) ? (p.title as string).trim() : ((p.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim() || 'Prompt'),
-      'comment'
+      'comment',
+      undefined
     ));
     return [...groupItems, ...promptItems];
+  }
+
+  /**
+   * Creates a virtual library root item for multi-library display.
+   */
+  private createLibraryRootItem(lib: LibraryConfig, activeLib: LibraryConfig): GroupItem {
+    const isActive = lib.id === activeLib.id;
+    const label = this.repoLabel ? `${this.repoLabel} (${lib.displayName})` : lib.displayName;
+    const item = new GroupItem(
+      `lib-root-${lib.id}`,
+      label,
+      vscode.TreeItemCollapsibleState.Expanded,
+      'library-root'
+    );
+    item.iconPath = new vscode.ThemeIcon('github');
+    item.description = isActive ? '✏️ active' : undefined;
+    item.tooltip = isActive
+      ? `${lib.displayName} - Active library (prompts are written here)`
+      : `${lib.displayName} - Read-only (switch to make active)`;
+    return item;
+  }
+
+  /**
+   * Gets children for a specific library by filtering shared groups.
+   */
+  private getLibraryChildren(libraryId: string): Array<GroupItem | PromptItem> {
+    const sharedRoot = this.library?.groups.find(g => g.id === 'root-shared');
+    if (!sharedRoot) return [];
+
+    // Filter children that belong to this library
+    const libraryGroups = sharedRoot.children.filter(g => g.libraryId === libraryId);
+    return libraryGroups.map(g => toItem(g, this.repoLabel, false));
   }
 
   getGroupById(id: string): Group | null {
@@ -122,12 +186,42 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
   }
 
   async addGroup(targetRootId: string) {
+    log.info(`addGroup called with targetRootId: ${targetRootId}`);
     if (!this.library) this.library = await this.store.load();
     const name = await vscode.window.showInputBox({ prompt: 'New group name', validateInput: v => v.trim() ? undefined : 'Required' });
     if (!name) return;
-    const root = this.findGroup(targetRootId);
-    if (!root) return;
-    root.children.push({ id: genId('grp'), name: name.trim(), kind: root.kind, tags: [], description: undefined, children: [], prompts: [] });
+
+    // Handle virtual library root nodes: redirect to root-shared with libraryId
+    let libraryId: string | undefined;
+    let actualRootId = targetRootId;
+    if (targetRootId.startsWith('lib-root-')) {
+      libraryId = targetRootId.replace('lib-root-', '');
+      actualRootId = 'root-shared';
+      log.info(`Library root detected: libraryId=${libraryId}, actualRootId=${actualRootId}`);
+    }
+
+    const root = this.findGroup(actualRootId);
+    if (!root) {
+      log.warn(`Could not find root group: ${actualRootId}`);
+      return;
+    }
+
+    const trimmedName = name.trim();
+    const folderName = toPascalCase(trimmedName);
+
+    const newGroup: Group = {
+      id: genId('grp'),
+      name: trimmedName,
+      kind: root.kind,
+      tags: [],
+      description: undefined,
+      children: [],
+      prompts: [],
+      libraryId: libraryId,
+      folderName: folderName
+    };
+    log.info(`Creating group "${newGroup.name}" (folder: ${folderName}) with libraryId=${libraryId}`);
+    root.children.push(newGroup);
     await this.store.save(this.library!);
     this.refresh();
   }
@@ -208,12 +302,17 @@ export class PromptItem extends vscode.TreeItem {
     public readonly promptId: string,
     public readonly groupId: string,
     label: string,
-    icon: string = 'comment'
+    icon: string = 'comment',
+    public readonly libraryId?: string
   ) {
     super(label, vscode.TreeItemCollapsibleState.None);
     this.contextValue = 'prompt';
 
-    this.tooltip = label;
+    // Show library badge in description if libraryId is set
+    if (libraryId) {
+      this.description = `[${titleCase(libraryId)}]`;
+    }
+    this.tooltip = libraryId ? `${label} (from ${titleCase(libraryId)})` : label;
     this.command = {
       command: 'promptLibrary.openPrompt',
       title: 'Open Prompt',
@@ -222,16 +321,32 @@ export class PromptItem extends vscode.TreeItem {
   }
 }
 
+/** Convert underscore/hyphen separated string to Title Case */
+function titleCase(str: string): string {
+  return str.split(/[-_\s]+/).map(word =>
+    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+  ).join(' ');
+}
 
 export class GroupItem extends vscode.TreeItem {
-  constructor(public readonly groupId: string, label: string, collapsible: vscode.TreeItemCollapsibleState, ctx: string) {
+  constructor(
+    public readonly groupId: string,
+    label: string,
+    collapsible: vscode.TreeItemCollapsibleState,
+    ctx: string,
+    public readonly libraryId?: string
+  ) {
     super(label, collapsible);
     this.contextValue = ctx;
     this.iconPath = new vscode.ThemeIcon('folder');
+    // Show library badge in description if libraryId is set
+    if (libraryId) {
+      this.description = `[${titleCase(libraryId)}]`;
+    }
   }
 }
 
-function toItem(g: Group, repoLabel?: string | null): GroupItem {
+function toItem(g: Group, repoLabel?: string | null, showLibraryBadge: boolean = false): GroupItem {
   const isRootShared = g.id === 'root-shared';
   const isRootPrivate = g.id === 'root-private';
   const isUnfiled = g.id === 'grp-unfiled';
@@ -242,8 +357,18 @@ function toItem(g: Group, repoLabel?: string | null): GroupItem {
     ? vscode.TreeItemCollapsibleState.Expanded
     : vscode.TreeItemCollapsibleState.None;
   const label = isRootShared && repoLabel ? repoLabel : g.name;
-  const item = new GroupItem(g.id, label, collapsible, ctx);
+  // Only pass libraryId if we want to show badges (when multiple libraries are enabled)
+  const libraryId = showLibraryBadge && g.libraryId ? g.libraryId : undefined;
+  const item = new GroupItem(g.id, label, collapsible, ctx, libraryId);
   // Icons: GitHub for shared root, lock for private root, repo for all child groups (shared and private)
   item.iconPath = new vscode.ThemeIcon(isRootShared ? 'github' : isRootPrivate ? 'lock' : 'repo');
+
+  // For root-shared in single library mode, show which library folder is active
+  if (isRootShared) {
+    const activeLib = getActiveLibrary();
+    item.description = `📂 ${activeLib.path}`;
+    item.tooltip = `Library folder: ${activeLib.path}\nClick to change libraries`;
+  }
+
   return item;
 }
