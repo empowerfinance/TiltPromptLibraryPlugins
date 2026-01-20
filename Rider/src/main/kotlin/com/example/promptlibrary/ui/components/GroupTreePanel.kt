@@ -267,8 +267,6 @@ class GroupTreePanel(
                 // Add edit icon for GroupNode items (except Unfiled)
                 if (userObject is GroupNode) {
                     val isUnfiled = userObject.group.name.trim().equals("Unfiled", ignoreCase = true)
-                    val enabledLibraries = try { PluginSettingsService.getEnabledLibraries() } catch (_: Exception) { emptyList() }
-                    val showLibraryBadge = enabledLibraries.size > 1 && userObject.group.libraryId != null
 
                     val panel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
                         isOpaque = false
@@ -279,17 +277,6 @@ class GroupTreePanel(
                             icon = if (expanded) openIcon else closedIcon
                             foreground = if (sel) textSelectionColor else textNonSelectionColor
                         })
-
-                        // Library badge - show when multiple libraries enabled
-                        if (showLibraryBadge) {
-                            add(JBLabel("[${titleCase(userObject.group.libraryId!!)}]").apply {
-                                font = font.deriveFont(9f)
-                                foreground = JBColor(
-                                    java.awt.Color(80, 80, 180),
-                                    java.awt.Color(140, 140, 220)
-                                )
-                            })
-                        }
 
                         // Edit icon (pencil) - only for non-Unfiled groups
                         if (!isUnfiled) {
@@ -302,33 +289,19 @@ class GroupTreePanel(
                     return panel
                 }
 
-                // Add library badge for PromptNode items when multiple libraries enabled
+                // Render PromptNode items with text icon
                 if (userObject is PromptNode) {
-                    val enabledLibraries = try { PluginSettingsService.getEnabledLibraries() } catch (_: Exception) { emptyList() }
-                    val showLibraryBadge = enabledLibraries.size > 1 && userObject.prompt.libraryId != null
+                    val panel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+                        isOpaque = false
+                        background = if (sel) backgroundSelectionColor else backgroundNonSelectionColor
 
-                    if (showLibraryBadge) {
-                        val panel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
-                            isOpaque = false
-                            background = if (sel) backgroundSelectionColor else backgroundNonSelectionColor
-
-                            // Prompt title with icon
-                            add(JBLabel(userObject.toString()).apply {
-                                icon = AllIcons.FileTypes.Text
-                                foreground = if (sel) textSelectionColor else textNonSelectionColor
-                            })
-
-                            // Library badge
-                            add(JBLabel("[${titleCase(userObject.prompt.libraryId!!)}]").apply {
-                                font = font.deriveFont(9f)
-                                foreground = JBColor(
-                                    java.awt.Color(80, 80, 180),
-                                    java.awt.Color(140, 140, 220)
-                                )
-                            })
-                        }
-                        return panel
+                        // Prompt title with icon
+                        add(JBLabel(userObject.toString()).apply {
+                            icon = AllIcons.FileTypes.Text
+                            foreground = if (sel) textSelectionColor else textNonSelectionColor
+                        })
                     }
+                    return panel
                 }
 
                 return this
@@ -367,18 +340,26 @@ class GroupTreePanel(
         
         // Show the root to display Shared and Private
         groupTree.isRootVisible = false
-        
-        // Veto collapsing Shared/Private by re-expanding on collapse
+
+        // Only prevent collapsing root-level nodes (LibraryRoot and PrivateRoot), allow collapsing child groups
         groupTree.addTreeWillExpandListener(object : javax.swing.event.TreeWillExpandListener {
             override fun treeWillExpand(event: javax.swing.event.TreeExpansionEvent?) {}
             override fun treeWillCollapse(event: javax.swing.event.TreeExpansionEvent?) {
-                // Re-expand the root immediately to prevent collapse
-                javax.swing.SwingUtilities.invokeLater {
-                    for (i in 0 until groupTree.rowCount) groupTree.expandRow(i)
+                val path = event?.path ?: return
+                val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
+                val userObject = node.userObject
+
+                // Only prevent collapse for root-level nodes (LibraryRoot and PrivateRoot)
+                if (userObject is LibraryRoot || userObject is PrivateRoot) {
+                    // Re-expand only this specific root node
+                    javax.swing.SwingUtilities.invokeLater {
+                        groupTree.expandPath(path)
+                    }
                 }
+                // Allow collapsing for all other nodes (GroupNode, etc.)
             }
         })
-        
+
         for (i in 0 until groupTree.rowCount) groupTree.expandRow(i)
     }
     

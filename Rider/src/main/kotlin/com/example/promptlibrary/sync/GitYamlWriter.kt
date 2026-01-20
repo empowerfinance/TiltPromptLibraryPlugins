@@ -106,6 +106,77 @@ Thumbs.db
     }
 
     // ============================================================================
+    // Incremental Write Functions (for immediate disk writes)
+    // ============================================================================
+
+    /**
+     * Writes a single prompt to disk in its group's folder.
+     * Used for immediate disk sync when adding/updating prompts.
+     *
+     * @param repoRoot - The root directory of the Git repository
+     * @param libraryPath - The library folder name (e.g., "platform")
+     * @param groupPath - List of group folder names from root to the target group
+     * @param prompt - The prompt to write
+     */
+    fun writeSinglePrompt(repoRoot: File, libraryPath: String, groupPath: List<String>, prompt: Prompt) {
+        // Build the full path: repoRoot/libraryPath/group1/group2/.../prompts/p-{id}.yaml
+        var dir = File(repoRoot, libraryPath)
+        for (groupFolder in groupPath) {
+            dir = File(dir, sanitize(groupFolder))
+        }
+
+        // Create prompts subdirectory
+        val promptsDir = File(dir, "prompts")
+        promptsDir.mkdirs()
+
+        // Write the prompt file
+        val file = File(promptsDir, "p-${prompt.id}.yaml")
+        PromptYaml.writePrompt(stripPrivateFields(prompt), file)
+    }
+
+    /**
+     * Deletes a single prompt file from disk.
+     *
+     * @param repoRoot - The root directory of the Git repository
+     * @param libraryPath - The library folder name
+     * @param groupPath - List of group folder names from root to the target group
+     * @param promptId - The ID of the prompt to delete
+     */
+    fun deleteSinglePrompt(repoRoot: File, libraryPath: String, groupPath: List<String>, promptId: String) {
+        var dir = File(repoRoot, libraryPath)
+        for (groupFolder in groupPath) {
+            dir = File(dir, sanitize(groupFolder))
+        }
+
+        val promptsDir = File(dir, "prompts")
+        val file = File(promptsDir, "p-$promptId.yaml")
+
+        if (file.exists()) {
+            file.delete()
+        }
+    }
+
+    /**
+     * Ensures a group folder exists on disk with its _group.yaml metadata.
+     *
+     * @param repoRoot - The root directory of the Git repository
+     * @param libraryPath - The library folder name
+     * @param groupPath - List of group folder names from root to the target group
+     * @param group - The group metadata to write
+     */
+    fun ensureGroupOnDisk(repoRoot: File, libraryPath: String, groupPath: List<String>, group: Group) {
+        var dir = File(repoRoot, libraryPath)
+        for (groupFolder in groupPath) {
+            dir = File(dir, sanitize(groupFolder))
+        }
+
+        dir.mkdirs()
+
+        val meta = File(dir, "_group.yaml")
+        GroupYaml.writeGroup(group.copy(children = emptyList(), prompts = emptyList()), meta)
+    }
+
+    // ============================================================================
     // Multi-Library Support Functions
     // ============================================================================
 

@@ -1,12 +1,14 @@
 package com.example.promptlibrary.ui
 
 import com.example.promptlibrary.events.LibraryEvents
+import com.example.promptlibrary.repository.PromptRepository
 import com.example.promptlibrary.settings.DEFAULT_LIBRARY_NAME
 import com.example.promptlibrary.settings.LibraryConfig
 import com.example.promptlibrary.settings.PluginSettingsService
 import com.example.promptlibrary.settings.discoverLibraries
 import com.example.promptlibrary.settings.getHiddenLibraryPaths
 import com.example.promptlibrary.settings.titleCase
+import com.example.promptlibrary.sync.SyncOrchestrator
 import com.example.promptlibrary.ui.dialogs.SetupWizardDialog
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
@@ -22,8 +24,11 @@ import javax.swing.*
  * Settings Panel - embedded directly in the tool window as a tab.
  * Replaces the need to open the separate Settings dialog.
  */
-class SettingsPanel(private val project: Project) : JPanel(BorderLayout()) {
-    
+class SettingsPanel(
+    private val project: Project,
+    private val repository: PromptRepository
+) : JPanel(BorderLayout()) {
+
     // Note: remoteRepoUrl is now internal-only (hidden from UI, auto-detected from git)
     // Note: writeStrategy is removed from UI (both buttons available in Sync Ops panel)
     // Note: libraryCombo and libraryFolderField removed - libraries are auto-discovered from disk
@@ -441,7 +446,7 @@ class SettingsPanel(private val project: Project) : JPanel(BorderLayout()) {
 
         // Save hidden libraries (opt-out approach matching VS Code)
         val hiddenLibs = getSelectedHiddenLibraries()
-        data.hiddenLibraries = hiddenLibs.toMutableList()
+        data.hiddenLibraries = ArrayList(hiddenLibs)  // Use ArrayList for proper XML serialization
 
         data.branchName = branchField.text.trim()
         // Note: writeStrategy removed from UI - both buttons available in SyncOps
@@ -466,8 +471,10 @@ class SettingsPanel(private val project: Project) : JPanel(BorderLayout()) {
             )
         )
 
-        // Notify listeners that library settings changed
-        LibraryEvents.fireChanged()
+        // Reload from disk to pick up any newly-visible libraries
+        // This ensures that when a library is un-hidden, its content is loaded
+        SyncOrchestrator.reloadFromDisk(repository)
+        // Note: reloadFromDisk calls LibraryEvents.fireChanged() internally
     }
 
     private fun resetSettings() {

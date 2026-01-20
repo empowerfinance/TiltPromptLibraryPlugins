@@ -20,8 +20,10 @@ import java.awt.*
 import java.awt.datatransfer.StringSelection
 import javax.swing.*
 
-class PromptLibraryPanel(private val project: com.intellij.openapi.project.Project) : JPanel(BorderLayout()) {
-    private val repository = PromptRepository()
+class PromptLibraryPanel(
+    private val project: com.intellij.openapi.project.Project,
+    private val repository: PromptRepository
+) : JPanel(BorderLayout()) {
     private var selectedGroupId: String? = null
     private var selectedGroupName: String? = null
     private var editingGroupId: String? = null

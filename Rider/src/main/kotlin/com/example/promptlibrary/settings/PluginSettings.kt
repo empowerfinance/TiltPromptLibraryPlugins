@@ -9,16 +9,21 @@ import java.io.File
 
 @State(name = "PromptLibrarySettings", storages = [Storage("PromptLibrarySettings.xml")])
 class PluginSettingsService : PersistentStateComponent<PluginSettingsService.State> {
-    data class State(
-        var remoteRepoUrl: String = "",
-        var repoPath: String = "~/PromptLibrary",  // Match VS Code default
-        var promptsSubdir: String = DEFAULT_LIBRARY_NAME,  // Active library for writing
-        var hiddenLibraries: MutableList<String> = mutableListOf(),  // Libraries to hide (opt-out approach, matches VS Code)
-        var branchName: String = "",
-        var writeStrategy: WriteStrategy = WriteStrategy.DIRECT,
-        var autoFetchEnabled: Boolean = false,
+    /**
+     * State class for persisting plugin settings.
+     * Uses simple types and collections that XmlSerializer handles well.
+     * Note: For list properties, use ArrayList instead of MutableList for better serialization.
+     */
+    class State {
+        var remoteRepoUrl: String = ""
+        var repoPath: String = "~/PromptLibrary"  // Match VS Code default
+        var promptsSubdir: String = DEFAULT_LIBRARY_NAME  // Active library for writing
+        var hiddenLibraries: ArrayList<String> = ArrayList()  // Use ArrayList for proper XML serialization
+        var branchName: String = ""
+        var writeStrategy: WriteStrategy = WriteStrategy.DIRECT
+        var autoFetchEnabled: Boolean = false
         var autoFetchMinutes: Int = 5
-    )
+    }
 
     enum class WriteStrategy { DIRECT, BRANCH_PR }
 

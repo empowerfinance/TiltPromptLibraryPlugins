@@ -79,7 +79,7 @@ fun discoverLibraries(repoPath: String): List<LibraryConfig> {
                     LibraryConfig(
                         id = potentialLibDir.name,
                         path = potentialLibDir.name,
-                        displayName = titleCase(potentialLibDir.name),
+                        displayName = potentialLibDir.name,  // Preserve exact folder name case
                         enabled = true
                     )
                 )
@@ -115,7 +115,7 @@ fun getHiddenLibraryPaths(): List<String> {
  * Updates the list of hidden libraries.
  */
 fun setHiddenLibraries(libraryPaths: List<String>) {
-    PluginSettingsService.instance().data.hiddenLibraries = libraryPaths.toMutableList()
+    PluginSettingsService.instance().data.hiddenLibraries = ArrayList(libraryPaths)  // Use ArrayList for proper XML serialization
 }
 
 /**

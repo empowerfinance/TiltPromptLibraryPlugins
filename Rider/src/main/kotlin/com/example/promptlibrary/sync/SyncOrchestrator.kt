@@ -209,5 +209,51 @@ object SyncOrchestrator {
         groups.forEach { walk(it) }
         return count
     }
+
+    /**
+     * Reload from disk without git operations.
+     * Used when library visibility settings change (e.g., un-hiding a library).
+     * This reads from all enabled libraries and updates the repository.
+     */
+    fun reloadFromDisk(repo: PromptRepository) {
+        val enabledLibraries = PluginSettingsService.getEnabledLibraries()
+        val repoPath = PluginSettingsService.getEffectiveRepoPath()
+
+        if (repoPath.isBlank()) {
+            SyncLog.info("No repo path configured, skipping reload")
+            return
+        }
+
+        val repoDir = File(repoPath)
+        if (!repoDir.exists() || !repoDir.isDirectory) {
+            SyncLog.info("Repo path does not exist: $repoPath")
+            return
+        }
+
+        SyncLog.info("Reloading from disk: ${enabledLibraries.size} libraries")
+
+        // Load from all enabled libraries
+        val libraryGroupsMap = GitYamlLoader.loadFromLibraries(repoDir, enabledLibraries)
+
+        // Merge all groups with library metadata
+        val allGroups = mutableListOf<Group>()
+        var totalPrompts = 0
+
+        for ((libraryId, groups) in libraryGroupsMap) {
+            val groupsWithMetadata = groups.map { g -> addLibraryMetadata(g, libraryId) }
+            allGroups.addAll(groupsWithMetadata)
+            val promptCount = countPrompts(groups)
+            totalPrompts += promptCount
+            SyncLog.info("Library '$libraryId': ${groups.size} groups, $promptCount prompts")
+        }
+
+        // Replace shared groups with what's on disk
+        repo.replaceSharedGroups(allGroups)
+
+        SyncLog.info("Reload complete: ${allGroups.size} groups, $totalPrompts prompts from ${enabledLibraries.size} library(ies)")
+
+        // Notify library listeners to refresh
+        LibraryEvents.fireChanged()
+    }
 }
 

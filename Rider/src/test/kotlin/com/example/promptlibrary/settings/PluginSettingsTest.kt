@@ -180,13 +180,47 @@ class PluginSettingsTest {
     fun `hiddenLibraries can be replaced`() {
         // Given
         val state = PluginSettingsService.State()
-        state.hiddenLibraries = mutableListOf("old-library")
+        state.hiddenLibraries = arrayListOf("old-library")
 
         // When
-        state.hiddenLibraries = mutableListOf("new-library1", "new-library2")
+        state.hiddenLibraries = arrayListOf("new-library1", "new-library2")
 
         // Then
         assertThat(state.hiddenLibraries).containsExactly("new-library1", "new-library2")
+    }
+
+    // ============================================================================
+    // TDD Tests for Issue 1: Settings persistence (hiddenLibraries)
+    // ============================================================================
+
+    @Test
+    fun `hiddenLibraries should be ArrayList for proper XML serialization`() {
+        // Given
+        val state = PluginSettingsService.State()
+
+        // Then - hiddenLibraries should be an ArrayList (not just MutableList)
+        // This is important for IntelliJ's XmlSerializer to properly persist the list
+        assertThat(state.hiddenLibraries).isInstanceOf(ArrayList::class.java)
+    }
+
+    @Test
+    fun `State class should not be a data class for proper XML serialization`() {
+        // IntelliJ's XmlSerializer works better with regular classes that have
+        // no-arg constructors and mutable properties (Java Bean pattern)
+        val stateClass = PluginSettingsService.State::class.java
+
+        // State should not be a data class (data classes have copy, equals, hashCode, etc.)
+        // We verify by checking it doesn't have the synthetic copy method
+        val hasCopyMethod = stateClass.methods.any { it.name == "copy" }
+        assertThat(hasCopyMethod).isFalse()
+    }
+
+    @Test
+    fun `State should have no-arg constructor for XML serialization`() {
+        // IntelliJ's XmlSerializer requires a no-arg constructor
+        val stateClass = PluginSettingsService.State::class.java
+        val noArgConstructor = stateClass.constructors.find { it.parameterCount == 0 }
+        assertThat(noArgConstructor).isNotNull()
     }
 }
 

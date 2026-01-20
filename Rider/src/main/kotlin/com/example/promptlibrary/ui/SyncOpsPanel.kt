@@ -26,8 +26,10 @@ import javax.swing.*
  * Sync Operations Panel - similar to VS Code's Sync Ops panel.
  * Provides Git sync actions, tools, settings display, and logs.
  */
-class SyncOpsPanel(private val project: Project) : JPanel(BorderLayout()) {
-    private val repository = PromptRepository()
+class SyncOpsPanel(
+    private val project: Project,
+    private val repository: PromptRepository
+) : JPanel(BorderLayout()) {
     private val logArea = JTextPane()
     private val settingsLabels = mutableMapOf<String, JLabel>()
     

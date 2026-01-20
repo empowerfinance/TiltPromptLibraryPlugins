@@ -118,12 +118,13 @@ class LibraryConfigTest {
         val apiDir = File(platformDir, "API")
         apiDir.mkdir()
         File(apiDir, "_group.yaml").writeText("name: API\n")
-        
+
         val libraries = discoverLibraries(tempDir.toString())
-        
+
         assertThat(libraries).hasSize(1)
         assertThat(libraries[0].id).isEqualTo("platform")
-        assertThat(libraries[0].displayName).isEqualTo("Platform")
+        // displayName should match exact folder name (no title case transformation)
+        assertThat(libraries[0].displayName).isEqualTo("platform")
         assertThat(libraries[0].enabled).isTrue()
     }
 
@@ -231,6 +232,73 @@ class LibraryConfigTest {
 
         assertThat(libraries).hasSize(3)
         assertThat(libraries.map { it.id }).containsExactlyInAnyOrder("apple", "monkey", "zebra")
+    }
+
+    // ============================================================================
+    // TDD Tests for Issue 2 & 3: Library name case should match disk exactly
+    // ============================================================================
+
+    @Test
+    fun `discoverLibraries should preserve exact case of folder name in displayName`(@TempDir tempDir: Path) {
+        // Create a library with mixed case: promptsProduct
+        val libDir = File(tempDir.toFile(), "promptsProduct")
+        libDir.mkdir()
+        val groupDir = File(libDir, "TestGroup")
+        groupDir.mkdir()
+        File(groupDir, "_group.yaml").writeText("name: TestGroup\n")
+
+        val libraries = discoverLibraries(tempDir.toString())
+
+        assertThat(libraries).hasSize(1)
+        assertThat(libraries[0].id).isEqualTo("promptsProduct")
+        assertThat(libraries[0].path).isEqualTo("promptsProduct")
+        // displayName should match the exact folder name, not title case
+        assertThat(libraries[0].displayName).isEqualTo("promptsProduct")
+    }
+
+    @Test
+    fun `discoverLibraries should preserve camelCase folder names`(@TempDir tempDir: Path) {
+        // Create a library with camelCase: enabledLibraries
+        val libDir = File(tempDir.toFile(), "enabledLibraries")
+        libDir.mkdir()
+        val groupDir = File(libDir, "API")
+        groupDir.mkdir()
+        File(groupDir, "_group.yaml").writeText("name: API\n")
+
+        val libraries = discoverLibraries(tempDir.toString())
+
+        assertThat(libraries).hasSize(1)
+        assertThat(libraries[0].displayName).isEqualTo("enabledLibraries")
+    }
+
+    @Test
+    fun `discoverLibraries should preserve lowercase folder names`(@TempDir tempDir: Path) {
+        // Create a library with all lowercase: platform
+        val libDir = File(tempDir.toFile(), "platform")
+        libDir.mkdir()
+        val groupDir = File(libDir, "API")
+        groupDir.mkdir()
+        File(groupDir, "_group.yaml").writeText("name: API\n")
+
+        val libraries = discoverLibraries(tempDir.toString())
+
+        assertThat(libraries).hasSize(1)
+        assertThat(libraries[0].displayName).isEqualTo("platform")
+    }
+
+    @Test
+    fun `discoverLibraries should preserve UPPERCASE folder names`(@TempDir tempDir: Path) {
+        // Create a library with all uppercase: PROMPTS
+        val libDir = File(tempDir.toFile(), "PROMPTS")
+        libDir.mkdir()
+        val groupDir = File(libDir, "API")
+        groupDir.mkdir()
+        File(groupDir, "_group.yaml").writeText("name: API\n")
+
+        val libraries = discoverLibraries(tempDir.toString())
+
+        assertThat(libraries).hasSize(1)
+        assertThat(libraries[0].displayName).isEqualTo("PROMPTS")
     }
 
 }

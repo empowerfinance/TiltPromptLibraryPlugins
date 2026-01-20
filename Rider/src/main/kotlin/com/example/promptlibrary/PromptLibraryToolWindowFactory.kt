@@ -20,22 +20,25 @@ class PromptLibraryToolWindowFactory : ToolWindowFactory, DumbAware {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val contentFactory = ContentFactory.getInstance()
 
+        // Create shared repository instance for all panels
+        val repository = PromptRepository()
+
         // Auto-load shared groups from YAML files on startup
-        autoLoadFromYaml()
+        autoLoadFromYaml(repository)
 
         // Library tab (main panel)
-        val libraryPanel = PromptLibraryPanel(project)
+        val libraryPanel = PromptLibraryPanel(project, repository)
         val libraryContent = contentFactory.createContent(libraryPanel, "Library", false)
         toolWindow.contentManager.addContent(libraryContent)
 
         // Sync Ops tab
-        val syncOpsPanel = SyncOpsPanel(project)
+        val syncOpsPanel = SyncOpsPanel(project, repository)
         val syncOpsContent = contentFactory.createContent(syncOpsPanel, "Sync Ops", false)
         toolWindow.contentManager.addContent(syncOpsContent)
 
         // Settings tab (new embedded settings)
         try {
-            val settingsPanel = SettingsPanel(project)
+            val settingsPanel = SettingsPanel(project, repository)
             val settingsContent = contentFactory.createContent(settingsPanel, "Settings", false)
             toolWindow.contentManager.addContent(settingsContent)
         } catch (e: Exception) {
@@ -55,7 +58,7 @@ class PromptLibraryToolWindowFactory : ToolWindowFactory, DumbAware {
      * Auto-loads shared groups from YAML files on startup.
      * This reads from all enabled libraries and merges them into the repository.
      */
-    private fun autoLoadFromYaml() {
+    private fun autoLoadFromYaml(repository: PromptRepository) {
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val repoPath = PluginSettingsService.getEffectiveRepoPath()
@@ -75,7 +78,6 @@ class PromptLibraryToolWindowFactory : ToolWindowFactory, DumbAware {
                 }
 
                 // Update repository with loaded groups
-                val repository = PromptRepository()
                 repository.replaceSharedGroups(allGroups)
 
                 // Fire library changed event to refresh UI

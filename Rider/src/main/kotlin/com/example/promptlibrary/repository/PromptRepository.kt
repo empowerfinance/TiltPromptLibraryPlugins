@@ -3,10 +3,13 @@
 import com.example.promptlibrary.model.Library
 import com.example.promptlibrary.model.Prompt
 import com.example.promptlibrary.model.Group
+import com.example.promptlibrary.settings.PluginSettingsService
+import com.example.promptlibrary.sync.GitYamlWriter
 import com.intellij.openapi.application.PathManager
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -262,6 +265,8 @@ class PromptRepository {
     fun movePromptToGroup(promptId: String, targetGroupId: String) {
         val lib = getLibrary()
         var moved: Prompt? = null
+        var sourceGroup: Group? = null
+
         // Remove from private root, if present
         val remainingPrivate = lib.privatePrompts.filter { p ->
             if (p.id == promptId) { moved = p; false } else true
@@ -269,35 +274,63 @@ class PromptRepository {
         // Remove from any group it might be in
         fun removeFrom(g: Group): Group {
             val (keep, take) = g.prompts.partition { it.id != promptId }
-            if (take.isNotEmpty()) moved = take.first()
+            if (take.isNotEmpty()) {
+                moved = take.first()
+                sourceGroup = g
+            }
             return g.copy(children = g.children.map { removeFrom(it) }, prompts = keep)
         }
         val strippedGroups = lib.groups.map { removeFrom(it) }
+
+        // Find target group to get libraryId
+        val targetGroup = findGroupById(lib, targetGroupId)
+
         // Insert into target group
         fun addInto(g: Group): Group {
             return if (g.id == targetGroupId) {
                 val m = moved ?: return g
-                // When moving into a group, mark as non-private so it can be exported to Shared
-                g.copy(prompts = g.prompts + m.copy(isPrivate = false))
+                // When moving into a group, mark as non-private and inherit libraryId
+                g.copy(prompts = g.prompts + m.copy(isPrivate = false, libraryId = g.libraryId))
             } else {
                 g.copy(children = g.children.map { addInto(it) })
             }
         }
         val newGroups = strippedGroups.map { addInto(it) }
         saveLibrary(lib.copy(groups = newGroups, privatePrompts = remainingPrivate))
+
+        // Disk sync: delete from old location if it was a shared group
+        if (sourceGroup != null && sourceGroup!!.tags.contains(TAG_SHARED) && sourceGroup!!.libraryId != null) {
+            deletePromptFromDisk(lib, sourceGroup!!, promptId)
+        }
+
+        // Disk sync: write to new location if target is a shared group
+        if (moved != null && targetGroup != null && targetGroup.tags.contains(TAG_SHARED) && targetGroup.libraryId != null) {
+            val updatedPrompt = moved!!.copy(isPrivate = false, libraryId = targetGroup.libraryId)
+            writePromptToDisk(lib, targetGroup, updatedPrompt)
+        }
     }
 
     fun movePromptToPrivate(promptId: String) {
         val lib = getLibrary()
         var extracted: Prompt? = null
+        var sourceGroup: Group? = null
+
         fun removeFrom(g: Group): Group {
             val (keep, take) = g.prompts.partition { it.id != promptId }
-            if (take.isNotEmpty()) extracted = take.first()
+            if (take.isNotEmpty()) {
+                extracted = take.first()
+                sourceGroup = g
+            }
             return g.copy(prompts = keep, children = g.children.map { removeFrom(it) })
         }
         val newGroups = lib.groups.map { removeFrom(it) }
         val newPrivate = if (extracted != null) lib.privatePrompts + extracted!!.copy(isPrivate = true) else lib.privatePrompts
         saveLibrary(lib.copy(groups = newGroups, privatePrompts = newPrivate))
+
+        // Disk sync: delete from old location if it was a shared group
+        if (sourceGroup != null && sourceGroup!!.tags.contains(TAG_SHARED) && sourceGroup!!.libraryId != null) {
+            deletePromptFromDisk(lib, sourceGroup!!, promptId)
+        }
     }
 
 
@@ -398,30 +431,66 @@ class PromptRepository {
         }
 
         // Otherwise update within groups
+        var containingGroup: Group? = null
         fun replaceIn(g: Group): Group {
+            val hasPrompt = g.prompts.any { it.id == id }
+            if (hasPrompt) containingGroup = g
             val replacedPrompts = g.prompts.map { if (it.id == id) updated.copy(isPrivate = false) else it }
             return g.copy(prompts = replacedPrompts, children = g.children.map { replaceIn(it) })
         }
         val newGroups = lib.groups.map { replaceIn(it) }
         saveLibrary(lib.copy(groups = newGroups))
+
+        // Disk sync: write to disk if it's in a shared group
+        if (containingGroup != null && containingGroup!!.tags.contains(TAG_SHARED) && containingGroup!!.libraryId != null) {
+            writePromptToDisk(lib, containingGroup!!, updated.copy(isPrivate = false))
+        }
+
         return updated
     }
 
     /**
-     * Deletes a prompt by ID.
+     * Deletes a prompt by ID from anywhere (private prompts or groups).
      * Returns the deleted prompt, or null if not found.
      */
     fun deletePrompt(id: String): Prompt? {
-        val prompts = loadPrompts().toMutableList()
-        val index = prompts.indexOfFirst { it.id == id }
+        val lib = getLibrary()
 
-        return if (index == -1) {
-            null
-        } else {
-            val deletedPrompt = prompts.removeAt(index)
-            savePrompts(prompts)
-            deletedPrompt
+        // Check if in private prompts
+        val privateIndex = lib.privatePrompts.indexOfFirst { it.id == id }
+        if (privateIndex != -1) {
+            val deletedPrompt = lib.privatePrompts[privateIndex]
+            val newPrivate = lib.privatePrompts.filterNot { it.id == id }
+            saveLibrary(lib.copy(privatePrompts = newPrivate))
+            return deletedPrompt
         }
+
+        // Otherwise look in groups
+        var deletedPrompt: Prompt? = null
+        var sourceGroup: Group? = null
+
+        fun removeFrom(g: Group): Group {
+            val found = g.prompts.firstOrNull { it.id == id }
+            if (found != null) {
+                deletedPrompt = found
+                sourceGroup = g
+            }
+            val filtered = g.prompts.filterNot { it.id == id }
+            return g.copy(prompts = filtered, children = g.children.map { removeFrom(it) })
+        }
+
+        val newGroups = lib.groups.map { removeFrom(it) }
+
+        if (deletedPrompt != null) {
+            saveLibrary(lib.copy(groups = newGroups))
+
+            // Disk sync: delete from disk if it was in a shared group
+            if (sourceGroup != null && sourceGroup!!.tags.contains(TAG_SHARED) && sourceGroup!!.libraryId != null) {
+                deletePromptFromDisk(lib, sourceGroup!!, id)
+            }
+        }
+
+        return deletedPrompt
     }
 
     /**
@@ -454,5 +523,87 @@ class PromptRepository {
     fun exportPrompts(): String {
         val prompts = loadPrompts()
         return json.encodeToString(prompts)
+    }
+
+    // ============================================================================
+    // Disk Sync Helpers
+    // ============================================================================
+
+    /**
+     * Writes a prompt to disk for a shared group.
+     * Finds the group's path in the tree and writes to the appropriate library folder.
+     */
+    private fun writePromptToDisk(lib: Library, targetGroup: Group, prompt: Prompt) {
+        val repoPath = PluginSettingsService.getEffectiveRepoPath()
+        if (repoPath.isBlank() || targetGroup.libraryId == null) return
+
+        try {
+            val groupPath = findGroupPath(lib, targetGroup.id)
+            if (groupPath.isEmpty()) {
+                println("Could not find path for group ${targetGroup.id}")
+                return
+            }
+
+            val folderPath = groupPath.map { it.name }
+            GitYamlWriter.writeSinglePrompt(File(repoPath), targetGroup.libraryId!!, folderPath, prompt)
+            println("Wrote prompt ${prompt.id} to disk: ${targetGroup.libraryId}/${folderPath.joinToString("/")}")
+        } catch (e: Exception) {
+            println("Failed to write prompt to disk: ${e.message}")
+        }
+    }
+
+    /**
+     * Deletes a prompt file from disk.
+     */
+    private fun deletePromptFromDisk(lib: Library, targetGroup: Group, promptId: String) {
+        val repoPath = PluginSettingsService.getEffectiveRepoPath()
+        if (repoPath.isBlank() || targetGroup.libraryId == null) return
+
+        try {
+            val groupPath = findGroupPath(lib, targetGroup.id)
+            if (groupPath.isEmpty()) return
+
+            val folderPath = groupPath.map { it.name }
+            GitYamlWriter.deleteSinglePrompt(File(repoPath), targetGroup.libraryId!!, folderPath, promptId)
+            println("Deleted prompt $promptId from disk: ${targetGroup.libraryId}/${folderPath.joinToString("/")}")
+        } catch (e: Exception) {
+            println("Failed to delete prompt from disk: ${e.message}")
+        }
+    }
+
+    /**
+     * Finds the path of groups from the shared root to the target group.
+     * Returns list of groups (including target).
+     */
+    private fun findGroupPath(lib: Library, targetId: String): List<Group> {
+        val sharedGroups = lib.groups.filter { it.tags.contains(TAG_SHARED) }
+
+        fun find(groups: List<Group>, path: List<Group>): List<Group>? {
+            for (g in groups) {
+                if (g.id == targetId) {
+                    return path + g
+                }
+                val found = find(g.children, path + g)
+                if (found != null) return found
+            }
+            return null
+        }
+
+        return find(sharedGroups, emptyList()) ?: emptyList()
+    }
+
+    /**
+     * Finds a group by ID in the library.
+     */
+    private fun findGroupById(lib: Library, groupId: String): Group? {
+        fun find(groups: List<Group>): Group? {
+            for (g in groups) {
+                if (g.id == groupId) return g
+                val found = find(g.children)
+                if (found != null) return found
+            }
+            return null
+        }
+        return find(lib.groups)
     }
 }

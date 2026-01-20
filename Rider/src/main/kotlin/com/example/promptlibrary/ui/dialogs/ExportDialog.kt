@@ -35,7 +35,8 @@ class ExportDialog(
             jsonData = null
         } else {
             // Build simple JSON array of strings (v1 format)
-            val promptTexts = prompts.map { it.text }
+            // Trim trailing whitespace/newlines from each prompt text
+            val promptTexts = prompts.map { it.text.trimEnd() }
             jsonData = promptTexts.joinToString(
                 prefix = "[\n  ",
                 separator = ",\n  ",
