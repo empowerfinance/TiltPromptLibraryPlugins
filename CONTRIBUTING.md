@@ -2,15 +2,27 @@
 
 Thank you for your interest in contributing! This document provides guidelines and information for contributors.
 
+## ⚠️ Important: Keep Both Plugins in Sync
+
+**The VS Code extension and Rider plugin are maintained and versioned together.** When adding features or fixing bugs:
+
+- **If you change one, you must change the other.** Both plugins should have feature parity.
+- **Both plugins are released together** with the same version number.
+- **PRs that only update one plugin** will be asked to include the corresponding changes in the other, unless the change is platform-specific (e.g., VS Code API workaround).
+
+This ensures users get a consistent experience regardless of which IDE they use.
+
 ## 🚀 Getting Started
 
 ### Prerequisites
 
 **VS Code Extension:**
+
 - Node.js 18+
 - VS Code 1.85+
 
 **Rider Plugin:**
+
 - JDK 21 (for Rider 2025.2+) or JDK 17 (for legacy)
 - JetBrains Rider 2024.3+
 
@@ -48,6 +60,7 @@ cd Rider
 ### Branch Naming
 
 Use descriptive branch names:
+
 - `feature/add-search-functionality`
 - `fix/sync-error-handling`
 - `docs/update-readme`
@@ -55,11 +68,13 @@ Use descriptive branch names:
 ### Commit Messages
 
 Write clear, concise commit messages:
+
 - Use the imperative mood ("Add feature" not "Added feature")
 - Keep the first line under 72 characters
 - Reference issues when applicable
 
 **Good examples:**
+
 ```
 Add real-time search filtering to prompt list
 Fix GitHub sync failing on Windows paths
@@ -94,12 +109,14 @@ cd Rider
 ## 🔄 Pull Request Process
 
 1. **Sync with upstream:**
+
    ```bash
    git fetch upstream
    git rebase upstream/main
    ```
 
 2. **Create a feature branch:**
+
    ```bash
    git checkout -b feature/your-feature-name
    ```
@@ -107,6 +124,7 @@ cd Rider
 3. **Make your changes** and commit them
 
 4. **Push to your fork:**
+
    ```bash
    git push origin feature/your-feature-name
    ```
@@ -119,7 +137,8 @@ cd Rider
 
 ### PR Requirements
 
-- [ ] All tests pass
+- [ ] **Both plugins updated** (if adding features or fixing shared bugs)
+- [ ] All tests pass (both VS Code and Rider)
 - [ ] Code follows project style
 - [ ] Documentation updated if needed
 - [ ] PR description clearly explains the change
@@ -127,6 +146,7 @@ cd Rider
 ## 🐛 Reporting Bugs
 
 Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml) and include:
+
 - Plugin version and IDE version
 - Steps to reproduce
 - Expected vs actual behavior
@@ -135,6 +155,7 @@ Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml) and include
 ## 💡 Suggesting Features
 
 Use the [feature request template](.github/ISSUE_TEMPLATE/feature_request.yml) and describe:
+
 - The problem you're trying to solve
 - Your proposed solution
 - Any alternatives you've considered
@@ -152,4 +173,3 @@ Please be respectful and constructive in all interactions. We're building someth
 ## 🙏 Thank You!
 
 Every contribution helps make these plugins better. Thank you for being part of the community!
-

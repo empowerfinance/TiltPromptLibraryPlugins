@@ -1,4 +1,13 @@
-name: Build and Release Plugins
+# =============================================================================
+# VERSION MANAGEMENT
+# =============================================================================
+# To bump version: rename this file
+#   - Patch: Automatic via github.run_number (resets on major/minor bump)
+#   - Minor: build-v1.0.yml -> build-v1.1.yml
+#   - Major: build-v1.1.yml -> build-v2.0.yml
+# =============================================================================
+
+name: Build Pipeline v1.0
 
 on:
   push:
@@ -10,10 +19,47 @@ permissions:
   contents: write
 
 jobs:
+  set_version:
+    name: Set Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract_version.outputs.full_version }}
+      version_prefix: ${{ steps.extract_version.outputs.version_prefix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from workflow filename
+        id: extract_version
+        run: |
+          WORKFLOW_FILENAME="${GITHUB_WORKFLOW}.yml"
+          VERSION_PREFIX=$(echo "$WORKFLOW_FILENAME" | sed -n 's/.*build-v\([0-9]\+\.[0-9]\+\)\.yml.*/\1/p')
+
+          if [ -z "$VERSION_PREFIX" ]; then
+            VERSION_PREFIX=$(echo "$GITHUB_WORKFLOW" | sed -n 's/.*v\([0-9]\+\.[0-9]\+\).*/\1/p')
+          fi
+
+          if [ -z "$VERSION_PREFIX" ]; then
+            echo "Error: Could not extract version from workflow name: $GITHUB_WORKFLOW"
+            exit 1
+          fi
+
+          BUILD_NUMBER=${{ github.run_number }}
+          FULL_VERSION="$VERSION_PREFIX.$BUILD_NUMBER"
+
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            FULL_VERSION="$FULL_VERSION-preview"
+          fi
+
+          echo "version_prefix=$VERSION_PREFIX" >> $GITHUB_OUTPUT
+          echo "full_version=$FULL_VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $FULL_VERSION"
+
   build_rider:
+    needs: set_version
     runs-on: ubuntu-latest
     env:
       RIDER_VERSION: "2024.3"
+      PLUGIN_VERSION: ${{ needs.set_version.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -40,11 +86,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-rider-${{ env.RIDER_VERSION }}-
             ${{ runner.os }}-gradle-
-
-      - name: Set Rider plugin version from run number
-        run: |
-          echo "PLUGIN_VERSION=0.0.${{ github.run_number }}" >> $GITHUB_ENV
-          echo "Using Rider plugin version 0.0.${{ github.run_number }}"
 
       - name: Ensure Gradle wrapper is executable
         run: |
@@ -85,24 +126,22 @@ jobs:
       - name: Build Rider plugin
         run: cd Rider && ./gradlew buildPlugin --no-daemon --stacktrace -PpluginVersion=${{ env.PLUGIN_VERSION }}
 
-      - name: Verify Rider plugin artifact
-        run: |
-          ls -la Rider/build/distributions/
-
-      - name: Rename Rider artifact to standard name
+      - name: Rename Rider artifact
         run: |
           mv Rider/build/distributions/*.zip Rider/build/distributions/TiltPromptLibraryPlugin-${{ env.PLUGIN_VERSION }}.zip
-          ls -la Rider/build/distributions/
 
       - name: Upload Rider plugin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: plugin-distribution-${{ env.PLUGIN_VERSION }}
+          name: rider-plugin-${{ env.PLUGIN_VERSION }}
           path: Rider/build/distributions/TiltPromptLibraryPlugin-${{ env.PLUGIN_VERSION }}.zip
           retention-days: 30
 
   build_vscode:
+    needs: set_version
     runs-on: ubuntu-latest
+    env:
+      EXT_VERSION: ${{ needs.set_version.outputs.version }}
     defaults:
       run:
         working-directory: VSCode
@@ -129,11 +168,8 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Set VS Code extension version from run number
-        run: |
-          echo "EXT_VERSION=0.0.${{ github.run_number }}" >> $GITHUB_ENV
-          echo "Using VS Code extension version 0.0.${{ github.run_number }}"
-          npm version --no-git-tag-version $EXT_VERSION
+      - name: Set package version
+        run: npm version --no-git-tag-version ${{ env.EXT_VERSION }}
 
       - name: Compile
         run: npm run compile
@@ -149,42 +185,46 @@ jobs:
           retention-days: 30
 
   release:
-    needs: [build_rider, build_vscode]
+    needs: [set_version, build_rider, build_vscode]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.set_version.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set versions and combined tag
-        run: |
-          echo "PLUGIN_VERSION=0.0.${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
-          echo "EXT_VERSION=0.0.${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
-          echo "RELEASE_TAG=tilt-plugins-v${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
-          echo "Releasing Rider $PLUGIN_VERSION and VS Code $EXT_VERSION as tag $RELEASE_TAG"
-
       - name: Download Rider artifact
         uses: actions/download-artifact@v4
         with:
-          name: plugin-distribution-${{ env.PLUGIN_VERSION }}
+          name: rider-plugin-${{ env.VERSION }}
           path: ./artifacts/rider
 
       - name: Download VS Code artifact
         uses: actions/download-artifact@v4
         with:
-          name: vscode-extension-${{ env.EXT_VERSION }}
+          name: vscode-extension-${{ env.VERSION }}
           path: ./artifacts/vscode
 
-      - name: Create combined GitHub Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          name: "Tilt Prompt Library Plugins 0.0.${{ github.run_number }}"
+          tag_name: v${{ env.VERSION }}
+          name: "Tilt Prompt Library Plugins v${{ env.VERSION }}"
+          body: |
+            ## Tilt Prompt Library Plugins v${{ env.VERSION }}
+
+            ### Downloads
+            - **Rider Plugin**: `TiltPromptLibraryPlugin-${{ env.VERSION }}.zip`
+            - **VS Code Extension**: `Tilt-Prompt-Library-${{ env.VERSION }}.vsix`
+
+            ### Installation
+            - **Rider**: File > Settings > Plugins > Install Plugin from Disk...
+            - **VS Code**: Extensions > ... > Install from VSIX...
           files: |
             ./artifacts/**/*.zip
             ./artifacts/**/*.vsix
           draft: false
           prerelease: false
-          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

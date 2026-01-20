@@ -1,17 +1,15 @@
-# Prompt Library for VS Code
+# VS Code Prompt Library Extension
 
 A VS Code extension for organizing and managing reusable prompts with GitHub sync. Keep private prompts local and sync shared prompts as clean YAML to Git.
 
 ## ✨ Features
 
-- **Unified Interface** - Single panel for viewing, adding, and editing prompts
-- **Smart Save Button** - Only enabled when changes are detected
-- **Prompt Groups** - Organize prompts in Shared/Private namespaces
-- **One-Click Edit** - Click any prompt to load it for immediate editing
+- **Shared/Private namespaces** - Keep private prompts local, sync shared prompts to Git
+- **One-click copy** - Click any prompt to copy to clipboard
 - **Send to Augment** - 📤 One-click send prompts directly to Augment chat
 - **GitHub Sync** - Export shared prompts as merge-friendly YAML
 - **Import/Export** - JSON backup and restore
-- **Duplicate Detection** - Automatic prevention via normalized text
+- **Duplicate detection** - Automatic prevention via normalized text
 - **Search & Filter** - Real-time prompt filtering
 
 ## 🚀 Quick Start
@@ -38,41 +36,12 @@ npm run compile
 
 ### Usage
 
-1. **Open Prompt Library** - Click the Prompt Library icon in the Activity Bar
-2. **Add Prompts** - Select a group, type in the "View, Add and Edit" panel, click "Add Prompt"
-3. **Edit Prompts** - Click any prompt to load it, make changes, click "Save Changes"
-4. **Copy or Send** - Click 📋 to copy, or 📤 to send directly to Augment chat
-5. **Organize** - Create groups under Shared or Private
-6. **Sync to GitHub** - Use Sync Ops toolbar buttons to push/pull shared prompts
-
-## 📋 Views
-
-- **Prompt Groups** - Tree view of Shared/Private groups and prompts with toolbar buttons
-- **View, Add and Edit** - Unified interface for all prompt operations:
-  - **Add Mode** - Empty fields ready for new prompt creation
-  - **Edit Mode** - Load existing prompts with change detection
-  - Smart save button (only enabled when changes detected)
-  - Auto-title generation from first 20 characters
-
-## 🤖 Augment Integration
-
-**Send to Augment** - Click the 📤 icon next to any prompt to:
-
-1. Automatically open Augment's chat panel
-2. Paste the prompt text directly into the input
-3. Ready to send - just press Enter!
-
-Works seamlessly with Augment for VS Code. The prompt is also copied to your clipboard as a fallback.
-
-## ⚙️ Settings
-
-Configure via File → Preferences → Settings → "Prompt Library":
-
-- `promptLibrary.repoPath` - Local Git repository path (default: `~/PromptLibrary`)
-- `promptLibrary.promptsSubdir` - Subdirectory for YAML files (default: `promptsProduct`)
-- `promptLibrary.writeStrategy` - `direct` or `branchPR`
-- `promptLibrary.branchName` - Branch name for PR strategy
-- `promptLibrary.remoteRepoUrl` - Optional remote URL for clone/pull
+1. **Open** - Click the Prompt Library icon in the Activity Bar
+2. **Add** - Select a group, type in the editor panel, click "Add Prompt"
+3. **Copy** - Click 📋 to copy, or 📤 to send directly to Augment chat
+4. **Edit/Delete** - Click any prompt to load it, make changes, click "Save Changes"
+5. **Groups** - Organize under Shared or Private namespaces
+6. **Sync** - Use toolbar buttons to sync Shared prompts to Git
 
 ## 🔄 GitHub Sync
 
@@ -98,17 +67,15 @@ Only Shared prompts are synced. Private prompts stay local.
 ## 🛠️ Development
 
 ```bash
-cd VSCode
+cd TiltPromptLibraryPlugins/VSCode
 npm install
 npm run compile
 npm test              # Run tests
 npm run package       # Build .vsix
 ```
 
-See [docs/development/BABY_STEPS_PLAN.md](docs/development/BABY_STEPS_PLAN.md) for implementation details.
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for contribution guidelines.
 
 ## 📄 License
 
 MIT - See [LICENSE](LICENSE)
-
-Created by [Tilt Finance](https://tilt.com/) in collaboration with [Augment](https://www.augmentcode.com/).

@@ -11,6 +11,14 @@ This repository uses GitHub Actions for continuous integration and delivery. The
 │                    Pull Request / Push to main                  │
 └─────────────────────────────────────────────────────────────────┘
                               │
+                              ▼
+                    ┌───────────────┐
+                    │  set_version  │
+                    │               │
+                    │ Extracts from │
+                    │ workflow name │
+                    └───────────────┘
+                              │
             ┌─────────────────┴─────────────────┐
             ▼                                   ▼
     ┌───────────────┐                   ┌───────────────┐
@@ -61,16 +69,16 @@ This repository uses GitHub Actions for continuous integration and delivery. The
 
 ### 3. `release` - Combined Release (main branch only)
 
-| Step                  | Description                       |
-| --------------------- | --------------------------------- |
-| Download artifacts    | Both Rider ZIP and VS Code VSIX   |
-| Create GitHub Release | Tag: `tilt-plugins-v{run_number}` |
+| Step                  | Description                          |
+| --------------------- | ------------------------------------ |
+| Download artifacts    | Both Rider ZIP and VS Code VSIX      |
+| Create GitHub Release | Tag: `v{major}.{minor}.{run_number}` |
 
 ## Artifacts
 
 | Artifact Name                     | Contents                        | Retention |
 | --------------------------------- | ------------------------------- | --------- |
-| `plugin-distribution-{version}`   | Rider plugin ZIP                | 30 days   |
+| `rider-plugin-{version}`          | Rider plugin ZIP                | 30 days   |
 | `rider-test-results-{version}`    | Test HTML reports + XML results | 30 days   |
 | `rider-coverage-report-{version}` | JaCoCo coverage reports         | 30 days   |
 | `vscode-extension-{version}`      | VS Code VSIX package            | 30 days   |
@@ -94,11 +102,22 @@ open Rider/build/reports/jacoco/test/html/index.html
 
 ## Versioning
 
-All artifacts use version `0.0.{run_number}` where `run_number` is the GitHub Actions run number. This provides:
+Version is derived from the **workflow filename**: `build-v{major}.{minor}.yml`
 
-- Unique, sequential versions
-- Easy correlation between artifacts and workflow runs
-- No manual version bumping required
+**Format**: `{major}.{minor}.{run_number}`
+
+| To bump... | Action                                     | Example         |
+| ---------- | ------------------------------------------ | --------------- |
+| Patch      | Automatic (run_number increments)          | 1.0.42 → 1.0.43 |
+| Minor      | Rename `build-v1.0.yml` → `build-v1.1.yml` | 1.0.99 → 1.1.1  |
+| Major      | Rename `build-v1.1.yml` → `build-v2.0.yml` | 1.1.99 → 2.0.1  |
+
+**Benefits**:
+
+- Semantic versioning for users
+- Run number resets on major/minor bump (relative to new workflow)
+- Version is visible in the filename
+- No manual version variables to maintain
 
 ## Triggers
 
@@ -125,7 +144,7 @@ All artifacts use version `0.0.{run_number}` where `run_number` is the GitHub Ac
 
 - IntelliJ Platform cache warm-up: 25 minute timeout
 - Rider tests: 10 minute timeout
-- Increase timeouts in `build-and-release.yml` if needed
+- Increase timeouts in `build-v*.yml` if needed
 
 ### Coverage Report Not Generated
 
@@ -135,9 +154,9 @@ All artifacts use version `0.0.{run_number}` where `run_number` is the GitHub Ac
 
 ## Related Files
 
-| File                                      | Purpose                        |
-| ----------------------------------------- | ------------------------------ |
-| `.github/workflows/build-and-release.yml` | Main CI workflow               |
-| `Rider/build.gradle.kts`                  | Rider build config with JaCoCo |
-| `VSCode/package.json`                     | VS Code build scripts          |
-| `VSCode/vitest.config.ts`                 | Vitest test configuration      |
+| File                               | Purpose                        |
+| ---------------------------------- | ------------------------------ |
+| `.github/workflows/build-v1.0.yml` | Main CI workflow               |
+| `Rider/build.gradle.kts`           | Rider build config with JaCoCo |
+| `VSCode/package.json`              | VS Code build scripts          |
+| `VSCode/vitest.config.ts`          | Vitest test configuration      |
