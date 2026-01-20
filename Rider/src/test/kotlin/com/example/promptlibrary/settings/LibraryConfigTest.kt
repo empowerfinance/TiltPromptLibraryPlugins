@@ -232,5 +232,6 @@ class LibraryConfigTest {
         assertThat(libraries).hasSize(3)
         assertThat(libraries.map { it.id }).containsExactlyInAnyOrder("apple", "monkey", "zebra")
     }
+
 }
 

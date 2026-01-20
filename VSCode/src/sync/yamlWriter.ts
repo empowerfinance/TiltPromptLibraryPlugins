@@ -141,6 +141,106 @@ async function writeGroupDir(parent: vscode.Uri, g: Group, promptsSubdir: string
 }
 
 // ============================================================================
+// Incremental Write Functions (for immediate disk writes)
+// ============================================================================
+
+/**
+ * Writes a single prompt to disk in its group's folder.
+ * Used for immediate disk sync when adding/updating prompts.
+ *
+ * @param repoRoot - The root directory of the Git repository
+ * @param libraryPath - The library folder name (e.g., "platform")
+ * @param groupPath - Array of group folder names from root to the target group
+ * @param prompt - The prompt to write
+ * @param promptsSubdirName - The name of the prompts subdirectory within groups
+ */
+export async function writeSinglePrompt(
+  repoRoot: string,
+  libraryPath: string,
+  groupPath: string[],
+  prompt: Prompt,
+  promptsSubdirName: string = 'prompts'
+): Promise<void> {
+  // Build the full path: repoRoot/libraryPath/group1/group2/.../prompts/p-{id}.yaml
+  let dir = vscode.Uri.file(path.join(repoRoot, libraryPath));
+
+  // Navigate through group path
+  for (const groupFolder of groupPath) {
+    dir = vscode.Uri.joinPath(dir, sanitize(groupFolder));
+  }
+
+  // Create prompts subdirectory
+  const promptsDir = vscode.Uri.joinPath(dir, sanitize(promptsSubdirName));
+  await vscode.workspace.fs.createDirectory(promptsDir);
+
+  // Write the prompt file
+  const file = vscode.Uri.joinPath(promptsDir, `p-${prompt.id}.yaml`);
+  const content = writePromptYaml(prompt.private ? { ...prompt, private: false } : prompt);
+  await vscode.workspace.fs.writeFile(file, Buffer.from(content, 'utf8'));
+}
+
+/**
+ * Deletes a single prompt file from disk.
+ *
+ * @param repoRoot - The root directory of the Git repository
+ * @param libraryPath - The library folder name
+ * @param groupPath - Array of group folder names from root to the target group
+ * @param promptId - The ID of the prompt to delete
+ * @param promptsSubdirName - The name of the prompts subdirectory within groups
+ */
+export async function deleteSinglePrompt(
+  repoRoot: string,
+  libraryPath: string,
+  groupPath: string[],
+  promptId: string,
+  promptsSubdirName: string = 'prompts'
+): Promise<void> {
+  let dir = vscode.Uri.file(path.join(repoRoot, libraryPath));
+
+  for (const groupFolder of groupPath) {
+    dir = vscode.Uri.joinPath(dir, sanitize(groupFolder));
+  }
+
+  const promptsDir = vscode.Uri.joinPath(dir, sanitize(promptsSubdirName));
+  const file = vscode.Uri.joinPath(promptsDir, `p-${promptId}.yaml`);
+
+  try {
+    await vscode.workspace.fs.delete(file);
+  } catch {
+    // File might not exist, ignore
+  }
+}
+
+/**
+ * Ensures a group folder exists on disk with its _group.yaml metadata.
+ *
+ * @param repoRoot - The root directory of the Git repository
+ * @param libraryPath - The library folder name
+ * @param groupPath - Array of group folder names from root to the target group
+ * @param group - The group metadata to write
+ */
+export async function ensureGroupOnDisk(
+  repoRoot: string,
+  libraryPath: string,
+  groupPath: string[],
+  group: Group
+): Promise<void> {
+  let dir = vscode.Uri.file(path.join(repoRoot, libraryPath));
+
+  for (const groupFolder of groupPath) {
+    dir = vscode.Uri.joinPath(dir, sanitize(groupFolder));
+  }
+
+  await vscode.workspace.fs.createDirectory(dir);
+
+  const meta = vscode.Uri.joinPath(dir, '_group.yaml');
+  await vscode.workspace.fs.writeFile(
+    meta,
+    Buffer.from(writeGroupMeta({ ...group, children: [], prompts: [] }), 'utf8')
+  );
+}
+
+// ============================================================================
 // Multi-Library Support Functions
 // ============================================================================
 

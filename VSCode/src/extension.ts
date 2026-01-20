@@ -3,7 +3,8 @@ import * as vscode from 'vscode';
 import { LibraryStore } from './store';
 import { GroupsProvider, GroupItem, PromptItem } from './groups';
 import { Prompt, Group } from './model';
-import { getSettings, getActiveLibrary, getLibraryPath, setActiveLibrary, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries, setRemoteRepoUrl, setRepoPath } from './settings';
+// Note: setActiveLibrary removed - libraries are contextual (no "active library" concept in UI)
+import { getSettings, getActiveLibrary, getLibraryPath, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries, setRemoteRepoUrl, setRepoPath } from './settings';
 import { writeSharedGroups, writeToLibrary } from './sync/yamlWriter';
 import { log } from './log';
 import { checkoutNewBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, getGitVersion } from './sync/hybridGit';
@@ -281,35 +282,11 @@ class PromptTreeDragAndDrop implements vscode.TreeDragAndDropController<GroupIte
 // Library Status Bar
 // ============================================================================
 
-let libraryStatusBarItem: vscode.StatusBarItem | undefined;
-
-function updateLibraryStatusBar(): void {
-  if (!libraryStatusBarItem) return;
-  const activeLibrary = getActiveLibrary();
-  const enabledLibraries = getEnabledLibraries();
-  const libraryCount = enabledLibraries.length;
-
-  if (libraryCount > 1) {
-    libraryStatusBarItem.text = `$(library) ${activeLibrary.displayName} (+${libraryCount - 1})`;
-    libraryStatusBarItem.tooltip = `Active Library: ${activeLibrary.displayName}\nEnabled Libraries: ${enabledLibraries.map(l => l.displayName).join(', ')}\nClick to switch active library`;
-  } else {
-    libraryStatusBarItem.text = `$(library) ${activeLibrary.displayName}`;
-    libraryStatusBarItem.tooltip = `Active Library: ${activeLibrary.displayName}\nClick to switch libraries`;
-  }
-  libraryStatusBarItem.show();
-}
+// Note: Library status bar removed - libraries are auto-discovered from disk
+// No "active library" concept needed; tree structure matches disk structure
 
 export function activate(context: vscode.ExtensionContext) {
   const store = new LibraryStore(context);
-
-  // Create status bar item for library indicator
-  libraryStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
-  libraryStatusBarItem.command = 'promptLibrary.selectLibrary';
-  updateLibraryStatusBar();
-  context.subscriptions.push(libraryStatusBarItem);
-
-  // Update status bar when settings change
-  context.subscriptions.push(onSettingsChanged(() => updateLibraryStatusBar()));
 
 
   const groups = new GroupsProvider(store);
@@ -863,38 +840,11 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('promptLibrary.openSettings', async () => {
       await vscode.commands.executeCommand('workbench.action.openSettings', 'promptLibrary');
     }),
+    // Note: selectLibrary command removed - libraries are auto-discovered from disk
+    // No "active library" concept needed; use manageLibraries to show/hide libraries
     vscode.commands.registerCommand('promptLibrary.selectLibrary', async () => {
-      const cfg = getSettings();
-      if (!cfg.repoPath) {
-        vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.');
-        return;
-      }
-
-      // Discover available libraries in the repo
-      const libraries = discoverLibraries(cfg.repoPath);
-      const activeLibrary = getActiveLibrary();
-
-      // Create quick pick items
-      const items = libraries.map(lib => ({
-        label: lib.displayName,
-        description: lib.path,
-        detail: lib.id === activeLibrary.id ? '$(check) Currently active' : undefined,
-        libraryPath: lib.path
-      }));
-
-      const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: 'Select a library to activate',
-        title: 'Prompt Library: Select Library'
-      });
-
-      if (selected) {
-        await setActiveLibrary(selected.libraryPath);
-        updateLibraryStatusBar();
-        vscode.window.showInformationMessage(`Switched to library: ${selected.label}`);
-        log.info(`Switched to library: ${selected.label} (${selected.libraryPath})`);
-        // Refresh the groups view
-        await groups.init();
-      }
+      // Deprecated: redirect to manage libraries
+      vscode.window.showInformationMessage('Libraries are now auto-discovered from disk. Use "Manage Libraries" to show/hide libraries.');
     }),
     vscode.commands.registerCommand('promptLibrary.manageLibraries', async () => {
       const cfg = getSettings();
@@ -906,13 +856,11 @@ export function activate(context: vscode.ExtensionContext) {
       // Discover available libraries in the repo
       const availableLibraries = discoverLibraries(cfg.repoPath);
       const currentlyHidden = getHiddenLibraryPaths();
-      const activeLibrary = getActiveLibrary();
 
       // Create multi-select quick pick items (picked = visible, not picked = hidden)
       const items: vscode.QuickPickItem[] = availableLibraries.map(lib => ({
         label: lib.displayName,
         description: lib.path,
-        detail: lib.id === activeLibrary.id ? '$(edit) Active library (always visible)' : undefined,
         picked: !currentlyHidden.includes(lib.id) // Visible if NOT in hidden list
       }));
 
@@ -923,10 +871,10 @@ export function activate(context: vscode.ExtensionContext) {
       });
 
       if (selected !== undefined) {
-        // Calculate which libraries should be hidden (not selected, except active)
+        // Calculate which libraries should be hidden (not selected)
         const selectedPaths = selected.map(item => item.description!);
         const toHide = availableLibraries
-          .filter(lib => !selectedPaths.includes(lib.path) && lib.id !== activeLibrary.id)
+          .filter(lib => !selectedPaths.includes(lib.path))
           .map(lib => lib.id);
 
         await setHiddenLibraries(toHide);
@@ -946,10 +894,9 @@ export function activate(context: vscode.ExtensionContext) {
       await groups.init();
     }),
     vscode.commands.registerCommand('promptLibrary.hideAllLibraries', async () => {
-      const activeLibrary = getActiveLibrary();
       await hideAllLibraries();
-      vscode.window.showInformationMessage(`All libraries hidden except active: ${activeLibrary.displayName}`);
-      log.info('Hidden all libraries except active');
+      vscode.window.showInformationMessage('All libraries hidden');
+      log.info('Hidden all libraries');
       await groups.init();
     }),
     vscode.commands.registerCommand('promptLibrary.selectHiddenLibraries', async () => {
@@ -961,26 +908,25 @@ export function activate(context: vscode.ExtensionContext) {
 
       const availableLibraries = discoverLibraries(cfg.repoPath);
       const currentlyHidden = getHiddenLibraryPaths();
-      const activeLibrary = getActiveLibrary();
 
       // Create multi-select items (picked = hidden)
       const items: vscode.QuickPickItem[] = availableLibraries.map(lib => ({
         label: lib.displayName,
-        description: lib.id === activeLibrary.id ? '(active - cannot hide)' : lib.path,
-        picked: currentlyHidden.includes(lib.id) && lib.id !== activeLibrary.id
+        description: lib.path,
+        picked: currentlyHidden.includes(lib.id)
       }));
 
       const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: 'Select libraries to HIDE (active library cannot be hidden)',
+        placeHolder: 'Select libraries to HIDE from the tree view',
         title: 'Select Libraries to Hide',
         canPickMany: true
       });
 
       if (selected !== undefined) {
-        // Get IDs of selected libraries (to hide), excluding active
+        // Get IDs of selected libraries (to hide)
         const toHide = selected
           .map(item => availableLibraries.find(lib => lib.displayName === item.label)?.id)
-          .filter((id): id is string => id !== undefined && id !== activeLibrary.id);
+          .filter((id): id is string => id !== undefined);
 
         await setHiddenLibraries(toHide);
 
@@ -1037,60 +983,14 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Refresh to show the new library
         await groups.init();
-
-        // Ask if they want to set it as active
-        const setActive = await vscode.window.showQuickPick(['Yes', 'No'], {
-          placeHolder: `Set "${libraryName}" as the active library for writing?`
-        });
-        if (setActive === 'Yes') {
-          await setActiveLibrary(libraryName.trim());
-          updateLibraryStatusBar();
-          await groups.init();
-        }
       } catch (e: any) {
         vscode.window.showErrorMessage(`Failed to create library: ${e?.message || e}`);
         log.error(`Failed to create library: ${e?.message || e}`);
       }
     }),
-    vscode.commands.registerCommand('promptLibrary.setActiveLibrary', async (item?: GroupItem) => {
-      const cfg = getSettings();
-      if (!cfg.repoPath) {
-        vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.');
-        return;
-      }
-
-      let libraryId: string | undefined;
-
-      if (item && item.groupId) {
-        // Extract library ID from the group item
-        // Library root items have groupId like "lib:library-name" or just the library folder name
-        libraryId = item.groupId.replace('lib:', '');
-      } else {
-        // No item passed, show a picker
-        const availableLibraries = discoverLibraries(cfg.repoPath);
-        const activeLibrary = getActiveLibrary();
-
-        const items = availableLibraries.map(lib => ({
-          label: lib.displayName,
-          description: lib.id === activeLibrary.id ? '(currently active)' : undefined,
-          libraryId: lib.id
-        }));
-
-        const selected = await vscode.window.showQuickPick(items, {
-          placeHolder: 'Select a library to set as active (for writing new prompts)'
-        });
-
-        if (!selected) return;
-        libraryId = selected.libraryId;
-      }
-
-      if (libraryId) {
-        await setActiveLibrary(libraryId);
-        updateLibraryStatusBar();
-        vscode.window.showInformationMessage(`"${libraryId}" is now the active library`);
-        log.info(`Set active library to: ${libraryId}`);
-        await groups.init();
-      }
+    // Note: setActiveLibrary command deprecated - libraries are contextual based on tree position
+    vscode.commands.registerCommand('promptLibrary.setActiveLibrary', async () => {
+      vscode.window.showInformationMessage('Libraries are now contextual. Add content under any library in the tree.');
     }),
     vscode.commands.registerCommand('promptLibrary.setupRepository', async () => {
       const cfg = getSettings();
@@ -1249,7 +1149,6 @@ export function activate(context: vscode.ExtensionContext) {
 
       // Refresh everything
       await groups.init();
-      updateLibraryStatusBar();
     }),
     vscode.commands.registerCommand('promptLibrary.syncWriteNow', async () => {
       const cfg = getSettings();

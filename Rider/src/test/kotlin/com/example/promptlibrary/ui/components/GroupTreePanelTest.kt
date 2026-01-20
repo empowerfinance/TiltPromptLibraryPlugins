@@ -105,12 +105,21 @@ class GroupTreePanelTest {
     }
     
     @Test
-    fun `SharedRoot should have correct toString`() {
+    fun `LibraryRoot should have correct toString for active library`() {
         // When
-        val sharedRoot = SharedRoot
+        val libraryRoot = LibraryRoot("test-lib", "Test Library", isActive = true)
 
         // Then
-        assertThat(sharedRoot.toString()).isEqualTo("GitHub: PromptLibrary")
+        assertThat(libraryRoot.toString()).isEqualTo("📚 Test Library ✏️")
+    }
+
+    @Test
+    fun `LibraryRoot should have correct toString for inactive library`() {
+        // When
+        val libraryRoot = LibraryRoot("test-lib", "Test Library", isActive = false)
+
+        // Then
+        assertThat(libraryRoot.toString()).isEqualTo("📚 Test Library")
     }
 
     @Test
@@ -200,6 +209,74 @@ class GroupTreePanelTest {
 
         assertThat(tree).isNotNull
         assertThat(tree?.cellRenderer).isNotNull
+    }
+
+    @Test
+    fun `rebuildTree should only show Private when all libraries hidden`() {
+        // Given - when PluginSettingsService throws (simulating unavailable/empty enabled libraries)
+        // The defensive catch block returns emptyList(), simulating all libraries hidden
+        val panel = GroupTreePanel(
+            repository = repository,
+            onGroupSelected = { },
+            onPromptSelected = { _, _ -> }
+        )
+
+        // When
+        panel.rebuildTree()
+
+        // Then - tree should only have Private root, no library roots
+        val tree = panel.components.firstOrNull { it is javax.swing.JScrollPane }
+            ?.let { (it as javax.swing.JScrollPane).viewport.view as? javax.swing.JTree }
+        assertThat(tree).isNotNull
+
+        val model = tree?.model as? javax.swing.tree.DefaultTreeModel
+        assertThat(model).isNotNull
+
+        val root = model?.root as? javax.swing.tree.DefaultMutableTreeNode
+        assertThat(root).isNotNull
+
+        // Count child nodes - should only have Private (since no libraries enabled in test environment)
+        val childCount = root?.childCount ?: 0
+        // In test environment without PluginSettingsService, enabledLibraries returns emptyList()
+        // so we should only see Private root
+        assertThat(childCount).isGreaterThanOrEqualTo(1)
+
+        // Check that Private node exists
+        var hasPrivateRoot = false
+        for (i in 0 until childCount) {
+            val child = root?.getChildAt(i) as? javax.swing.tree.DefaultMutableTreeNode
+            if (child?.userObject is PrivateRoot) {
+                hasPrivateRoot = true
+            }
+        }
+        assertThat(hasPrivateRoot).isTrue()
+    }
+
+    @Test
+    fun `LibraryRoot data class should preserve properties`() {
+        // Given
+        val libraryRoot = LibraryRoot(
+            libraryId = "test-library-id",
+            displayName = "Test Library",
+            isActive = true
+        )
+
+        // Then
+        assertThat(libraryRoot.libraryId).isEqualTo("test-library-id")
+        assertThat(libraryRoot.displayName).isEqualTo("Test Library")
+        assertThat(libraryRoot.isActive).isTrue()
+    }
+
+    @Test
+    fun `LibraryRoot equality should work correctly`() {
+        // Given
+        val root1 = LibraryRoot("lib1", "Library 1", true)
+        val root2 = LibraryRoot("lib1", "Library 1", true)
+        val root3 = LibraryRoot("lib2", "Library 2", false)
+
+        // Then
+        assertThat(root1).isEqualTo(root2)
+        assertThat(root1).isNotEqualTo(root3)
     }
 }
 

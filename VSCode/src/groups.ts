@@ -4,6 +4,7 @@ import { Group, Library, Prompt } from './model';
 import { LibraryStore } from './store';
 import { getSettings, getEnabledLibraries, getActiveLibrary, LibraryConfig, toPascalCase } from './settings';
 import { getRemoteUrl, isGitRepo } from './sync/git';
+import { ensureGroupOnDisk } from './sync/yamlWriter';
 import { log } from './log';
 
 function genId(prefix: string): string {
@@ -89,7 +90,7 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
       // Build root nodes: one per enabled library (if multiple) OR single shared root, plus private
       const items: GroupItem[] = [];
 
-      if (this.showShared) {
+      if (this.showShared && enabledLibraries.length > 0) {
         if (showMultipleLibraries) {
           // Create a separate root node for each enabled library
           for (const lib of enabledLibraries) {
@@ -205,6 +206,12 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
       return;
     }
 
+    // If no libraryId from virtual root, inherit from parent group
+    if (!libraryId && root.libraryId) {
+      libraryId = root.libraryId;
+      log.info(`Inheriting libraryId from parent: ${libraryId}`);
+    }
+
     const trimmedName = name.trim();
     const folderName = toPascalCase(trimmedName);
 
@@ -222,7 +229,49 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
     log.info(`Creating group "${newGroup.name}" (folder: ${folderName}) with libraryId=${libraryId}`);
     root.children.push(newGroup);
     await this.store.save(this.library!);
+
+    // If this is a shared group with a libraryId, write to disk immediately
+    if (libraryId) {
+      const cfg = getSettings();
+      if (cfg.repoPath) {
+        try {
+          // Find the path from root to this group
+          const groupPath = this.findGroupPath(newGroup.id);
+          if (groupPath && groupPath.length > 0) {
+            const folderPath = groupPath.map(g => g.folderName || g.name);
+            await ensureGroupOnDisk(cfg.repoPath, libraryId, folderPath, newGroup);
+            log.info(`Wrote group to disk: ${libraryId}/${folderPath.join('/')}`);
+          }
+        } catch (e: any) {
+          log.error(`Failed to write group to disk: ${e?.message || e}`);
+        }
+      }
+    }
+
     this.refresh();
+  }
+
+  /**
+   * Finds the path of groups from the shared root to the target group.
+   * Returns array of groups (excluding root-shared, including target).
+   */
+  private findGroupPath(targetId: string): Group[] | null {
+    if (!this.library) return null;
+    const sharedRoot = this.library.groups.find(g => g.id === 'root-shared');
+    if (!sharedRoot) return null;
+
+    const find = (groups: Group[], path: Group[]): Group[] | null => {
+      for (const g of groups) {
+        if (g.id === targetId) {
+          return [...path, g];
+        }
+        const found = find(g.children, [...path, g]);
+        if (found) return found;
+      }
+      return null;
+    };
+
+    return find(sharedRoot.children, []);
   }
 
   async renameGroup(groupId: string) {

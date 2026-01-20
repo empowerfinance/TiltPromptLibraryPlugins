@@ -5,7 +5,9 @@ import com.example.promptlibrary.settings.DEFAULT_LIBRARY_NAME
 import com.example.promptlibrary.settings.LibraryConfig
 import com.example.promptlibrary.settings.PluginSettingsService
 import com.example.promptlibrary.settings.discoverLibraries
+import com.example.promptlibrary.settings.getHiddenLibraryPaths
 import com.example.promptlibrary.settings.titleCase
+import com.example.promptlibrary.ui.dialogs.SetupWizardDialog
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
@@ -22,13 +24,12 @@ import javax.swing.*
  */
 class SettingsPanel(private val project: Project) : JPanel(BorderLayout()) {
     
-    private lateinit var remoteUrlField: JTextField
+    // Note: remoteRepoUrl is now internal-only (hidden from UI, auto-detected from git)
+    // Note: writeStrategy is removed from UI (both buttons available in Sync Ops panel)
+    // Note: libraryCombo and libraryFolderField removed - libraries are auto-discovered from disk
     private lateinit var repoField: JTextField
-    private lateinit var libraryCombo: JComboBox<LibraryConfig>
-    private lateinit var libraryFolderField: JTextField
-    private lateinit var enabledLibrariesPanel: JPanel
+    private lateinit var hiddenLibrariesPanel: JPanel
     private lateinit var branchField: JTextField
-    private lateinit var strategyCombo: JComboBox<PluginSettingsService.WriteStrategy>
     private lateinit var autoFetchCheckbox: JCheckBox
     private lateinit var autoFetchMinutesField: JSpinner
 
@@ -81,17 +82,24 @@ class SettingsPanel(private val project: Project) : JPanel(BorderLayout()) {
             
             val settings = PluginSettingsService.instance().data
             val fieldHeight = 28
-            
-            // Remote URL
-            remoteUrlField = JTextField(settings.remoteRepoUrl).apply {
-                preferredSize = Dimension(0, fieldHeight)
-                maximumSize = Dimension(Int.MAX_VALUE, fieldHeight)
-                addCaretListener { markDirty() }
-            }
-            add(createLabeledField("Remote Git URL:", remoteUrlField))
-            add(Box.createVerticalStrut(8))
-            
-            // Repo Path
+
+            // Setup Wizard button
+            add(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                isOpaque = false
+                alignmentX = Component.LEFT_ALIGNMENT
+                maximumSize = Dimension(Int.MAX_VALUE, 30)
+                add(createStyledButton("Setup Wizard...", true) {
+                    launchSetupWizard()
+                })
+                add(Box.createHorizontalStrut(8))
+                add(JBLabel("Configure repository with guided setup").apply {
+                    font = font.deriveFont(11f)
+                    foreground = JBColor.namedColor("Label.disabledForeground", JBColor.GRAY)
+                })
+            })
+            add(Box.createVerticalStrut(12))
+
+            // Repo Path (primary setting - remoteRepoUrl is now internal/auto-detected)
             repoField = JTextField(settings.repoPath).apply {
                 preferredSize = Dimension(0, fieldHeight)
                 maximumSize = Dimension(Int.MAX_VALUE, fieldHeight)
@@ -99,48 +107,9 @@ class SettingsPanel(private val project: Project) : JPanel(BorderLayout()) {
             }
             add(createLabeledField("Local Repository Path:", repoField))
             add(Box.createVerticalStrut(8))
-            
-            // Library Selection
-            // First, discover available libraries
+
+            // Library discovery - libraries are auto-discovered from disk
             refreshAvailableLibraries(settings.repoPath)
-
-            // Library Folder (manual entry) - must be created BEFORE libraryCombo since combo references it
-            libraryFolderField = JTextField(settings.promptsSubdir).apply {
-                preferredSize = Dimension(0, fieldHeight)
-                maximumSize = Dimension(Int.MAX_VALUE, fieldHeight)
-                addCaretListener { markDirty() }
-            }
-
-            // Library dropdown
-            libraryCombo = JComboBox<LibraryConfig>().apply {
-                preferredSize = Dimension(0, fieldHeight)
-                maximumSize = Dimension(Int.MAX_VALUE, fieldHeight)
-                renderer = object : DefaultListCellRenderer() {
-                    override fun getListCellRendererComponent(
-                        list: JList<*>?, value: Any?, index: Int, isSelected: Boolean, cellHasFocus: Boolean
-                    ): Component {
-                        val c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
-                        if (value is LibraryConfig) {
-                            text = value.displayName
-                        }
-                        return c
-                    }
-                }
-                addActionListener {
-                    val selected = selectedItem as? LibraryConfig
-                    if (selected != null && ::libraryFolderField.isInitialized) {
-                        libraryFolderField.text = selected.path
-                    }
-                    markDirty()
-                }
-            }
-            updateLibraryCombo(settings.promptsSubdir)
-            add(createLabeledField("Select Library:", libraryCombo))
-            add(Box.createVerticalStrut(4))
-
-            add(createLabeledField("Library Folder (manual):", libraryFolderField))
-            add(createHintLabel("Select from dropdown above or enter a custom folder name"))
-            add(Box.createVerticalStrut(4))
 
             // Library action buttons
             add(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
@@ -149,8 +118,7 @@ class SettingsPanel(private val project: Project) : JPanel(BorderLayout()) {
                 maximumSize = Dimension(Int.MAX_VALUE, 30)
                 add(createStyledButton("Refresh Libraries", false) {
                     refreshAvailableLibraries(repoField.text.trim())
-                    updateLibraryCombo(libraryFolderField.text)
-                    updateEnabledLibrariesPanel()
+                    updateHiddenLibrariesPanel()
                 })
                 add(Box.createHorizontalStrut(8))
                 add(createStyledButton("+ New Library", false) {
@@ -159,22 +127,22 @@ class SettingsPanel(private val project: Project) : JPanel(BorderLayout()) {
             })
             add(Box.createVerticalStrut(12))
 
-            // Enabled Libraries Section (Multi-Library Support)
-            add(JBLabel("Enabled Libraries:").apply {
+            // Hidden Libraries Section (Multi-Library Support - opt-out approach)
+            add(JBLabel("Hidden Libraries:").apply {
                 font = font.deriveFont(Font.BOLD, 12f)
                 alignmentX = Component.LEFT_ALIGNMENT
             })
             add(Box.createVerticalStrut(4))
-            add(createHintLabel("Check libraries to include in the prompt tree. Active library is always included."))
+            add(createHintLabel("Check libraries to HIDE from the prompt tree."))
             add(Box.createVerticalStrut(4))
 
-            enabledLibrariesPanel = JPanel().apply {
+            hiddenLibrariesPanel = JPanel().apply {
                 layout = BoxLayout(this, BoxLayout.Y_AXIS)
                 alignmentX = Component.LEFT_ALIGNMENT
                 isOpaque = false
             }
-            add(enabledLibrariesPanel)
-            updateEnabledLibrariesPanel()
+            add(hiddenLibrariesPanel)
+            updateHiddenLibrariesPanel()
             add(Box.createVerticalStrut(8))
             
             // Branch Name
@@ -184,19 +152,12 @@ class SettingsPanel(private val project: Project) : JPanel(BorderLayout()) {
                 addCaretListener { markDirty() }
             }
             add(createLabeledField("Branch Name:", branchField))
-            add(createHintLabel("Leave blank to auto-detect, or specify for Branch+PR strategy"))
-            add(Box.createVerticalStrut(8))
-            
-            // Write Strategy
-            strategyCombo = JComboBox(PluginSettingsService.WriteStrategy.values()).apply {
-                selectedItem = settings.writeStrategy
-                maximumSize = Dimension(Int.MAX_VALUE, fieldHeight)
-                addActionListener { markDirty() }
-            }
-            add(createLabeledField("Write Strategy:", strategyCombo))
-            add(createHintLabel("DIRECT = commit to current branch, BRANCH_PR = create new branch"))
+            add(createHintLabel("Leave blank to auto-detect (optional, for PR branches)"))
             add(Box.createVerticalStrut(12))
-            
+
+            // Note: writeStrategy removed from UI - both Direct Commit and PR buttons
+            // are available in SyncOps panel, matching VSCode behavior
+
             // Auto-fetch checkbox
             autoFetchCheckbox = JCheckBox("Enable periodic auto-fetch", settings.autoFetchEnabled).apply {
                 addActionListener { markDirty() }
@@ -216,14 +177,14 @@ class SettingsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private fun createInfoCard(): JPanel {
         return createCard("Settings Guide") {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            
+
             add(JLabel("<html><b>Repository Path:</b> Supports ~ expansion (e.g., ~/PromptLibrary)</html>"))
             add(Box.createVerticalStrut(4))
-            add(JLabel("<html><b>Library Folder:</b> Different teams can use different folders</html>"))
+            add(JLabel("<html><b>Libraries:</b> Auto-discovered from disk. Use + New Library to create.</html>"))
             add(Box.createVerticalStrut(4))
-            add(JLabel("<html><b>Write Strategy:</b></html>"))
-            add(JLabel("<html>&nbsp;&nbsp;• DIRECT: Commits directly to current branch</html>"))
-            add(JLabel("<html>&nbsp;&nbsp;• BRANCH_PR: Creates a new branch for changes</html>"))
+            add(JLabel("<html><b>Sync Options:</b> Use the Sync Ops tab for commit operations</html>"))
+            add(JLabel("<html>&nbsp;&nbsp;• Quick Commit: Push directly to current branch</html>"))
+            add(JLabel("<html>&nbsp;&nbsp;• Create Pull Request: Create a new branch for review</html>"))
         }
     }
 
@@ -329,59 +290,38 @@ class SettingsPanel(private val project: Project) : JPanel(BorderLayout()) {
         }
     }
 
-    private fun updateLibraryCombo(currentLibraryPath: String) {
-        libraryCombo.removeAllItems()
-        for (lib in availableLibraries) {
-            libraryCombo.addItem(lib)
-        }
-        // Select the current library
-        val currentLib = availableLibraries.find { it.path == currentLibraryPath }
-        if (currentLib != null) {
-            libraryCombo.selectedItem = currentLib
-        } else if (availableLibraries.isNotEmpty()) {
-            libraryCombo.selectedIndex = 0
-        }
-    }
-
-    private fun updateEnabledLibrariesPanel() {
-        enabledLibrariesPanel.removeAll()
+    private fun updateHiddenLibrariesPanel() {
+        hiddenLibrariesPanel.removeAll()
         libraryCheckboxes.clear()
 
-        val currentlyEnabled = PluginSettingsService.getEnabledLibraryPaths().toSet()
-        // Use safe access since this may be called before libraryFolderField is initialized
-        val activeLibrary = if (::libraryFolderField.isInitialized) {
-            libraryFolderField.text.trim().ifEmpty { DEFAULT_LIBRARY_NAME }
-        } else {
-            PluginSettingsService.instance().data.promptsSubdir.ifEmpty { DEFAULT_LIBRARY_NAME }
-        }
+        // Opt-out approach: get currently hidden libraries
+        val currentlyHidden = getHiddenLibraryPaths().toSet()
 
         if (availableLibraries.isEmpty()) {
-            enabledLibrariesPanel.add(JLabel("No libraries found. Set repo path and click Refresh.").apply {
+            hiddenLibrariesPanel.add(JLabel("No libraries found. Set repo path and click Refresh.").apply {
                 foreground = JBColor.GRAY
             })
         } else {
             for (lib in availableLibraries) {
-                val isActive = lib.path == activeLibrary
-                val isEnabled = currentlyEnabled.isEmpty() && isActive || currentlyEnabled.contains(lib.path)
+                val isHidden = currentlyHidden.contains(lib.path)
 
                 val checkbox = JCheckBox("${lib.displayName} [${lib.path}]").apply {
-                    this.isSelected = isEnabled
-                    this.isEnabled = !isActive  // Active library is always enabled
-                    if (isActive) {
-                        toolTipText = "Active library (always enabled)"
-                    }
+                    // Checkbox checked = library is HIDDEN
+                    this.isSelected = isHidden
+                    toolTipText = "Check to hide this library from the prompt tree"
                     addActionListener { markDirty() }
                 }
                 libraryCheckboxes[lib.path] = checkbox
-                enabledLibrariesPanel.add(checkbox)
+                hiddenLibrariesPanel.add(checkbox)
             }
         }
 
-        enabledLibrariesPanel.revalidate()
-        enabledLibrariesPanel.repaint()
+        hiddenLibrariesPanel.revalidate()
+        hiddenLibrariesPanel.repaint()
     }
 
-    private fun getSelectedEnabledLibraries(): List<String> {
+    private fun getSelectedHiddenLibraries(): List<String> {
+        // Return libraries that are checked (i.e., should be hidden)
         return libraryCheckboxes.filter { (_, checkbox) -> checkbox.isSelected }.map { it.key }
     }
 
@@ -472,14 +412,12 @@ class SettingsPanel(private val project: Project) : JPanel(BorderLayout()) {
                 )
             )
 
-            // Refresh the libraries list
+            // Refresh the libraries list to show the new library
             refreshAvailableLibraries(repoPath)
-            updateLibraryCombo(sanitizedName)
-            updateEnabledLibrariesPanel()
+            updateHiddenLibrariesPanel()
 
-            // Set the new library as active
-            libraryFolderField.text = sanitizedName
-            markDirty()
+            // Notify listeners that library settings changed
+            LibraryEvents.fireChanged()
 
         } catch (e: Exception) {
             Notifications.Bus.notify(
@@ -497,28 +435,27 @@ class SettingsPanel(private val project: Project) : JPanel(BorderLayout()) {
         val svc = PluginSettingsService.instance()
         val data = svc.data
 
-        data.remoteRepoUrl = remoteUrlField.text.trim()
+        // Note: remoteRepoUrl is now internal-only (auto-detected from git)
+        // Note: promptsSubdir (active library) removed - libraries are contextual based on tree position
         data.repoPath = repoField.text.trim()
-        data.promptsSubdir = libraryFolderField.text.trim().ifEmpty { DEFAULT_LIBRARY_NAME }
 
-        // Save enabled libraries
-        val enabledLibs = getSelectedEnabledLibraries()
-        data.enabledLibraries = enabledLibs.toMutableList()
+        // Save hidden libraries (opt-out approach matching VS Code)
+        val hiddenLibs = getSelectedHiddenLibraries()
+        data.hiddenLibraries = hiddenLibs.toMutableList()
 
         data.branchName = branchField.text.trim()
-        data.writeStrategy = strategyCombo.selectedItem as PluginSettingsService.WriteStrategy
+        // Note: writeStrategy removed from UI - both buttons available in SyncOps
         data.autoFetchEnabled = autoFetchCheckbox.isSelected
         data.autoFetchMinutes = autoFetchMinutesField.value as Int
 
         isDirty = false
 
         // Show notification
-        val libraryName = titleCase(data.promptsSubdir)
-        val enabledCount = enabledLibs.size
-        val message = if (enabledCount > 1) {
-            "Settings applied. Active: $libraryName, $enabledCount libraries enabled."
+        val visibleCount = availableLibraries.size - hiddenLibs.size
+        val message = if (hiddenLibs.isNotEmpty()) {
+            "Settings applied. $visibleCount libraries visible, ${hiddenLibs.size} hidden."
         } else {
-            "Settings applied. Active library: $libraryName"
+            "Settings applied. All ${availableLibraries.size} libraries visible."
         }
         Notifications.Bus.notify(
             Notification(
@@ -536,20 +473,47 @@ class SettingsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private fun resetSettings() {
         val settings = PluginSettingsService.instance().data
 
-        remoteUrlField.text = settings.remoteRepoUrl
+        // Note: remoteRepoUrl is now internal-only (auto-detected from git)
+        // Note: promptsSubdir (active library) removed - libraries are contextual
         repoField.text = settings.repoPath
-        libraryFolderField.text = settings.promptsSubdir
         branchField.text = settings.branchName
-        strategyCombo.selectedItem = settings.writeStrategy
+        // Note: writeStrategy removed from UI - both buttons available in SyncOps
         autoFetchCheckbox.isSelected = settings.autoFetchEnabled
         autoFetchMinutesField.value = settings.autoFetchMinutes
 
-        // Refresh enabled libraries panel
+        // Refresh hidden libraries panel
         refreshAvailableLibraries(settings.repoPath)
-        updateLibraryCombo(settings.promptsSubdir)
-        updateEnabledLibrariesPanel()
+        updateHiddenLibrariesPanel()
 
         isDirty = false
+    }
+
+    private fun launchSetupWizard() {
+        val dialog = SetupWizardDialog(project) { result ->
+            // Update settings from wizard result
+            val settings = PluginSettingsService.instance().data
+            settings.repoPath = result.repoPath
+            if (result.remoteUrl != null) {
+                settings.remoteRepoUrl = result.remoteUrl
+            }
+
+            // Update UI fields
+            repoField.text = result.repoPath
+
+            // Refresh libraries
+            refreshAvailableLibraries(result.repoPath)
+            updateHiddenLibrariesPanel()
+
+            Notifications.Bus.notify(
+                Notification(
+                    "PromptLibrary",
+                    "Setup Complete",
+                    "Repository configured: ${result.repoPath}",
+                    NotificationType.INFORMATION
+                )
+            )
+        }
+        dialog.show()
     }
 }
 

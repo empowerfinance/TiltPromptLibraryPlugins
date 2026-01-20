@@ -246,7 +246,7 @@ class SyncOpsPanel(private val project: Project) : JPanel(BorderLayout()) {
 
             settingsLabels["repoPath"] = JLabel("Repository: ${settings.repoPath.ifEmpty { "(not set)" }}")
             settingsLabels["promptsSubdir"] = JLabel("Library Path: ${settings.promptsSubdir}")
-            settingsLabels["writeStrategy"] = JLabel("Write Strategy: ${settings.writeStrategy}")
+            // Note: writeStrategy removed from display - both buttons available below
 
             settingsLabels.values.forEach { label ->
                 label.font = label.font.deriveFont(12f)
@@ -334,7 +334,7 @@ class SyncOpsPanel(private val project: Project) : JPanel(BorderLayout()) {
         val settings = PluginSettingsService.instance().data
         settingsLabels["repoPath"]?.text = "repoPath: ${settings.repoPath.ifEmpty { "(not set)" }}"
         settingsLabels["promptsSubdir"]?.text = "promptsSubdir: ${settings.promptsSubdir}"
-        settingsLabels["writeStrategy"]?.text = "writeStrategy: ${settings.writeStrategy}"
+        // Note: writeStrategy removed from display - both buttons available in UI
     }
 
     // Action handlers

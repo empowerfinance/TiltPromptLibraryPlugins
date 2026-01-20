@@ -8,26 +8,17 @@ import com.example.promptlibrary.ui.components.PromptComposer
 import com.example.promptlibrary.ui.components.SaveResult
 import com.example.promptlibrary.ui.components.GroupTreePanel
 import com.example.promptlibrary.ui.components.GroupNode
-import com.example.promptlibrary.ui.dialogs.ExportDialog
-import com.example.promptlibrary.ui.dialogs.ImportDialog
-import com.example.promptlibrary.ui.dialogs.ImportResult
 import com.example.promptlibrary.ui.services.GitSyncService
-import com.intellij.icons.AllIcons
 import com.intellij.ide.CopyPasteManagerEx
 import com.intellij.notification.Notification
-import com.intellij.ide.util.PropertiesComponent
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.ui.JBColor
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.util.ui.JBUI
-import kotlinx.serialization.json.*
 import java.awt.*
 import java.awt.datatransfer.StringSelection
 import javax.swing.*
-import javax.swing.filechooser.FileNameExtensionFilter
 
 class PromptLibraryPanel(private val project: com.intellij.openapi.project.Project) : JPanel(BorderLayout()) {
     private val repository = PromptRepository()
@@ -67,36 +58,6 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
 
     // Git sync service
     private val gitSyncService = GitSyncService(project, repository)
-
-    // Small, borderless icon button helper with modern hover effects
-    private fun iconButton(icon: javax.swing.Icon, tooltip: String, onClick: () -> Unit): JButton {
-        return JButton(icon).apply {
-            toolTipText = tooltip
-            isContentAreaFilled = false
-            isOpaque = false
-            isBorderPainted = false
-            isFocusPainted = false
-            cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
-
-            // Add modern hover effect
-            addMouseListener(object : java.awt.event.MouseAdapter() {
-                override fun mouseEntered(e: java.awt.event.MouseEvent?) {
-                    isContentAreaFilled = true
-                    background = JBColor.namedColor("Button.hoverBackground",
-                        JBColor(java.awt.Color(0, 0, 0, 10), java.awt.Color(255, 255, 255, 10)))
-                }
-                override fun mouseExited(e: java.awt.event.MouseEvent?) {
-                    isContentAreaFilled = false
-                }
-                override fun mousePressed(e: java.awt.event.MouseEvent?) {
-                    background = JBColor.namedColor("Button.pressedBackground",
-                        JBColor(java.awt.Color(0, 0, 0, 20), java.awt.Color(255, 255, 255, 20)))
-                }
-            })
-
-            addActionListener { onClick() }
-        }
-    }
 
     init {
         // Right-click context menu on tree for rename/delete
@@ -150,56 +111,7 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         border = JBUI.Borders.empty(4)
 
 
-        // Compact toolbar: Import, Export + Settings button (Sync operations moved to Sync Ops tab)
-        val toolbar = JPanel(BorderLayout(4, 0)).apply {
-            border = JBUI.Borders.emptyBottom(4)
-
-            val actions = JPanel(FlowLayout(FlowLayout.LEFT, 2, 0)).apply {
-                // Primary: Import
-                add(iconButton(AllIcons.ToolbarDecorator.Import, "Import prompts from JSON") {
-                    showImportDialog()
-                })
-                // Primary: Export
-                add(iconButton(AllIcons.ToolbarDecorator.Export, "Export prompts to JSON") {
-                    showExportDialog()
-                })
-            }
-
-            // Settings button
-            val settingsButton = JButton(AllIcons.General.Settings).apply {
-                toolTipText = "Settings"
-                isContentAreaFilled = false
-                isOpaque = false
-                isBorderPainted = false
-                isFocusPainted = false
-                cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
-
-                addMouseListener(object : java.awt.event.MouseAdapter() {
-                    override fun mouseEntered(e: java.awt.event.MouseEvent?) {
-                        isContentAreaFilled = true
-                        background = JBColor.namedColor("Button.hoverBackground",
-                            JBColor(java.awt.Color(0, 0, 0, 10), java.awt.Color(255, 255, 255, 10)))
-                    }
-                    override fun mouseExited(e: java.awt.event.MouseEvent?) {
-                        isContentAreaFilled = false
-                    }
-                    override fun mousePressed(e: java.awt.event.MouseEvent?) {
-                        background = JBColor.namedColor("Button.pressedBackground",
-                            JBColor(java.awt.Color(0, 0, 0, 20), java.awt.Color(255, 255, 255, 20)))
-                    }
-                })
-
-                addActionListener { openSettings() }
-            }
-
-            add(actions, BorderLayout.WEST)
-            add(settingsButton, BorderLayout.EAST)
-        }
-
-        // Tree toolbar (empty for now - group management is done via edit icons in tree)
-        val treeToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 2, 2)).apply {
-            border = JBUI.Borders.emptyBottom(2)
-        }
+        // Note: Import/Export/Settings buttons removed - available in Sync Ops tab
 
         // Prompt composer with both add and update callbacks
         promptComposer = PromptComposer(
@@ -228,9 +140,8 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
             }
         )
 
-        // Tree section with toolbar
+        // Tree section (no toolbar - group management is done via edit icons in tree)
         val treeSection = JPanel(BorderLayout()).apply {
-            add(treeToolbar, BorderLayout.NORTH)
             add(ScrollPaneFactory.createScrollPane(groupTreePanel, true), BorderLayout.CENTER)
         }
 
@@ -242,7 +153,6 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
             setHonorComponentsMinimumSize(true)
         }
 
-        add(toolbar, BorderLayout.NORTH)
         add(splitPane, BorderLayout.CENTER)
 
         // One-time migration: move any private-root prompts into Unfiled group
@@ -349,45 +259,6 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
         return group.id == "root-shared" || group.id == "root-private"
     }
 
-    private fun showExportDialog() {
-        // Decide export scope based on tree selection
-        val node = groupTreePanel.getLastSelectedNode() as? javax.swing.tree.DefaultMutableTreeNode
-        val uo = node?.userObject
-
-        val exportPrompts: List<Prompt> = when (uo) {
-            is GroupNode -> repository.getGroupPrompts(uo.group.id)
-            else -> repository.getAllPromptsLibrary()
-        }
-
-        val title = if (uo is GroupNode) "Export Group: ${uo.group.name}" else "Export Library (v1 JSON)"
-        val defaultName = if (uo is GroupNode) {
-            uo.group.name.replace(" ", "_").lowercase() + "-prompts.json"
-        } else {
-            "library-prompts.json"
-        }
-
-        ExportDialog(
-            prompts = exportPrompts,
-            title = title,
-            defaultFileName = defaultName,
-            parent = this
-        ).show()
-    }
-
-    private fun showImportDialog() {
-        ImportDialog(
-            parent = this,
-            onImport = { importedPrompts ->
-                val importedCount = repository.importPrompts(importedPrompts)
-                groupTreePanel.rebuildTree()
-                ImportResult.Success(
-                    importedCount = importedCount,
-                    duplicatesSkipped = importedPrompts.size - importedCount
-                )
-            }
-        ).show()
-    }
-
     private fun showEditGroupDialog(group: Group) {
         // Check if this is the Unfiled group
         if (group.name.trim().equals("Unfiled", ignoreCase = true)) {
@@ -463,16 +334,6 @@ class PromptLibraryPanel(private val project: com.intellij.openapi.project.Proje
                         groupTreePanel.rebuildTree()
                     }
                 }
-            }
-        }
-    }
-
-    private fun openSettings() {
-        // Switch to the Settings tab in the tool window
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Prompt Library")
-        toolWindow?.contentManager?.let { cm ->
-            cm.contents.find { it.displayName == "Settings" }?.let { settingsContent ->
-                cm.setSelectedContent(settingsContent)
             }
         }
     }

@@ -189,6 +189,7 @@ export async function readFromLibrary(
 
 /**
  * Reads groups from multiple libraries and returns a combined result with library metadata.
+ * Sets libraryId on all groups and prompts so they can be written back to disk.
  *
  * @param repoRoot - The root directory of the Git repository
  * @param libraries - Array of library configurations to read from
@@ -205,6 +206,8 @@ export async function readFromLibraries(
   for (const library of libraries.filter(l => l.enabled)) {
     try {
       const groups = await readFromLibrary(repoRoot, library, promptsSubdirName);
+      // Tag all groups and prompts with libraryId so they can be written back to disk
+      tagWithLibraryId(groups, library.id);
       result.set(library.id, groups);
     } catch {
       // If a library fails to load, we still continue with others
@@ -213,5 +216,18 @@ export async function readFromLibraries(
   }
 
   return result;
+}
+
+/**
+ * Recursively tags groups and their prompts with a libraryId.
+ */
+function tagWithLibraryId(groups: Group[], libraryId: string): void {
+  for (const g of groups) {
+    g.libraryId = libraryId;
+    for (const p of g.prompts) {
+      p.libraryId = libraryId;
+    }
+    tagWithLibraryId(g.children, libraryId);
+  }
 }
 

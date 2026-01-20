@@ -28,4 +28,13 @@
         <!-- Settings are now managed via the embedded Settings tab in the tool window -->
         <applicationService serviceImplementation="com.example.promptlibrary.settings.PluginSettingsService" />
     </extensions>
+
+    <actions>
+        <action id="PromptLibrary.SetupWizard"
+            class="com.example.promptlibrary.actions.SetupWizardAction"
+            text="Setup Prompt Library..."
+            description="Configure the prompt library repository">
+            <add-to-group group-id="ToolsMenu" anchor="last" />
+        </action>
+    </actions>
 </idea-plugin>

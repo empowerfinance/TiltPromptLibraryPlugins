@@ -13,6 +13,24 @@ vi.mock('../sync/git', () => ({
   getRemoteUrl: vi.fn().mockResolvedValue(null)
 }));
 
+// Store mock implementations that can be changed per test - use vi.hoisted to ensure availability
+const { mockEnabledLibrariesRef, mockActiveLibraryRef, mockSettingsRef } = vi.hoisted(() => ({
+  mockEnabledLibrariesRef: { value: null as import('../settings').LibraryConfig[] | null },
+  mockActiveLibraryRef: { value: null as import('../settings').LibraryConfig | null },
+  mockSettingsRef: { value: null as import('../settings').PromptLibrarySettings | null },
+}));
+
+// Mock settings functions - only mock the ones we need for hidden library tests
+vi.mock('../settings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../settings')>();
+  return {
+    ...actual,
+    getSettings: () => mockSettingsRef.value ?? actual.getSettings(),
+    getEnabledLibraries: () => mockEnabledLibrariesRef.value ?? actual.getEnabledLibraries(),
+    getActiveLibrary: () => mockActiveLibraryRef.value ?? actual.getActiveLibrary(),
+  };
+});
+
 describe('GroupsProvider', () => {
   let store: LibraryStore;
   let provider: GroupsProvider;
@@ -789,5 +807,137 @@ describe('GroupsProvider', () => {
       expect(updatedShared.children[1].prompts).toHaveLength(1);
       expect(updatedShared.children[1].prompts[0].text).toBe('Test prompt text');
     });
+  });
+});
+
+describe('GroupsProvider hidden libraries behavior', () => {
+  let store: LibraryStore;
+  let provider: GroupsProvider;
+  let mockContext: vscode.ExtensionContext;
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    // Reset mock variables before each test
+    mockEnabledLibrariesRef.value = null;
+    mockActiveLibraryRef.value = null;
+    mockSettingsRef.value = null;
+
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'groups-hidden-test-'));
+    mockContext = {
+      globalStorageUri: vscode.Uri.file(tmpDir),
+      subscriptions: [],
+    } as any;
+    store = new LibraryStore(mockContext);
+    provider = new GroupsProvider(store);
+
+    // Set up mock settings with a remoteRepoUrl so showShared is true
+    mockSettingsRef.value = {
+      remoteRepoUrl: 'https://github.com/test/repo.git',
+      repoPath: tmpDir,
+      promptsSubdir: 'general',
+      hiddenLibraries: [],
+      branchName: '',
+      autoFetch: { enabled: false, minutes: 5 },
+    };
+  });
+
+  afterEach(() => {
+    // Reset mock variables after each test
+    mockEnabledLibrariesRef.value = null;
+    mockActiveLibraryRef.value = null;
+    mockSettingsRef.value = null;
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch { }
+  });
+
+  it('should show no shared groups when all libraries are hidden', async () => {
+    // Set up mocks - all libraries hidden (empty array)
+    mockEnabledLibrariesRef.value = [];
+    mockActiveLibraryRef.value = {
+      id: 'general',
+      path: 'general',
+      displayName: 'General',
+      enabled: false
+    };
+
+    await provider.init();
+    const children = await provider.getChildren();
+
+    // Should only have Private root, no shared libraries
+    const groupIds = children.map(c => (c as GroupItem).groupId);
+    expect(groupIds).toContain('root-private');
+    expect(groupIds).not.toContain('root-shared');
+    // No library root nodes either
+    const libRootNodes = groupIds.filter(id => id.startsWith('lib-root-'));
+    expect(libRootNodes).toHaveLength(0);
+  });
+
+  it('should show shared groups when at least one library is enabled', async () => {
+    mockEnabledLibrariesRef.value = [
+      { id: 'myLibrary', path: 'myLibrary', displayName: 'My Library', enabled: true }
+    ];
+    mockActiveLibraryRef.value = {
+      id: 'myLibrary',
+      path: 'myLibrary',
+      displayName: 'My Library',
+      enabled: true
+    };
+
+    await provider.init();
+    const children = await provider.getChildren();
+
+    // Should have both shared and private roots
+    const groupIds = children.map(c => (c as GroupItem).groupId);
+    expect(groupIds).toContain('root-private');
+    expect(groupIds).toContain('root-shared');
+  });
+
+  it('should show multiple library nodes when multiple libraries are enabled', async () => {
+    mockEnabledLibrariesRef.value = [
+      { id: 'libraryA', path: 'libraryA', displayName: 'Library A', enabled: true },
+      { id: 'libraryB', path: 'libraryB', displayName: 'Library B', enabled: true }
+    ];
+    mockActiveLibraryRef.value = {
+      id: 'libraryA',
+      path: 'libraryA',
+      displayName: 'Library A',
+      enabled: true
+    };
+
+    await provider.init();
+    const children = await provider.getChildren();
+
+    // Should have library root nodes for each enabled library, plus private
+    const groupIds = children.map(c => (c as GroupItem).groupId);
+    expect(groupIds).toContain('lib-root-libraryA');
+    expect(groupIds).toContain('lib-root-libraryB');
+    expect(groupIds).toContain('root-private');
+    // Should NOT have the single shared root
+    expect(groupIds).not.toContain('root-shared');
+  });
+
+  it('should hide active library from tree when it is in hidden list', async () => {
+    // This tests that active library has no special treatment - it can be hidden
+    // Active library is 'libraryA' but it's hidden (not in enabledLibraries)
+    mockEnabledLibrariesRef.value = [
+      { id: 'libraryB', path: 'libraryB', displayName: 'Library B', enabled: true }
+    ];
+    mockActiveLibraryRef.value = {
+      id: 'libraryA',
+      path: 'libraryA',
+      displayName: 'Library A',
+      enabled: false // active but hidden
+    };
+
+    await provider.init();
+    const children = await provider.getChildren();
+
+    // Should only show libraryB (the non-hidden one) + private
+    const groupIds = children.map(c => (c as GroupItem).groupId);
+    expect(groupIds).not.toContain('lib-root-libraryA');
+    // With only one enabled library, should show root-shared not lib-root-
+    expect(groupIds).toContain('root-shared');
+    expect(groupIds).toContain('root-private');
   });
 });

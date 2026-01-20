@@ -104,3 +104,40 @@ fun discoverLibraries(repoPath: String): List<LibraryConfig> {
     return libraries
 }
 
+/**
+ * Gets the list of hidden library paths.
+ */
+fun getHiddenLibraryPaths(): List<String> {
+    return PluginSettingsService.instance().data.hiddenLibraries
+}
+
+/**
+ * Updates the list of hidden libraries.
+ */
+fun setHiddenLibraries(libraryPaths: List<String>) {
+    PluginSettingsService.instance().data.hiddenLibraries = libraryPaths.toMutableList()
+}
+
+/**
+ * Shows all libraries by clearing the hidden list.
+ */
+fun showAllLibraries() {
+    setHiddenLibraries(emptyList())
+}
+
+/**
+ * Hides all libraries except the active one.
+ */
+fun hideAllLibraries() {
+    val settings = PluginSettingsService.instance().data
+    val activeLibrary = settings.promptsSubdir.ifBlank { DEFAULT_LIBRARY_NAME }
+    val allLibraries = discoverLibraries(PluginSettingsService.expandPath(settings.repoPath))
+
+    // Hide all except the active library
+    val toHide = allLibraries
+        .filter { it.id != activeLibrary }
+        .map { it.id }
+
+    setHiddenLibraries(toHide)
+}
+

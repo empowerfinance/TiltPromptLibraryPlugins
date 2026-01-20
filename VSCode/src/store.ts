@@ -1,6 +1,9 @@
 // store.ts
 import * as vscode from 'vscode';
 import { Group, Library, Prompt } from './model';
+import { writeSinglePrompt, deleteSinglePrompt, ensureGroupOnDisk } from './sync/yamlWriter';
+import { getSettings } from './settings';
+import { log } from './log';
 
 const LIB_FILE = 'library.v2.json';
 
@@ -9,7 +12,7 @@ function genId(prefix: string): string {
 }
 
 export class LibraryStore {
-  constructor(private readonly context: vscode.ExtensionContext) {}
+  constructor(private readonly context: vscode.ExtensionContext) { }
 
   // Notify listeners whenever the library changes
   private _onDidChange = new vscode.EventEmitter<void>();
@@ -49,7 +52,7 @@ export class LibraryStore {
     const bytes = Buffer.from(JSON.stringify(library, null, 2), 'utf8');
     await vscode.workspace.fs.createDirectory(this.context.globalStorageUri);
     await vscode.workspace.fs.writeFile(this.uri, bytes);
-    try { this._onDidChange.fire(); } catch {}
+    try { this._onDidChange.fire(); } catch { }
   }
 
   async resetAll(): Promise<void> {
@@ -89,10 +92,64 @@ export class LibraryStore {
     const now = new Date().toISOString();
     const fallbackTitle = (text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim();
     const finalTitle = (((title ?? '').trim()) && !/^(null|undefined|~)$/i.test((title ?? '').trim())) ? (title as string).trim() : fallbackTitle;
-    const prompt: Prompt = { id: genId('p'), text, title: finalTitle || undefined, createdAt: now, updatedAt: now, tags: [], private: group.kind === 'private' };
+    const prompt: Prompt = { id: genId('p'), text, title: finalTitle || undefined, createdAt: now, updatedAt: now, tags: [], private: group.kind === 'private', libraryId: group.libraryId };
     group.prompts.push(prompt);
     await this.save(lib);
+
+    // If this is a shared group with a libraryId, write immediately to disk
+    if (group.kind === 'shared' && group.libraryId) {
+      await this.writePromptToDisk(lib, group, prompt);
+    }
+
     return { ok: true, prompt, groupId: targetId };
+  }
+
+  /**
+   * Writes a prompt to disk for a shared group.
+   * Finds the group's path in the tree and writes to the appropriate library folder.
+   */
+  private async writePromptToDisk(lib: Library, targetGroup: Group, prompt: Prompt): Promise<void> {
+    const cfg = getSettings();
+    if (!cfg.repoPath || !targetGroup.libraryId) return;
+
+    try {
+      // Find the path from root to this group
+      const groupPath = this.findGroupPath(lib, targetGroup.id);
+      if (!groupPath || groupPath.length === 0) {
+        log.warn(`Could not find path for group ${targetGroup.id}`);
+        return;
+      }
+
+      // Convert group path to folder names (use folderName if available, otherwise name)
+      const folderPath = groupPath.map(g => g.folderName || g.name);
+
+      await writeSinglePrompt(cfg.repoPath, targetGroup.libraryId, folderPath, prompt);
+      log.info(`Wrote prompt ${prompt.id} to disk: ${targetGroup.libraryId}/${folderPath.join('/')}`);
+    } catch (e: any) {
+      log.error(`Failed to write prompt to disk: ${e?.message || e}`);
+    }
+  }
+
+  /**
+   * Finds the path of groups from the shared root to the target group.
+   * Returns array of groups (excluding root-shared, including target).
+   */
+  private findGroupPath(lib: Library, targetId: string): Group[] | null {
+    const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
+    if (!sharedRoot) return null;
+
+    const find = (groups: Group[], path: Group[]): Group[] | null => {
+      for (const g of groups) {
+        if (g.id === targetId) {
+          return [...path, g];
+        }
+        const found = find(g.children, [...path, g]);
+        if (found) return found;
+      }
+      return null;
+    };
+
+    return find(sharedRoot.children, []);
   }
 
   async getPromptById(promptId: string): Promise<Prompt | null> {
@@ -116,9 +173,40 @@ export class LibraryStore {
 
   async deletePrompt(promptId: string): Promise<boolean> {
     const lib = await this.load();
+
+    // Find the prompt and its group before removing (for disk sync)
+    const ref = this.findPromptRef(lib, promptId);
+    const group = ref?.group;
+
     const removed = this.removePrompt(lib, promptId);
-    if (removed) await this.save(lib);
+    if (removed) {
+      await this.save(lib);
+
+      // If this was a shared group with a libraryId, delete from disk too
+      if (group && group.kind === 'shared' && group.libraryId) {
+        await this.deletePromptFromDisk(lib, group, promptId);
+      }
+    }
     return removed;
+  }
+
+  /**
+   * Deletes a prompt file from disk.
+   */
+  private async deletePromptFromDisk(lib: Library, targetGroup: Group, promptId: string): Promise<void> {
+    const cfg = getSettings();
+    if (!cfg.repoPath || !targetGroup.libraryId) return;
+
+    try {
+      const groupPath = this.findGroupPath(lib, targetGroup.id);
+      if (!groupPath || groupPath.length === 0) return;
+
+      const folderPath = groupPath.map(g => g.folderName || g.name);
+      await deleteSinglePrompt(cfg.repoPath, targetGroup.libraryId, folderPath, promptId);
+      log.info(`Deleted prompt ${promptId} from disk: ${targetGroup.libraryId}/${folderPath.join('/')}`);
+    } catch (e: any) {
+      log.error(`Failed to delete prompt from disk: ${e?.message || e}`);
+    }
   }
 
   async updatePromptText(promptId: string, newText: string): Promise<{ ok: boolean; reason?: string }> {
@@ -128,8 +216,16 @@ export class LibraryStore {
     const normalized = this.normalizeForCompare(newText);
     const exists = this.anyPrompt(lib, p => p.id !== promptId && this.normalizeForCompare(p.text) === normalized);
     if (exists) return { ok: false, reason: 'Duplicate prompt (normalized match)' };
-    ref.group.prompts[ref.index] = { ...ref.group.prompts[ref.index], text: newText, updatedAt: new Date().toISOString() };
+
+    const updatedPrompt = { ...ref.group.prompts[ref.index], text: newText, updatedAt: new Date().toISOString() };
+    ref.group.prompts[ref.index] = updatedPrompt;
     await this.save(lib);
+
+    // If this is a shared group, update on disk too
+    if (ref.group.kind === 'shared' && ref.group.libraryId) {
+      await this.writePromptToDisk(lib, ref.group, updatedPrompt);
+    }
+
     return { ok: true };
   }
 
@@ -140,8 +236,16 @@ export class LibraryStore {
     const cur = ref.group.prompts[ref.index];
     const fallback = (cur.text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim();
     const finalTitle = (((newTitle ?? '').trim()) && !/^(null|undefined|~)$/i.test((newTitle ?? '').trim())) ? (newTitle as string).trim() : fallback || undefined;
-    ref.group.prompts[ref.index] = { ...cur, title: finalTitle, updatedAt: new Date().toISOString() };
+
+    const updatedPrompt = { ...cur, title: finalTitle, updatedAt: new Date().toISOString() };
+    ref.group.prompts[ref.index] = updatedPrompt;
     await this.save(lib);
+
+    // If this is a shared group, update on disk too
+    if (ref.group.kind === 'shared' && ref.group.libraryId) {
+      await this.writePromptToDisk(lib, ref.group, updatedPrompt);
+    }
+
     return { ok: true };
   }
 
@@ -155,11 +259,26 @@ export class LibraryStore {
     if (!ref) return { ok: false, reason: 'Prompt not found' };
     const target = this.findGroup(lib, targetGroupId);
     if (!target) return { ok: false, reason: 'Target group not found' };
-    const [prompt] = ref.group.prompts.splice(ref.index, 1);
+
+    const sourceGroup = ref.group;
+    const [prompt] = sourceGroup.prompts.splice(ref.index, 1);
+
+    // Delete from old location on disk if it was a shared group
+    if (sourceGroup.kind === 'shared' && sourceGroup.libraryId) {
+      await this.deletePromptFromDisk(lib, sourceGroup, prompt.id);
+    }
+
     prompt.private = target.kind === 'private';
+    prompt.libraryId = target.libraryId;
     prompt.updatedAt = new Date().toISOString();
     target.prompts.push(prompt);
     await this.save(lib);
+
+    // Write to new location on disk if target is a shared group
+    if (target.kind === 'shared' && target.libraryId) {
+      await this.writePromptToDisk(lib, target, prompt);
+    }
+
     return { ok: true };
   }
 
@@ -329,7 +448,7 @@ export class LibraryStore {
     let removed = 0;
 
     const dedupList = (arr: Prompt[]) => {
-      for (let i = 0; i < arr.length; ) {
+      for (let i = 0; i < arr.length;) {
         const n = this.normalizeForCompare(arr[i].text);
         if (seen.has(n)) { arr.splice(i, 1); removed++; }
         else { seen.add(n); i++; }

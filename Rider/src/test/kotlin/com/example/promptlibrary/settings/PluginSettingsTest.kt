@@ -153,5 +153,40 @@ class PluginSettingsTest {
         assertThat(PluginSettingsService.WriteStrategy.DIRECT.name).isEqualTo("DIRECT")
         assertThat(PluginSettingsService.WriteStrategy.BRANCH_PR.name).isEqualTo("BRANCH_PR")
     }
+
+    @Test
+    fun `default settings should have empty hiddenLibraries list`() {
+        // Given
+        val state = PluginSettingsService.State()
+
+        // Then - hiddenLibraries should be empty by default (opt-out approach)
+        assertThat(state.hiddenLibraries).isEmpty()
+    }
+
+    @Test
+    fun `hiddenLibraries should be mutable`() {
+        // Given
+        val state = PluginSettingsService.State()
+
+        // When
+        state.hiddenLibraries.add("library1")
+        state.hiddenLibraries.add("library2")
+
+        // Then
+        assertThat(state.hiddenLibraries).containsExactly("library1", "library2")
+    }
+
+    @Test
+    fun `hiddenLibraries can be replaced`() {
+        // Given
+        val state = PluginSettingsService.State()
+        state.hiddenLibraries = mutableListOf("old-library")
+
+        // When
+        state.hiddenLibraries = mutableListOf("new-library1", "new-library2")
+
+        // Then
+        assertThat(state.hiddenLibraries).containsExactly("new-library1", "new-library2")
+    }
 }
 

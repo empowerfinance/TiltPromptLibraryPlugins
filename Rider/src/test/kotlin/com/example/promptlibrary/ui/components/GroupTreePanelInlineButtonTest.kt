@@ -48,7 +48,7 @@ class GroupTreePanelInlineButtonTest {
         
         // When - directly invoke the callback (simulating button click)
         val tree = getTreeFromPanel(panel)
-        val sharedPath = findNodePath(tree, SharedRoot)
+        val sharedPath = findLibraryRootPath(tree)
         
         // Simulate clicking on the button area (right side of the tree)
         if (sharedPath != null) {
@@ -151,7 +151,7 @@ class GroupTreePanelInlineButtonTest {
         
         // When - click on label area (left side, not button)
         val tree = getTreeFromPanel(panel)
-        val sharedPath = findNodePath(tree, SharedRoot)
+        val sharedPath = findLibraryRootPath(tree)
 
         if (sharedPath != null) {
             val bounds = tree.getPathBounds(sharedPath)
@@ -187,17 +187,40 @@ class GroupTreePanelInlineButtonTest {
         val root = tree.model.root as? DefaultMutableTreeNode ?: return null
         return findNodePathRecursive(root, target, TreePath(root))
     }
-    
+
     private fun findNodePathRecursive(node: DefaultMutableTreeNode, target: Any, path: TreePath): TreePath? {
         if (node.userObject == target) return path
-        
+        // Also match LibraryRoot by type (for tests that search for SharedRoot)
+        if (target is String && target == "LibraryRoot" && node.userObject is LibraryRoot) return path
+
         for (i in 0 until node.childCount) {
             val child = node.getChildAt(i) as DefaultMutableTreeNode
             val childPath = path.pathByAddingChild(child)
             val result = findNodePathRecursive(child, target, childPath)
             if (result != null) return result
         }
-        
+
+        return null
+    }
+
+    /**
+     * Finds the first LibraryRoot node in the tree.
+     */
+    private fun findLibraryRootPath(tree: JTree): TreePath? {
+        val root = tree.model.root as? DefaultMutableTreeNode ?: return null
+        return findLibraryRootRecursive(root, TreePath(root))
+    }
+
+    private fun findLibraryRootRecursive(node: DefaultMutableTreeNode, path: TreePath): TreePath? {
+        if (node.userObject is LibraryRoot) return path
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChildAt(i) as DefaultMutableTreeNode
+            val childPath = path.pathByAddingChild(child)
+            val result = findLibraryRootRecursive(child, childPath)
+            if (result != null) return result
+        }
+
         return null
     }
 }

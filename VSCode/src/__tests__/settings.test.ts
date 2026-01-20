@@ -794,7 +794,7 @@ describe('settings', () => {
       }
     });
 
-    it('should never hide the active library even if in hiddenLibraries', () => {
+    it('should allow hiding all libraries including the active library', () => {
       const fs = require('fs');
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hidden-test-'));
 
@@ -807,12 +807,12 @@ describe('settings', () => {
         fs.writeFileSync(path.join(lib1Path, '_group.yaml'), 'name: GroupA\n');
         fs.writeFileSync(path.join(lib2Path, '_group.yaml'), 'name: GroupB\n');
 
-        // Mock settings: try to hide libraryA (the active library)
+        // Mock settings: hide both libraries including the active one
         const mockConfig = {
           get: vi.fn((key: string, defaultValue: any) => {
             if (key === 'repoPath') return tmpDir;
             if (key === 'promptsSubdir') return 'libraryA'; // active
-            if (key === 'hiddenLibraries') return ['libraryA', 'libraryB']; // try to hide both
+            if (key === 'hiddenLibraries') return ['libraryA', 'libraryB']; // hide both
             return defaultValue;
           }),
           has: vi.fn(),
@@ -823,9 +823,8 @@ describe('settings', () => {
 
         const enabledLibraries = getEnabledLibraries();
 
-        // Active library should still be visible
-        expect(enabledLibraries).toHaveLength(1);
-        expect(enabledLibraries[0].id).toBe('libraryA');
+        // All libraries should be hidden (no restriction on active library)
+        expect(enabledLibraries).toHaveLength(0);
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }

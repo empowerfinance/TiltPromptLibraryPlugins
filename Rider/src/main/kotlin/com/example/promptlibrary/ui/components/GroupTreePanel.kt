@@ -21,7 +21,12 @@ import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
 
 // Root objects for the tree
-object SharedRoot { override fun toString() = "GitHub: PromptLibrary" }
+data class LibraryRoot(val libraryId: String, val displayName: String, val isActive: Boolean) {
+    override fun toString(): String {
+        val activeIndicator = if (isActive) " ✏️" else ""
+        return "📚 $displayName$activeIndicator"
+    }
+}
 object PrivateRoot { override fun toString() = "Private" }
 
 // Wrapper for Group to display name in tree
@@ -71,8 +76,12 @@ class GroupTreePanel(
                 val userObject = node.userObject
                 val rowBounds = groupTree.getPathBounds(path) ?: return
 
-                // Handle Shared/Private root nodes - "+ Add Group" text
-                if (userObject is SharedRoot || userObject is PrivateRoot) {
+                // Handle LibraryRoot/Private root nodes - "+ Add Group" text
+                if (userObject is LibraryRoot || userObject is PrivateRoot) {
+                    // Only show "+ Add Group" for active library or private
+                    val showAddGroup = userObject is PrivateRoot || (userObject is LibraryRoot && userObject.isActive)
+                    if (!showAddGroup) return
+
                     // Calculate label width based on actual text
                     val metrics = groupTree.getFontMetrics(groupTree.font)
                     val textWidth = metrics.stringWidth(userObject.toString())
@@ -85,7 +94,7 @@ class GroupTreePanel(
 
                     if (e.x >= clickableAreaStart && e.x <= clickableAreaEnd) {
                         when (userObject) {
-                            is SharedRoot -> onAddGroupToShared()
+                            is LibraryRoot -> onAddGroupToShared()
                             is PrivateRoot -> onAddGroupToPrivate()
                         }
                     }
@@ -138,8 +147,15 @@ class GroupTreePanel(
                     return
                 }
 
-                // Handle Shared/Private root nodes - "+ Add Group" text
-                if (userObject is SharedRoot || userObject is PrivateRoot) {
+                // Handle LibraryRoot/Private root nodes - "+ Add Group" text
+                if (userObject is LibraryRoot || userObject is PrivateRoot) {
+                    // Only show hand cursor for active library or private
+                    val showAddGroup = userObject is PrivateRoot || (userObject is LibraryRoot && userObject.isActive)
+                    if (!showAddGroup) {
+                        groupTree.cursor = java.awt.Cursor.getDefaultCursor()
+                        return
+                    }
+
                     // Calculate label width based on actual text
                     val metrics = groupTree.getFontMetrics(groupTree.font)
                     val textWidth = metrics.stringWidth(userObject.toString())
@@ -208,57 +224,42 @@ class GroupTreePanel(
                 val node = value as? DefaultMutableTreeNode
                 val userObject = node?.userObject
 
-                // Add "+ Add Group" text for Shared and Private root nodes
-                if (userObject is SharedRoot || userObject is PrivateRoot) {
+                // Add "+ Add Group" text for LibraryRoot and Private root nodes
+                if (userObject is LibraryRoot || userObject is PrivateRoot) {
                     val panel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
                         isOpaque = false
                         background = if (sel) backgroundSelectionColor else backgroundNonSelectionColor
 
-                        // Label with appropriate icon (GitHub for shared, lock for private)
+                        // Label with appropriate icon (GitHub for library, lock for private)
                         add(JBLabel(userObject.toString()).apply {
                             icon = when (userObject) {
-                                is SharedRoot -> AllIcons.Vcs.Vendors.Github
+                                is LibraryRoot -> AllIcons.Vcs.Vendors.Github
                                 is PrivateRoot -> AllIcons.Nodes.Padlock
                                 else -> if (expanded) openIcon else closedIcon
                             }
                             foreground = if (sel) textSelectionColor else textNonSelectionColor
                         })
 
-                        // For SharedRoot, show the library folder indicator
-                        if (userObject is SharedRoot) {
-                            try {
-                                val enabledLibraries = PluginSettingsService.getEnabledLibraries()
-                                val activeLibrary = PluginSettingsService.getActiveLibrary()
-                                val libraryIndicator = if (enabledLibraries.size > 1) {
-                                    "📂 ${enabledLibraries.size} libraries"
-                                } else {
-                                    "📂 ${activeLibrary.path}"
-                                }
-                                add(JBLabel(libraryIndicator).apply {
-                                    font = font.deriveFont(9.5f)
-                                    foreground = JBColor(
-                                        java.awt.Color(80, 80, 80),
-                                        java.awt.Color(140, 140, 140)
-                                    )
-                                    toolTipText = if (enabledLibraries.size > 1) {
-                                        "Libraries: ${enabledLibraries.joinToString(", ") { it.displayName }}\nActive (for writing): ${activeLibrary.displayName}"
-                                    } else {
-                                        "Library folder: ${activeLibrary.path}"
-                                    }
-                                })
-                            } catch (_: Exception) {
-                                // Settings not available (e.g., in tests), skip library indicator
+                        // For LibraryRoot, show active indicator tooltip
+                        if (userObject is LibraryRoot) {
+                            toolTipText = if (userObject.isActive) {
+                                "${userObject.displayName} - Active library (new prompts are written here)"
+                            } else {
+                                "${userObject.displayName} - Read-only"
                             }
                         }
 
-                        // "+ Add Group" text right after the label
-                        add(JBLabel("+ Add Group").apply {
-                            font = font.deriveFont(9.5f)
-                            foreground = JBColor(
-                                java.awt.Color(100, 100, 100),
-                                java.awt.Color(150, 150, 150)
-                            )
-                        })
+                        // "+ Add Group" text right after the label (only for active library or private)
+                        val showAddGroup = userObject is PrivateRoot || (userObject is LibraryRoot && userObject.isActive)
+                        if (showAddGroup) {
+                            add(JBLabel("+ Add Group").apply {
+                                font = font.deriveFont(9.5f)
+                                foreground = JBColor(
+                                    java.awt.Color(100, 100, 100),
+                                    java.awt.Color(150, 150, 150)
+                                )
+                            })
+                        }
                     }
                     return panel
                 }
@@ -266,7 +267,7 @@ class GroupTreePanel(
                 // Add edit icon for GroupNode items (except Unfiled)
                 if (userObject is GroupNode) {
                     val isUnfiled = userObject.group.name.trim().equals("Unfiled", ignoreCase = true)
-                    val enabledLibraries = PluginSettingsService.getEnabledLibraries()
+                    val enabledLibraries = try { PluginSettingsService.getEnabledLibraries() } catch (_: Exception) { emptyList() }
                     val showLibraryBadge = enabledLibraries.size > 1 && userObject.group.libraryId != null
 
                     val panel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
@@ -303,7 +304,7 @@ class GroupTreePanel(
 
                 // Add library badge for PromptNode items when multiple libraries enabled
                 if (userObject is PromptNode) {
-                    val enabledLibraries = PluginSettingsService.getEnabledLibraries()
+                    val enabledLibraries = try { PluginSettingsService.getEnabledLibraries() } catch (_: Exception) { emptyList() }
                     val showLibraryBadge = enabledLibraries.size > 1 && userObject.prompt.libraryId != null
 
                     if (showLibraryBadge) {
@@ -353,7 +354,7 @@ class GroupTreePanel(
                     selectedGroupId = userObject.group.id
                     onGroupSelected(selectedGroupId)
                 }
-                is SharedRoot, is PrivateRoot -> {
+                is LibraryRoot, is PrivateRoot -> {
                     selectedGroupId = null
                     onGroupSelected(null)
                 }
@@ -409,12 +410,6 @@ class GroupTreePanel(
 
         val root = DefaultMutableTreeNode("Root")
 
-        // Two namespaces: Shared and Private
-        val sharedNode = DefaultMutableTreeNode(SharedRoot)
-        val privateNode = DefaultMutableTreeNode(PrivateRoot)
-        root.add(sharedNode)
-        root.add(privateNode)
-
         fun addNodes(parent: DefaultMutableTreeNode, groups: List<Group>) {
             for (g in groups) {
                 val groupNode = DefaultMutableTreeNode(GroupNode(g))
@@ -431,8 +426,41 @@ class GroupTreePanel(
             }
         }
 
-        // Populate namespaces from repository per-namespace lists
-        addNodes(sharedNode, repository.getSharedGroups())
+        // Get enabled libraries and shared groups (defensive for tests)
+        val enabledLibraries = try { PluginSettingsService.getEnabledLibraries() } catch (_: Exception) { emptyList() }
+        val activeLibrary = try { PluginSettingsService.getActiveLibrary() } catch (_: Exception) { null }
+        val sharedGroups = repository.getSharedGroups()
+
+        // Only show shared library nodes if at least one library is enabled
+        if (enabledLibraries.isNotEmpty()) {
+            // Multi-library mode: show separate root for each library
+            if (enabledLibraries.size > 1 && activeLibrary != null) {
+                for (lib in enabledLibraries) {
+                    val isActive = lib.id == activeLibrary.id
+                    val libraryRoot = LibraryRoot(lib.id, lib.displayName, isActive)
+                    val libraryNode = DefaultMutableTreeNode(libraryRoot)
+                    root.add(libraryNode)
+
+                    // Filter groups that belong to this library
+                    val libraryGroups = sharedGroups.filter { it.libraryId == lib.id }
+                    addNodes(libraryNode, libraryGroups)
+                }
+            } else {
+                // Single-library mode: use the traditional "Shared" style display
+                val singleLib = enabledLibraries.firstOrNull() ?: activeLibrary
+                val displayName = singleLib?.displayName ?: "Shared"
+                val libraryId = singleLib?.id ?: "shared"
+                val libraryRoot = LibraryRoot(libraryId, displayName, true)
+                val sharedNode = DefaultMutableTreeNode(libraryRoot)
+                root.add(sharedNode)
+                addNodes(sharedNode, sharedGroups)
+            }
+        }
+        // When enabledLibraries is empty, no shared library nodes are added
+
+        // Private namespace
+        val privateNode = DefaultMutableTreeNode(PrivateRoot)
+        root.add(privateNode)
 
         // Private: pin Unfiled at top
         val privGroups = repository.getPrivateGroups()

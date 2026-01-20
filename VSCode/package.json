@@ -62,11 +62,6 @@
         "icon": "$(settings-gear)"
       },
       {
-        "command": "promptLibrary.selectLibrary",
-        "title": "Prompt Library: Select Active Library",
-        "icon": "$(library)"
-      },
-      {
         "command": "promptLibrary.manageLibraries",
         "title": "Prompt Library: Manage Libraries",
         "icon": "$(checklist)"
@@ -169,11 +164,6 @@
         "command": "promptLibrary.createLibrary",
         "title": "Create Library",
         "icon": "$(new-folder)"
-      },
-      {
-        "command": "promptLibrary.setActiveLibrary",
-        "title": "Set as Active Library",
-        "icon": "$(edit)"
       }
     ],
     "viewsContainers": {
@@ -273,11 +263,6 @@
           "command": "promptLibrary.addGroup",
           "when": "view == promptLibraryGroups && viewItem == library-root",
           "group": "inline@1"
-        },
-        {
-          "command": "promptLibrary.setActiveLibrary",
-          "when": "view == promptLibraryGroups && viewItem == library-root",
-          "group": "inline@2"
         },
         {
           "command": "promptLibrary.renameGroup",

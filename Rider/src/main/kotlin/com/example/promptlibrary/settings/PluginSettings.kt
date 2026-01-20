@@ -13,7 +13,7 @@ class PluginSettingsService : PersistentStateComponent<PluginSettingsService.Sta
         var remoteRepoUrl: String = "",
         var repoPath: String = "~/PromptLibrary",  // Match VS Code default
         var promptsSubdir: String = DEFAULT_LIBRARY_NAME,  // Active library for writing
-        var enabledLibraries: MutableList<String> = mutableListOf(),  // Libraries to read from
+        var hiddenLibraries: MutableList<String> = mutableListOf(),  // Libraries to hide (opt-out approach, matches VS Code)
         var branchName: String = "",
         var writeStrategy: WriteStrategy = WriteStrategy.DIRECT,
         var autoFetchEnabled: Boolean = false,
@@ -71,52 +71,52 @@ class PluginSettingsService : PersistentStateComponent<PluginSettingsService.Sta
         }
 
         /**
-         * Gets the raw list of enabled library paths (for UI display).
+         * Gets all enabled (non-hidden) libraries from the configuration.
+         * Uses opt-out approach: all libraries are shown by default, except those in hiddenLibraries.
          */
-        fun getEnabledLibraryPaths(): List<String> {
-            return instance().data.enabledLibraries.toList()
-        }
-
-        /**
-         * Sets the enabled libraries list.
-         */
-        fun setEnabledLibraries(libraryPaths: List<String>) {
-            instance().data.enabledLibraries = libraryPaths.toMutableList()
+        fun getEnabledLibraries(): List<LibraryConfig> {
+            return getRepoConfig().libraries.filter { it.enabled }
         }
 
         /**
          * Converts current settings into a RepoConfig with all enabled libraries.
-         * Supports both single-library (legacy) and multi-library modes.
+         * Uses opt-out approach matching VS Code:
+         * - All discovered libraries are shown by default
+         * - Libraries in hiddenLibraries setting are hidden
+         * - Any library can be hidden, including the active library
          */
         fun getRepoConfig(): RepoConfig {
             val settings = instance().data
+            val repoPath = getEffectiveRepoPath()
             val activeLibraryPath = getEffectiveLibraryPath()
+            val hiddenLibraries = settings.hiddenLibraries
 
-            // Build library list from enabled libraries, or just the active one
-            val enabledLibs = settings.enabledLibraries.ifEmpty { emptyList() }
-            val libraryPaths = if (enabledLibs.isNotEmpty()) {
-                enabledLibs.toMutableList()
-            } else {
-                mutableListOf(activeLibraryPath)
+            // Auto-discover all libraries from the repository
+            var libraries = discoverLibraries(repoPath)
+
+            // Apply enabled/disabled status based on hidden list (opt-out)
+            // All libraries are enabled by default, except those in the hidden list
+            libraries = libraries.map { lib ->
+                lib.copy(enabled = !hiddenLibraries.contains(lib.id))
             }
 
-            // Ensure active library is always included
-            if (!libraryPaths.contains(activeLibraryPath)) {
-                libraryPaths.add(0, activeLibraryPath)
-            }
-
-            val libraries = libraryPaths.map { libPath ->
-                LibraryConfig(
-                    id = libPath,
-                    path = libPath,
-                    displayName = titleCase(libPath),
-                    enabled = true
-                )
+            // Ensure active library is always included in the list (even if not yet discovered)
+            // but respect hidden setting
+            val activeExists = libraries.any { it.path == activeLibraryPath }
+            if (!activeExists) {
+                libraries = listOf(
+                    LibraryConfig(
+                        id = activeLibraryPath,
+                        path = activeLibraryPath,
+                        displayName = titleCase(activeLibraryPath),
+                        enabled = !hiddenLibraries.contains(activeLibraryPath)
+                    )
+                ) + libraries
             }
 
             return RepoConfig(
                 url = settings.remoteRepoUrl,
-                localPath = getEffectiveRepoPath(),
+                localPath = repoPath,
                 branch = settings.branchName,
                 libraries = libraries
             )
@@ -134,14 +134,6 @@ class PluginSettingsService : PersistentStateComponent<PluginSettingsService.Sta
                 displayName = titleCase(libraryPath),
                 enabled = true
             )
-        }
-
-        /**
-         * Gets all enabled libraries from the configuration.
-         * Returns multiple libraries when enabledLibraries is configured.
-         */
-        fun getEnabledLibraries(): List<LibraryConfig> {
-            return getRepoConfig().libraries.filter { it.enabled }
         }
 
         /**

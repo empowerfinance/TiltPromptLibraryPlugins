@@ -138,7 +138,6 @@ export function getSettings(): PromptLibrarySettings {
  * Library visibility logic (opt-out approach):
  * - All discovered libraries are shown by default
  * - Libraries in hiddenLibraries setting are hidden
- * - The active library (promptsSubdir) is always shown (never hidden)
  */
 export function getRepoConfig(): RepoConfig {
   const settings = getSettings();
@@ -150,20 +149,21 @@ export function getRepoConfig(): RepoConfig {
 
   // Apply enabled/disabled status based on hidden list (opt-out)
   // All libraries are enabled by default, except those in the hidden list
-  // Active library is never hidden
   libraries = libraries.map(lib => ({
     ...lib,
-    enabled: !hiddenLibrariesSetting.includes(lib.id) || lib.id === activeLibraryPath
+    enabled: !hiddenLibrariesSetting.includes(lib.id)
   }));
 
-  // Ensure active library is always included (even if not yet discovered)
+  // Ensure active library exists in the list (even if not yet discovered or hidden)
   const activeExists = libraries.some(lib => lib.path === activeLibraryPath);
   if (!activeExists) {
+    // Add active library - but respect hidden setting
+    const isHidden = hiddenLibrariesSetting.includes(activeLibraryPath);
     libraries.unshift({
       id: activeLibraryPath,
       path: activeLibraryPath,
       displayName: activeLibraryPath, // Display exactly as folder name
-      enabled: true
+      enabled: !isHidden
     });
   }
 
@@ -239,17 +239,14 @@ export async function showAllLibraries(): Promise<void> {
 }
 
 /**
- * Hides all libraries except the active one.
+ * Hides all libraries.
  */
 export async function hideAllLibraries(): Promise<void> {
   const settings = getSettings();
   const allLibraries = discoverLibraries(settings.repoPath);
-  const activeLibrary = settings.promptsSubdir || DEFAULT_LIBRARY_NAME;
 
-  // Hide all except the active library
-  const toHide = allLibraries
-    .filter(lib => lib.id !== activeLibrary)
-    .map(lib => lib.id);
+  // Hide all libraries
+  const toHide = allLibraries.map(lib => lib.id);
 
   await setHiddenLibraries(toHide);
 }
