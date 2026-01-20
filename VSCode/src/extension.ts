@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { LibraryStore } from './store';
 import { GroupsProvider, GroupItem, PromptItem } from './groups';
 import { Prompt, Group } from './model';
-import { getSettings, getActiveLibrary, getLibraryPath, setActiveLibrary, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries } from './settings';
+import { getSettings, getActiveLibrary, getLibraryPath, setActiveLibrary, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries, setRemoteRepoUrl, setRepoPath } from './settings';
 import { writeSharedGroups, writeToLibrary } from './sync/yamlWriter';
 import { log } from './log';
 import { checkoutNewBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, getGitVersion } from './sync/hybridGit';
@@ -952,6 +952,46 @@ export function activate(context: vscode.ExtensionContext) {
       log.info('Hidden all libraries except active');
       await groups.init();
     }),
+    vscode.commands.registerCommand('promptLibrary.selectHiddenLibraries', async () => {
+      const cfg = getSettings();
+      if (!cfg.repoPath) {
+        vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.');
+        return;
+      }
+
+      const availableLibraries = discoverLibraries(cfg.repoPath);
+      const currentlyHidden = getHiddenLibraryPaths();
+      const activeLibrary = getActiveLibrary();
+
+      // Create multi-select items (picked = hidden)
+      const items: vscode.QuickPickItem[] = availableLibraries.map(lib => ({
+        label: lib.displayName,
+        description: lib.id === activeLibrary.id ? '(active - cannot hide)' : lib.path,
+        picked: currentlyHidden.includes(lib.id) && lib.id !== activeLibrary.id
+      }));
+
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select libraries to HIDE (active library cannot be hidden)',
+        title: 'Select Libraries to Hide',
+        canPickMany: true
+      });
+
+      if (selected !== undefined) {
+        // Get IDs of selected libraries (to hide), excluding active
+        const toHide = selected
+          .map(item => availableLibraries.find(lib => lib.displayName === item.label)?.id)
+          .filter((id): id is string => id !== undefined && id !== activeLibrary.id);
+
+        await setHiddenLibraries(toHide);
+
+        const hiddenCount = toHide.length;
+        const visibleCount = availableLibraries.length - hiddenCount;
+        vscode.window.showInformationMessage(`${hiddenCount} libraries hidden, ${visibleCount} visible`);
+        log.info(`Hidden libraries: ${toHide.length > 0 ? toHide.join(', ') : '(none)'}`);
+
+        await groups.init();
+      }
+    }),
     vscode.commands.registerCommand('promptLibrary.createLibrary', async () => {
       const cfg = getSettings();
       if (!cfg.repoPath) {
@@ -1051,6 +1091,165 @@ export function activate(context: vscode.ExtensionContext) {
         log.info(`Set active library to: ${libraryId}`);
         await groups.init();
       }
+    }),
+    vscode.commands.registerCommand('promptLibrary.setupRepository', async () => {
+      const cfg = getSettings();
+
+      // Step 1: Ask how they want to set up
+      const setupChoice = await vscode.window.showQuickPick([
+        { label: '$(repo-clone) Clone from Git URL', description: 'Clone an existing prompt library repository', value: 'clone' },
+        { label: '$(folder) Use existing local folder', description: 'Point to a folder that already exists', value: 'existing' },
+        { label: '$(new-folder) Create new local folder', description: 'Create a new empty prompt library', value: 'new' }
+      ], {
+        placeHolder: 'How would you like to set up your prompt library?',
+        title: 'Prompt Library Setup'
+      });
+
+      if (!setupChoice) return;
+
+      if (setupChoice.value === 'clone') {
+        // Clone from git
+        const gitUrl = await vscode.window.showInputBox({
+          prompt: 'Enter the Git repository URL',
+          placeHolder: 'git@github.com:org/PromptLibrary.git or https://github.com/org/PromptLibrary.git',
+          value: cfg.remoteRepoUrl || '',
+          validateInput: (value) => {
+            if (!value || value.trim().length === 0) {
+              return 'Git URL is required';
+            }
+            if (!value.includes('github.com') && !value.includes('gitlab') && !value.includes('.git') && !value.startsWith('git@')) {
+              return 'Please enter a valid Git URL';
+            }
+            return undefined;
+          }
+        });
+
+        if (!gitUrl) return;
+
+        // Ask where to clone
+        const defaultPath = path.join(os.homedir(), 'PromptLibrary');
+        const clonePath = await vscode.window.showInputBox({
+          prompt: 'Where should the repository be cloned?',
+          value: defaultPath,
+          placeHolder: defaultPath
+        });
+
+        if (!clonePath) return;
+
+        const expandedPath = clonePath.startsWith('~/') ? path.join(os.homedir(), clonePath.slice(2)) : clonePath;
+
+        // Check if path already exists
+        if (fs.existsSync(expandedPath)) {
+          const overwrite = await vscode.window.showQuickPick(['Use existing folder', 'Cancel'], {
+            placeHolder: `Folder already exists at ${expandedPath}. Use it anyway?`
+          });
+          if (overwrite !== 'Use existing folder') return;
+        } else {
+          // Clone the repo
+          try {
+            vscode.window.showInformationMessage(`Cloning repository to ${expandedPath}...`);
+            const parentDir = path.dirname(expandedPath);
+            const folderName = path.basename(expandedPath);
+
+            if (!fs.existsSync(parentDir)) {
+              fs.mkdirSync(parentDir, { recursive: true });
+            }
+
+            const result = await gitClone(parentDir, gitUrl, folderName);
+            if (!result.success) {
+              vscode.window.showErrorMessage(`Clone failed: ${result.error}`);
+              return;
+            }
+            vscode.window.showInformationMessage('Repository cloned successfully!');
+          } catch (e: any) {
+            vscode.window.showErrorMessage(`Clone failed: ${e?.message || e}`);
+            return;
+          }
+        }
+
+        // Set the settings
+        await setRepoPath(clonePath);
+        await setRemoteRepoUrl(gitUrl);
+        log.info(`Setup complete: repoPath=${clonePath}, remoteUrl=${gitUrl}`);
+
+      } else if (setupChoice.value === 'existing') {
+        // Use existing folder
+        const folderUri = await vscode.window.showOpenDialog({
+          canSelectFiles: false,
+          canSelectFolders: true,
+          canSelectMany: false,
+          openLabel: 'Select Prompt Library Folder',
+          title: 'Select your prompt library folder'
+        });
+
+        if (!folderUri || folderUri.length === 0) return;
+
+        const selectedPath = folderUri[0].fsPath;
+        await setRepoPath(selectedPath);
+
+        // Check if it's a git repo and auto-detect remote
+        const gitCheck = await isGitRepo(selectedPath);
+        if (gitCheck.isRepo) {
+          const remoteUrl = await getRemoteUrl(selectedPath);
+          if (remoteUrl) {
+            await setRemoteRepoUrl(remoteUrl);
+            vscode.window.showInformationMessage(`Repository configured! Git remote auto-detected: ${remoteUrl}`);
+            log.info(`Setup complete: repoPath=${selectedPath}, auto-detected remoteUrl=${remoteUrl}`);
+          } else {
+            vscode.window.showInformationMessage('Repository configured! (No git remote detected - local-only mode)');
+            log.info(`Setup complete: repoPath=${selectedPath}, no remote detected`);
+          }
+        } else {
+          vscode.window.showInformationMessage('Folder configured! (Not a git repo - local-only mode)');
+          log.info(`Setup complete: repoPath=${selectedPath}, not a git repo`);
+        }
+
+      } else if (setupChoice.value === 'new') {
+        // Create new folder
+        const folderUri = await vscode.window.showOpenDialog({
+          canSelectFiles: false,
+          canSelectFolders: true,
+          canSelectMany: false,
+          openLabel: 'Select Parent Folder',
+          title: 'Select where to create the new prompt library'
+        });
+
+        if (!folderUri || folderUri.length === 0) return;
+
+        const parentPath = folderUri[0].fsPath;
+        const folderName = await vscode.window.showInputBox({
+          prompt: 'Enter a name for the new prompt library folder',
+          value: 'PromptLibrary',
+          validateInput: (value) => {
+            if (!value || value.trim().length === 0) return 'Folder name is required';
+            if (!/^[a-zA-Z0-9_-]+$/.test(value.trim())) return 'Use only letters, numbers, hyphens, underscores';
+            return undefined;
+          }
+        });
+
+        if (!folderName) return;
+
+        const newPath = path.join(parentPath, folderName.trim());
+
+        try {
+          // Create the folder with a default library
+          const defaultLibPath = path.join(newPath, 'general', 'General');
+          fs.mkdirSync(defaultLibPath, { recursive: true });
+          fs.writeFileSync(path.join(defaultLibPath, '_group.yaml'), 'name: General\ndescription: Default group\n');
+
+          await setRepoPath(newPath);
+          await setRemoteRepoUrl(''); // Clear any existing remote
+          vscode.window.showInformationMessage(`Created new prompt library at ${newPath}`);
+          log.info(`Setup complete: created new repo at ${newPath}`);
+        } catch (e: any) {
+          vscode.window.showErrorMessage(`Failed to create folder: ${e?.message || e}`);
+          return;
+        }
+      }
+
+      // Refresh everything
+      await groups.init();
+      updateLibraryStatusBar();
     }),
     vscode.commands.registerCommand('promptLibrary.syncWriteNow', async () => {
       const cfg = getSettings();
@@ -1407,7 +1606,30 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('promptLibrary.syncClonePullImport', async () => {
       const cfg = getSettings();
-      if (!cfg.remoteRepoUrl || !cfg.remoteRepoUrl.trim()) { vscode.window.showWarningMessage('Set promptLibrary.remoteRepoUrl in settings first.'); return; }
+      // If no remote URL is configured, check if repoPath is already a git repo with a remote
+      let remoteUrl = cfg.remoteRepoUrl?.trim() || '';
+      if (!remoteUrl && cfg.repoPath) {
+        const repoCheck = await isGitRepo(cfg.repoPath);
+        if (repoCheck.isRepo) {
+          const detected = await getRemoteUrl(cfg.repoPath);
+          if (detected) {
+            remoteUrl = detected;
+            log.info(`Auto-detected remote URL from existing repo: ${remoteUrl}`);
+          }
+        }
+      }
+      if (!remoteUrl) {
+        // No remote URL available - direct user to Setup Wizard
+        const choice = await vscode.window.showWarningMessage(
+          'No git repository configured. Use the Setup Wizard to clone or configure a repository.',
+          'Open Setup Wizard',
+          'Cancel'
+        );
+        if (choice === 'Open Setup Wizard') {
+          await vscode.commands.executeCommand('promptLibrary.setupRepository');
+        }
+        return;
+      }
       try {
         log.info('Clone/Pull+Import started...');
         let targetPath = cfg.repoPath;
@@ -1418,7 +1640,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         log.info(`Target path: ${targetPath}`);
-        log.info(`Remote URL: ${cfg.remoteRepoUrl}`);
+        log.info(`Remote URL: ${remoteUrl}`);
 
         // If the target path doesn't exist or isn't a git repo, clone it
         const repoCheck = await isGitRepo(targetPath);
@@ -1442,7 +1664,7 @@ export function activate(context: vscode.ExtensionContext) {
           const dirName = path.basename(targetPath);
           log.info(`Cloning to parent dir: ${parentDir}, dir name: ${dirName}`);
           try { fs.mkdirSync(parentDir, { recursive: true }); } catch { }
-          const cloneResult = await gitClone(parentDir, cfg.remoteRepoUrl, dirName);
+          const cloneResult = await gitClone(parentDir, remoteUrl, dirName);
           if (!cloneResult.success) {
             log.error(`Clone failed: ${cloneResult.error}`);
             vscode.window.showErrorMessage(`Clone failed: ${cloneResult.error || 'Unknown error'}`);

@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
 
-export type WriteStrategy = 'direct' | 'branchPR';
+
 
 /**
  * Expands tilde (~) in paths to the user's home directory
@@ -94,7 +94,6 @@ export interface PromptLibrarySettings {
   promptsSubdir: string; // active library folder name for writing, default 'general'
   hiddenLibraries: string[]; // list of library folders to hide (opt-out)
   branchName: string;
-  writeStrategy: WriteStrategy;
   autoFetch: { enabled: boolean; minutes: number };
 }
 
@@ -121,7 +120,6 @@ export function getSettings(): PromptLibrarySettings {
     promptsSubdir: promptsSubdir,
     hiddenLibraries: hiddenLibraries,
     branchName: cfg.get<string>('branchName', ''),
-    writeStrategy: cfg.get<WriteStrategy>('writeStrategy', 'direct'),
     autoFetch: {
       enabled: cfg.get<boolean>('autoFetch.enabled', false),
       minutes: cfg.get<number>('autoFetch.minutes', 5),
@@ -312,5 +310,21 @@ export function onSettingsChanged(cb: () => void): vscode.Disposable {
   return vscode.workspace.onDidChangeConfiguration(e => {
     if (e.affectsConfiguration('promptLibrary')) cb();
   });
+}
+
+/**
+ * Sets the remote repo URL in VS Code settings.
+ */
+export async function setRemoteRepoUrl(url: string): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration('promptLibrary');
+  await cfg.update('remoteRepoUrl', url, vscode.ConfigurationTarget.Global);
+}
+
+/**
+ * Sets the local repo path in VS Code settings.
+ */
+export async function setRepoPath(repoPath: string): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration('promptLibrary');
+  await cfg.update('repoPath', repoPath, vscode.ConfigurationTarget.Global);
 }
 

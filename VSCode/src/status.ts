@@ -7,7 +7,7 @@ export class StatusViewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _sub?: vscode.Disposable;
 
-  constructor() {}
+  constructor() { }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
     this._view = webviewView;
@@ -94,7 +94,6 @@ export class StatusViewProvider implements vscode.WebviewViewProvider {
         </div>
         <div class="kv">
           <div>repoPath: <b>${s.repoPath || '(not set)'}</b></div>
-          <div>writeStrategy: <b>${s.writeStrategy}</b></div>
           <div>promptsSubdir: <b>${s.promptsSubdir}</b></div>
           <div>autoFetch: <b>${s.autoFetch.enabled ? `every ${s.autoFetch.minutes} min` : 'disabled'}</b></div>
         </div>

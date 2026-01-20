@@ -92,7 +92,7 @@ export class SyncOpsPanel {
   private static postEntries() {
     try {
       this._panel?.webview.postMessage({ type: 'entries', payload: log.entries });
-    } catch {}
+    } catch { }
   }
 
   private static render() {
@@ -112,8 +112,7 @@ export class SyncOpsPanel {
       BANNER: banner,
       DISABLED: disabledAttr,
       REPO_PATH: s.repoPath || '(not set)',
-      PROMPTS_SUBDIR: s.promptsSubdir,
-      WRITE_STRATEGY: s.writeStrategy
+      PROMPTS_SUBDIR: s.promptsSubdir
     });
 
     this._panel!.webview.html = html;

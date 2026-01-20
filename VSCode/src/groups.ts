@@ -149,10 +149,9 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
       'library-root'
     );
     item.iconPath = new vscode.ThemeIcon('github');
-    item.description = isActive ? '✏️ active' : undefined;
     item.tooltip = isActive
-      ? `${lib.displayName} - Active library (prompts are written here)`
-      : `${lib.displayName} - Read-only (switch to make active)`;
+      ? `${lib.displayName} - Active library (new prompts are written here)`
+      : `${lib.displayName} - Click pencil icon to set as active`;
     return item;
   }
 

@@ -41,7 +41,6 @@ describe('settings', () => {
         promptsSubdir: 'general',
         hiddenLibraries: [],
         branchName: '',
-        writeStrategy: 'direct',
         autoFetch: {
           enabled: false,
           minutes: 5,
@@ -58,7 +57,6 @@ describe('settings', () => {
             'promptsSubdir': 'my-prompts',
             'hiddenLibraries': ['archived', 'deprecated'],
             'branchName': 'feature-branch',
-            'writeStrategy': 'branchPR',
             'autoFetch.enabled': true,
             'autoFetch.minutes': 10,
           };
@@ -79,7 +77,6 @@ describe('settings', () => {
         promptsSubdir: 'my-prompts',
         hiddenLibraries: ['archived', 'deprecated'],
         branchName: 'feature-branch',
-        writeStrategy: 'branchPR',
         autoFetch: {
           enabled: true,
           minutes: 10,
@@ -253,7 +250,6 @@ describe('settings', () => {
             'repoPath': '/path/to/repo',
             'promptsSubdir': 'platform',
             'branchName': 'main',
-            'writeStrategy': 'direct',
             'autoFetch.enabled': false,
             'autoFetch.minutes': 5,
           };
