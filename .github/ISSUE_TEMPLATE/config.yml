@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discussions
+    url: https://github.com/empowerfinance/TiltPromptLibraryPlugins/discussions
+    about: Ask questions and discuss ideas
+  - name: 📖 Documentation
+    url: https://github.com/empowerfinance/TiltPromptLibraryPlugins#readme
+    about: Read the documentation
+

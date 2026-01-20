@@ -1,150 +1,143 @@
-# CI/CD Testing Updates
+# CI/CD Pipeline Documentation
 
 ## Overview
-Added comprehensive testing and reporting for the Rider plugin in the GitHub Actions workflow.
 
-## Changes Made to `build-and-release.yml`
+This repository uses GitHub Actions for continuous integration and delivery. The pipeline builds and tests both the **VS Code extension** (TypeScript) and **Rider plugin** (Kotlin), then creates combined releases on the main branch.
 
-### New Steps Added (after "Warm IntelliJ Platform cache")
-
-1. **Run Rider plugin tests**
-   - Executes all unit tests using `./gradlew test`
-   - 10-minute timeout to prevent hanging
-   - Runs before building the plugin to catch issues early
-
-2. **Generate test report**
-   - Creates JaCoCo coverage report using `./gradlew jacocoTestReport`
-   - Runs with `if: always()` to generate reports even if tests fail
-   - Uses `continue-on-error: true` to not block the build if report generation fails
-
-3. **Upload test results**
-   - Uploads test reports and results as artifacts
-   - Includes both HTML reports and XML test results
-   - Retained for 30 days for debugging
-   - Runs with `if: always()` to upload results even if tests fail
-
-4. **Upload coverage report**
-   - Uploads JaCoCo coverage reports as artifacts
-   - Helps track code coverage over time
-   - Retained for 30 days
-   - Runs with `if: always()` to upload even if tests fail
-
-## Benefits
-
-### 1. **Early Failure Detection**
-- Tests run before building the plugin
-- Catches issues before creating artifacts
-- Saves CI time by failing fast
-
-### 2. **Test Visibility**
-- Test results uploaded as artifacts
-- Easy to download and review HTML reports
-- Can see which tests passed/failed without checking logs
-
-### 3. **Coverage Tracking**
-- JaCoCo reports show code coverage
-- Helps identify untested code
-- Can track coverage trends over time
-
-### 4. **Debugging Support**
-- Test results available even when tests fail
-- Coverage reports help identify problematic areas
-- 30-day retention allows historical analysis
-
-## Workflow Execution Order
+## Pipeline Architecture
 
 ```
-1. Checkout code
-2. Set up JDK 17
-3. Setup Gradle
-4. Cache Gradle packages
-5. Set plugin version
-6. Ensure Gradle wrapper is executable
-7. Warm IntelliJ Platform cache
-8. ✨ Run Rider plugin tests (NEW)
-9. ✨ Generate test report (NEW)
-10. ✨ Upload test results (NEW)
-11. ✨ Upload coverage report (NEW)
-12. Build Rider plugin
-13. Verify plugin artifact
-14. Rename artifact
-15. Upload plugin artifact
+┌─────────────────────────────────────────────────────────────────┐
+│                    Pull Request / Push to main                  │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+            ┌─────────────────┴─────────────────┐
+            ▼                                   ▼
+    ┌───────────────┐                   ┌───────────────┐
+    │  build_rider  │                   │  build_vscode │
+    │   (Kotlin)    │                   │  (TypeScript) │
+    └───────────────┘                   └───────────────┘
+            │                                   │
+            │  • JDK 17 + Gradle               │  • Node.js 20
+            │  • Unit tests                     │  • Vitest tests
+            │  • JaCoCo coverage               │  • VSIX package
+            │  • Plugin ZIP                     │
+            └─────────────────┬─────────────────┘
+                              │
+                              ▼ (main branch only)
+                    ┌───────────────┐
+                    │    release    │
+                    │               │
+                    │ Creates GitHub│
+                    │ Release with  │
+                    │ both artifacts│
+                    └───────────────┘
 ```
 
-## Artifacts Generated
+## Jobs
 
-### Per Build
-1. **rider-test-results-{version}**
-   - Location: `Rider/build/reports/tests/`
-   - Location: `Rider/build/test-results/`
-   - Contains: HTML test reports and XML results
+### 1. `build_rider` - Rider Plugin Build
 
-2. **rider-coverage-report-{version}**
-   - Location: `Rider/build/reports/jacoco/`
-   - Contains: JaCoCo coverage reports (HTML and XML)
+| Step                         | Description                   | Timeout |
+| ---------------------------- | ----------------------------- | ------- |
+| Setup JDK 17                 | Temurin distribution          | -       |
+| Setup Gradle 8.10.2          | With caching                  | -       |
+| Warm IntelliJ Platform cache | Download IDE dependencies     | 25 min  |
+| Run tests                    | `./gradlew test`              | 10 min  |
+| Generate coverage report     | JaCoCo HTML/XML reports       | -       |
+| Build plugin                 | `./gradlew buildPlugin`       | -       |
+| Upload artifacts             | ZIP + test results + coverage | 30 days |
 
-3. **plugin-distribution-{version}** (existing)
-   - Contains: Built plugin ZIP file
+### 2. `build_vscode` - VS Code Extension Build
 
-## Accessing Test Results
+| Step                  | Description                  |
+| --------------------- | ---------------------------- |
+| Setup Node.js 20.18.1 | With npm caching             |
+| Install dependencies  | `npm ci`                     |
+| Run tests             | `npm test` (Vitest)          |
+| Compile               | TypeScript compilation       |
+| Package VSIX          | `@vscode/vsce package`       |
+| Upload artifact       | VSIX file, 30 days retention |
 
-### Via GitHub Actions UI
-1. Go to the Actions tab
+### 3. `release` - Combined Release (main branch only)
+
+| Step                  | Description                       |
+| --------------------- | --------------------------------- |
+| Download artifacts    | Both Rider ZIP and VS Code VSIX   |
+| Create GitHub Release | Tag: `tilt-plugins-v{run_number}` |
+
+## Artifacts
+
+| Artifact Name                     | Contents                        | Retention |
+| --------------------------------- | ------------------------------- | --------- |
+| `plugin-distribution-{version}`   | Rider plugin ZIP                | 30 days   |
+| `rider-test-results-{version}`    | Test HTML reports + XML results | 30 days   |
+| `rider-coverage-report-{version}` | JaCoCo coverage reports         | 30 days   |
+| `vscode-extension-{version}`      | VS Code VSIX package            | 30 days   |
+
+## Accessing Artifacts
+
+1. Go to **Actions** tab in GitHub
 2. Click on a workflow run
-3. Scroll to "Artifacts" section
-4. Download `rider-test-results-{version}` or `rider-coverage-report-{version}`
+3. Scroll to **Artifacts** section
+4. Download the desired artifact
 
-### Viewing Reports
-- **Test Results**: Open `build/reports/tests/test/index.html` in a browser
-- **Coverage**: Open `build/reports/jacoco/test/html/index.html` in a browser
+### Viewing Reports Locally
 
-## Configuration
+```bash
+# Test results (Rider)
+open Rider/build/reports/tests/test/index.html
 
-### Timeouts
-- Test execution: 10 minutes
-- Can be adjusted if tests take longer
+# Coverage report (Rider)
+open Rider/build/reports/jacoco/test/html/index.html
+```
 
-### Retention
-- All artifacts: 30 days
-- Can be adjusted based on storage needs
+## Versioning
 
-## Future Enhancements
+All artifacts use version `0.0.{run_number}` where `run_number` is the GitHub Actions run number. This provides:
 
-1. **Test Result Publishing**
-   - Use `dorny/test-reporter` action to publish results as PR comments
-   - Add coverage badges to README
+- Unique, sequential versions
+- Easy correlation between artifacts and workflow runs
+- No manual version bumping required
 
-2. **Coverage Thresholds**
-   - Fail build if coverage drops below threshold
-   - Configure minimum coverage requirements
+## Triggers
 
-3. **Parallel Testing**
-   - Split tests into multiple jobs for faster execution
-   - Run different test suites in parallel
-
-4. **Performance Testing**
-   - Add performance benchmarks
-   - Track test execution time trends
+| Event        | Branches | Jobs Run                           |
+| ------------ | -------- | ---------------------------------- |
+| Push         | `main`   | build_rider, build_vscode, release |
+| Pull Request | `main`   | build_rider, build_vscode          |
 
 ## Troubleshooting
 
-### Tests Fail in CI but Pass Locally
-- Check Java version (CI uses JDK 17)
-- Verify Gradle version matches
-- Check for environment-specific dependencies
+### Rider Tests Fail in CI but Pass Locally
 
-### Test Timeout
-- Increase timeout in workflow file
-- Investigate slow tests
-- Consider splitting into multiple jobs
+1. **Check Java version**: CI uses JDK 17 (Temurin)
+2. **Check Gradle version**: CI uses Gradle 8.10.2
+3. **Check for environment dependencies**: Look for hardcoded paths or OS-specific code
+
+### VS Code Tests Fail
+
+1. **Check Node version**: CI uses Node.js 20.18.1
+2. **Run `npm ci`** locally to match CI's clean install
+3. **Check for missing mocks**: Vitest may need different mocks for CI
+
+### Build Timeout
+
+- IntelliJ Platform cache warm-up: 25 minute timeout
+- Rider tests: 10 minute timeout
+- Increase timeouts in `build-and-release.yml` if needed
 
 ### Coverage Report Not Generated
-- Check if tests ran successfully
-- Verify JaCoCo plugin is configured in `build.gradle.kts`
-- Check Gradle logs for errors
+
+1. Verify tests ran successfully
+2. Check JaCoCo plugin in `Rider/build.gradle.kts`
+3. Review Gradle logs for errors
 
 ## Related Files
-- `.github/workflows/build-and-release.yml` - Main workflow file
-- `Rider/build.gradle.kts` - Gradle build configuration with JaCoCo
-- `Rider/src/test/` - Test source directory
 
+| File                                      | Purpose                        |
+| ----------------------------------------- | ------------------------------ |
+| `.github/workflows/build-and-release.yml` | Main CI workflow               |
+| `Rider/build.gradle.kts`                  | Rider build config with JaCoCo |
+| `VSCode/package.json`                     | VS Code build scripts          |
+| `VSCode/vitest.config.ts`                 | Vitest test configuration      |

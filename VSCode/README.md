@@ -26,6 +26,8 @@ A VS Code extension for organizing and managing reusable prompts with GitHub syn
 
 **From Source**
 
+Prerequisites: Node.js 18+, VS Code 1.85+
+
 ```bash
 cd VSCode
 npm install
@@ -103,12 +105,10 @@ npm test              # Run tests
 npm run package       # Build .vsix
 ```
 
-See [docs/BABY_STEPS_PLAN.md](docs/BABY_STEPS_PLAN.md) for implementation details.
+See [docs/development/BABY_STEPS_PLAN.md](docs/development/BABY_STEPS_PLAN.md) for implementation details.
 
 ## 📄 License
 
 MIT - See [LICENSE](LICENSE)
 
----
-
-**Built with ❤️ using evolutionary development**
+Created by [Tilt Finance](https://tilt.com/) in collaboration with [Augment](https://www.augmentcode.com/).
