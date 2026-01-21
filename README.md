@@ -1,6 +1,6 @@
 # Tilt Prompt Library Plugins
 
-[![Build Pipeline v1.0](https://github.com/empowerfinance/TiltPromptLibraryPlugins/actions/workflows/build-v1.0.yml/badge.svg)](https://github.com/empowerfinance/TiltPromptLibraryPlugins/actions/workflows/build-v1.0.yml)
+[![Build and Release Pipeline](https://github.com/empowerfinance/TiltPromptLibraryPlugins/actions/workflows/build-v0.1.yml/badge.svg)](https://github.com/empowerfinance/TiltPromptLibraryPlugins/actions/workflows/build-v0.1.yml)
 
 A collection of IDE plugins for organizing and managing reusable prompts with GitHub sync. Available for **VS Code** and **JetBrains Rider**.
 
