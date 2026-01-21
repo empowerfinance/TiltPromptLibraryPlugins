@@ -48,33 +48,33 @@ fun titleCase(str: String): String {
 
 /**
  * Discovers available libraries in a repository by scanning for directories
- * that contain subdirectories with _group.yaml files.
+ * that contain a _library.yaml file at their root.
+ *
+ * A valid library structure:
+ *   repoRoot/
+ *     MyLibrary/
+ *       _library.yaml    <- Identifies this folder as a library
+ *       GroupA/
+ *         _group.yaml    <- Identifies this folder as a group
+ *         prompts/
  */
 fun discoverLibraries(repoPath: String): List<LibraryConfig> {
     val libraries = mutableListOf<LibraryConfig>()
     val repoDir = java.io.File(repoPath)
 
     if (!repoDir.exists() || !repoDir.isDirectory) {
-        return listOf(
-            LibraryConfig(
-                id = DEFAULT_LIBRARY_NAME,
-                path = DEFAULT_LIBRARY_NAME,
-                displayName = titleCase(DEFAULT_LIBRARY_NAME),
-                enabled = true
-            )
-        )
+        // Return empty list for non-existent or invalid paths
+        return emptyList()
     }
 
     try {
         repoDir.listFiles()?.filter {
             it.isDirectory && !it.name.startsWith(".") && it.name != "node_modules"
         }?.forEach { potentialLibDir ->
-            // Check if this directory looks like a library (has subdirs with _group.yaml)
-            val hasGroupYaml = potentialLibDir.listFiles()?.any { subDir ->
-                subDir.isDirectory && java.io.File(subDir, "_group.yaml").exists()
-            } ?: false
+            // Check if this directory is a library (has _library.yaml at its root)
+            val libraryYamlFile = java.io.File(potentialLibDir, "_library.yaml")
 
-            if (hasGroupYaml) {
+            if (libraryYamlFile.exists()) {
                 libraries.add(
                     LibraryConfig(
                         id = potentialLibDir.name,
@@ -89,18 +89,9 @@ fun discoverLibraries(repoPath: String): List<LibraryConfig> {
         // Silently ignore errors during discovery
     }
 
-    // If no libraries found, return the default
-    if (libraries.isEmpty()) {
-        libraries.add(
-            LibraryConfig(
-                id = DEFAULT_LIBRARY_NAME,
-                path = DEFAULT_LIBRARY_NAME,
-                displayName = titleCase(DEFAULT_LIBRARY_NAME),
-                enabled = true
-            )
-        )
-    }
-
+    // Return discovered libraries only - no default fallback
+    // If no libraries found, return empty list.
+    // The UI should handle this case by prompting user to create a library.
     return libraries
 }
 

@@ -7,8 +7,9 @@ import { log } from './log';
 
 const LIB_FILE = 'library.v2.json';
 
-function genId(prefix: string): string {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+function genId(prefix?: string): string {
+  const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  return prefix ? `${prefix}-${suffix}` : suffix;
 }
 
 export class LibraryStore {
@@ -92,7 +93,7 @@ export class LibraryStore {
     const now = new Date().toISOString();
     const fallbackTitle = (text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim();
     const finalTitle = (((title ?? '').trim()) && !/^(null|undefined|~)$/i.test((title ?? '').trim())) ? (title as string).trim() : fallbackTitle;
-    const prompt: Prompt = { id: genId('p'), text, title: finalTitle || undefined, createdAt: now, updatedAt: now, tags: [], private: group.kind === 'private', libraryId: group.libraryId };
+    const prompt: Prompt = { id: genId(), text, title: finalTitle || undefined, createdAt: now, updatedAt: now, tags: [], private: group.kind === 'private', libraryId: group.libraryId };
     group.prompts.push(prompt);
     await this.save(lib);
 
@@ -389,7 +390,7 @@ export class LibraryStore {
       if (typeof t !== 'string') { skipped++; continue; }
       const n = this.normalizeForCompare(t);
       if (seen.has(n)) { skipped++; continue; }
-      const prompt: Prompt = { id: genId('p'), text: t, createdAt: now, updatedAt: now, tags: [], private: true };
+      const prompt: Prompt = { id: genId(), text: t, createdAt: now, updatedAt: now, tags: [], private: true };
       unfiled.prompts.push(prompt);
       seen.add(n);
       added++;
@@ -432,7 +433,7 @@ export class LibraryStore {
     for (const t of texts) {
       const n = this.normalizeForCompare(t);
       if (seen.has(n)) { skipped++; continue; }
-      const prompt: Prompt = { id: genId('p'), text: t, createdAt: now, updatedAt: now, tags: [], private: true };
+      const prompt: Prompt = { id: genId(), text: t, createdAt: now, updatedAt: now, tags: [], private: true };
       unfiled.prompts.push(prompt);
       seen.add(n);
       added++;

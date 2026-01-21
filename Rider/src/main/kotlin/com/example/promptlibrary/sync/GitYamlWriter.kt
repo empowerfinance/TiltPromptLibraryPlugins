@@ -8,12 +8,10 @@ import com.example.promptlibrary.yaml.PromptYaml
 import java.io.File
 
 /** Writes Shared groups to the repo tree.
- * Structure per group:
+ * Structure per group (flat - prompts directly in group folder, no nested groups):
  *   <root>/<groupName>/
- *     _group.yaml   (meta only: prompts/children omitted)
- *     prompts/
- *       p-<id>.yaml (public prompts only)
- *     <child>/...
+ *     _group.yaml   (meta only: prompts omitted)
+ *     p-<id>.yaml   (public prompts only, directly in group folder)
  */
 object GitYamlWriter {
     private const val GITIGNORE_CONTENT = """# OS generated files
@@ -34,9 +32,22 @@ Thumbs.db
     // Returns triple of (added, updated, deleted) file counts across the Shared tree
     fun writeSharedGroups(rootDir: File, groups: List<Group>): Triple<Int, Int, Int> {
         val before = snapshotFiles(rootDir)
+
+        // Preserve _library.yaml content if it exists (we'll recreate it after the clean rewrite)
+        val libraryYamlFile = File(rootDir, "_library.yaml")
+        val libraryYamlContent: String = if (libraryYamlFile.exists()) {
+            libraryYamlFile.readText()
+        } else {
+            // Create a default one based on folder name
+            "name: ${rootDir.name}\ndescription: \n"
+        }
+
         // Clean rewrite to reflect current Shared state (removes stale groups like prior synthetic ones)
         if (rootDir.exists()) rootDir.deleteRecursively()
         rootDir.mkdirs()
+
+        // Restore/create _library.yaml (required marker file for library detection)
+        libraryYamlFile.writeText(libraryYamlContent)
 
         // Ensure .gitignore exists in the parent (repo root)
         ensureGitignore(rootDir.parentFile ?: rootDir)
@@ -76,19 +87,16 @@ Thumbs.db
     private fun writeGroupDir(parent: File, g: Group) {
         val dir = File(parent, sanitize(g.name))
         dir.mkdirs()
-        // Write meta without prompts/children to keep files clean
+        // Write meta without prompts to keep files clean
         val meta = File(dir, "_group.yaml")
         GroupYaml.writeGroup(g.copy(children = emptyList(), prompts = emptyList()), meta)
 
-        // Prompts directory
-        val promptsDir = File(dir, "prompts").apply { mkdirs() }
-        // Write all prompts under Shared groups, regardless of isPrivate flag in storage
+        // Write prompts directly in the group folder (no prompts/ subdirectory)
         g.prompts.forEach { p ->
-            val file = File(promptsDir, "p-${p.id}.yaml")
+            val file = File(dir, "p-${p.id}.yaml")
             PromptYaml.writePrompt(stripPrivateFields(p), file)
         }
-        // Children
-        g.children.forEach { child -> writeGroupDir(dir, child) }
+        // No nested child groups - groups are flat (only at library root level)
     }
 
     private fun stripPrivateFields(p: Prompt): Prompt {
@@ -119,18 +127,17 @@ Thumbs.db
      * @param prompt - The prompt to write
      */
     fun writeSinglePrompt(repoRoot: File, libraryPath: String, groupPath: List<String>, prompt: Prompt) {
-        // Build the full path: repoRoot/libraryPath/group1/group2/.../prompts/p-{id}.yaml
+        // Build the full path: repoRoot/libraryPath/group1/group2/.../p-{id}.yaml
         var dir = File(repoRoot, libraryPath)
         for (groupFolder in groupPath) {
             dir = File(dir, sanitize(groupFolder))
         }
 
-        // Create prompts subdirectory
-        val promptsDir = File(dir, "prompts")
-        promptsDir.mkdirs()
+        // Ensure group directory exists
+        dir.mkdirs()
 
-        // Write the prompt file
-        val file = File(promptsDir, "p-${prompt.id}.yaml")
+        // Write the prompt file directly in the group folder (no prompts/ subdirectory)
+        val file = File(dir, "p-${prompt.id}.yaml")
         PromptYaml.writePrompt(stripPrivateFields(prompt), file)
     }
 
@@ -148,8 +155,8 @@ Thumbs.db
             dir = File(dir, sanitize(groupFolder))
         }
 
-        val promptsDir = File(dir, "prompts")
-        val file = File(promptsDir, "p-$promptId.yaml")
+        // Delete prompt file directly from group folder (no prompts/ subdirectory)
+        val file = File(dir, "p-$promptId.yaml")
 
         if (file.exists()) {
             file.delete()

@@ -4,11 +4,11 @@ import { LibraryStore } from './store';
 import { GroupsProvider, GroupItem, PromptItem } from './groups';
 import { Prompt, Group } from './model';
 // Note: setActiveLibrary removed - libraries are contextual (no "active library" concept in UI)
-import { getSettings, getActiveLibrary, getLibraryPath, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries, setRemoteRepoUrl, setRepoPath } from './settings';
+import { getSettings, getActiveLibrary, getLibraryPath, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries, setRemoteRepoUrl, setRepoPath, setActiveLibrary } from './settings';
 import { writeSharedGroups, writeToLibrary } from './sync/yamlWriter';
 import { log } from './log';
-import { checkoutNewBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, getGitVersion } from './sync/hybridGit';
-import { tryBuildGithubCompareUrl, fetch as gitFetch, pull as gitPull, clone as gitClone, resetHardToRemote, cleanUntracked } from './sync/git';
+import { checkoutNewBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, getGitVersion, smartPull } from './sync/hybridGit';
+import { tryBuildGithubCompareUrl, fetch as gitFetch, clone as gitClone, resetHardToRemote, cleanUntracked } from './sync/git';
 import { start as startScheduler } from './sync/scheduler';
 import { readSharedGroups, readFromLibrary, readFromLibraries } from './sync/yamlReader';
 import { SyncOpsPanel } from './syncOps';
@@ -308,7 +308,7 @@ export function activate(context: vscode.ExtensionContext) {
       try {
         log.info('Auto-reading libraries from disk on activation...');
         const enabledLibraries = getEnabledLibraries();
-        const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries, 'prompts');
+        const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries);
 
         const addLibraryMetadata = (grps: Group[], libraryId: string): Group[] => {
           return grps.map(g => {
@@ -624,7 +624,7 @@ export function activate(context: vscode.ExtensionContext) {
         try {
           // Re-read all libraries from disk
           const enabledLibraries = getEnabledLibraries();
-          const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries, 'prompts');
+          const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries);
 
           const addLibraryMetadata = (grps: Group[], libraryId: string): Group[] => {
             return grps.map(g => {
@@ -679,12 +679,17 @@ export function activate(context: vscode.ExtensionContext) {
       if (!cfg.repoPath) { vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.'); return; }
       try {
         log.info('Pull & Sync started...');
-        const pulled = await gitPull(cfg.repoPath);
-        if (!pulled) { log.warn('Pull failed'); vscode.window.showWarningMessage('Pull failed. See Sync Ops for details.'); }
+        const pullResult = await smartPull(cfg.repoPath);
+        if (!pullResult.success) {
+          log.warn(`Pull failed: ${pullResult.error}`);
+          vscode.window.showWarningMessage('Pull failed. See Sync Ops for details.');
+        } else if (pullResult.autoCommitted) {
+          log.info('Local changes were auto-committed before pull');
+        }
 
         // Read from all enabled libraries
         const enabledLibraries = getEnabledLibraries();
-        const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries, 'prompts');
+        const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries);
 
         const addLibraryMetadata = (grps: Group[], libraryId: string): Group[] => {
           return grps.map(g => {
@@ -749,7 +754,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Read from all enabled libraries
         const enabledLibraries = getEnabledLibraries();
-        const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries, 'prompts');
+        const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries);
 
         const addLibraryMetadata = (grps: Group[], libraryId: string): Group[] => {
           return grps.map(g => {
@@ -970,19 +975,61 @@ export function activate(context: vscode.ExtensionContext) {
       try {
         const libraryPath = path.join(cfg.repoPath, libraryName.trim());
 
-        // Create the library folder with a default group
-        const defaultGroupPath = path.join(libraryPath, 'General');
-        fs.mkdirSync(defaultGroupPath, { recursive: true });
+        // Create just the library folder with a _library.yaml marker file
+        // No nested folders - user will add groups themselves
+        fs.mkdirSync(libraryPath, { recursive: true });
 
-        // Create a _group.yaml file for the default group
-        const groupYamlContent = `name: General\ndescription: Default group for ${libraryName}\n`;
-        fs.writeFileSync(path.join(defaultGroupPath, '_group.yaml'), groupYamlContent);
+        // Create a _library.yaml file to mark this as a library
+        const libraryYamlContent = `name: ${libraryName.trim()}\ndescription: \n`;
+        fs.writeFileSync(path.join(libraryPath, '_library.yaml'), libraryYamlContent);
 
         vscode.window.showInformationMessage(`Library "${libraryName}" created successfully!`);
         log.info(`Created new library: ${libraryName} at ${libraryPath}`);
 
+        // Set the newly created library as the active library
+        await setActiveLibrary(libraryName.trim());
+        log.info(`Set active library to: ${libraryName.trim()}`);
+
+        // Re-read all libraries from disk (the new library is now discoverable)
+        const enabledLibraries = getEnabledLibraries();
+        const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries);
+
+        const addLibraryMetadata = (grps: Group[], libraryId: string): Group[] => {
+          return grps.map(g => {
+            const uniqueGroupId = g.id.startsWith(`${libraryId}:`) ? g.id : `${libraryId}:${g.id}`;
+            return {
+              ...g,
+              id: uniqueGroupId,
+              kind: 'shared' as const,
+              libraryId,
+              prompts: g.prompts.map(p => ({
+                ...p,
+                id: p.id.startsWith(`${libraryId}:`) ? p.id : `${libraryId}:${p.id}`,
+                libraryId
+              })),
+              children: addLibraryMetadata(g.children || [], libraryId)
+            };
+          });
+        };
+
+        const allGroups: Group[] = [];
+        for (const [libraryId, grps] of libraryGroupsMap) {
+          const groupsWithMetadata = addLibraryMetadata(grps, libraryId);
+          allGroups.push(...groupsWithMetadata);
+        }
+
+        // Update the store with refreshed library data
+        const lib = await store.getLibrary();
+        const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
+        if (sharedRoot) {
+          sharedRoot.children = allGroups;
+          sharedRoot.prompts = [];
+          await store.save(lib);
+        }
+
         // Refresh to show the new library
         await groups.init();
+        log.info(`Library refresh complete: ${enabledLibraries.length} libraries, ${allGroups.length} groups`);
       } catch (e: any) {
         vscode.window.showErrorMessage(`Failed to create library: ${e?.message || e}`);
         log.error(`Failed to create library: ${e?.message || e}`);
@@ -1165,7 +1212,7 @@ export function activate(context: vscode.ExtensionContext) {
         const libraryPath = getLibraryPath(cfg.repoPath, activeLibrary);
         log.info(`Writing to library: ${activeLibrary.displayName} at ${libraryPath}`);
 
-        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children, 'prompts');
+        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children);
         const ms = Date.now() - started;
         vscode.window.showInformationMessage(`Sync write complete. Added ${result.added}, updated ${result.updated}, deleted ${result.deleted}.`);
         log.info(`Sync write complete in ${ms}ms. Added ${result.added}, updated ${result.updated}, deleted ${result.deleted}.`);
@@ -1185,7 +1232,7 @@ export function activate(context: vscode.ExtensionContext) {
         log.info(`Reading from ${enabledLibraries.length} libraries: ${enabledLibraries.map(l => l.displayName).join(', ')}`);
 
         // Read from all enabled libraries
-        const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries, 'prompts');
+        const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries);
 
         // Helper to add library metadata to groups and prompts recursively
         const addLibraryMetadata = (groups: Group[], libraryId: string): Group[] => {
@@ -1279,13 +1326,13 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       try {
-        // STEP 1: Pull latest from remote first (to avoid push rejection)
-        log.info('Pulling latest from remote before sync...');
-        const pullSuccess = await gitPull(repoPath);
-        if (!pullSuccess) {
-          log.error('Pull failed - there may be merge conflicts');
+        // STEP 1: Smart pull - commits local changes first if needed, then pulls with rebase
+        log.info('Smart pull: checking for local changes and pulling latest...');
+        const pullResult = await smartPull(repoPath);
+        if (!pullResult.success) {
+          log.error(`Pull failed: ${pullResult.error}`);
           vscode.window.showErrorMessage(
-            'Pull failed. There may be merge conflicts or the remote is unreachable. Please resolve manually in terminal:\n\ncd ' + repoPath + '\ngit pull',
+            `Pull failed: ${pullResult.error}\n\nPlease resolve manually in terminal:\n\ncd ${repoPath}\ngit status`,
             'Open Terminal'
           ).then(choice => {
             if (choice === 'Open Terminal') {
@@ -1295,6 +1342,9 @@ export function activate(context: vscode.ExtensionContext) {
             }
           });
           return;
+        }
+        if (pullResult.autoCommitted) {
+          log.info('Local changes were auto-committed before pull');
         }
         log.info('Pull successful');
 
@@ -1314,7 +1364,7 @@ export function activate(context: vscode.ExtensionContext) {
         const libraryPath = getLibraryPath(repoPath, activeLibrary);
         log.info(`Writing to library: ${activeLibrary.displayName} at ${libraryPath}`);
 
-        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children, 'prompts');
+        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children);
         log.info(`Write result: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
 
         // STEP 3: Stage and commit
@@ -1329,13 +1379,15 @@ export function activate(context: vscode.ExtensionContext) {
           vscode.window.showWarningMessage(`Commit failed: ${commitResult.error}`);
           return;
         }
-        if (commitResult.nothingToCommit) {
-          log.warn('Nothing to commit.');
+        // STEP 4: Push to remote (push even if nothingToCommit - auto-commit may need pushing)
+        if (commitResult.nothingToCommit && !pullResult.autoCommitted) {
+          log.info('Nothing to commit and no auto-commit to push.');
           vscode.window.showInformationMessage('No changes to commit.');
           return;
         }
-
-        // STEP 4: Push to remote
+        if (commitResult.nothingToCommit) {
+          log.info('Nothing new to commit, but pushing auto-committed changes...');
+        }
         log.info('Pushing to remote...');
         const pushResult = await gitPush(repoPath);
         log.info(`Push result: success=${pushResult.success}`);
@@ -1388,13 +1440,13 @@ export function activate(context: vscode.ExtensionContext) {
       // Prefer configured branchName; fallback to timestamped branch
       const branch = cfg.branchName && cfg.branchName.trim() ? cfg.branchName.trim() : `prompt-sync/${new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16)}`;
       try {
-        // STEP 1: Pull latest from remote first (to avoid conflicts when branching)
-        log.info('Pulling latest from remote before creating branch...');
-        const pullSuccess = await gitPull(repoPath);
-        if (!pullSuccess) {
-          log.error('Pull failed - there may be merge conflicts');
+        // STEP 1: Smart pull - commits local changes first if needed, then pulls with rebase
+        log.info('Smart pull: checking for local changes before creating branch...');
+        const pullResult = await smartPull(repoPath);
+        if (!pullResult.success) {
+          log.error(`Pull failed: ${pullResult.error}`);
           vscode.window.showErrorMessage(
-            'Pull failed. There may be merge conflicts or the remote is unreachable. Please resolve manually in terminal:\n\ncd ' + repoPath + '\ngit pull',
+            `Pull failed: ${pullResult.error}\n\nPlease resolve manually in terminal:\n\ncd ${repoPath}\ngit status`,
             'Open Terminal'
           ).then(choice => {
             if (choice === 'Open Terminal') {
@@ -1404,6 +1456,9 @@ export function activate(context: vscode.ExtensionContext) {
             }
           });
           return;
+        }
+        if (pullResult.autoCommitted) {
+          log.info('Local changes were auto-committed before pull');
         }
         log.info('Pull successful');
 
@@ -1435,7 +1490,7 @@ export function activate(context: vscode.ExtensionContext) {
         const libraryPath = getLibraryPath(repoPath, activeLibrary);
         log.info(`Writing to library: ${activeLibrary.displayName} at ${libraryPath}`);
 
-        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children, 'prompts');
+        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children);
         log.info(`Write result: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
         await stageAll(repoPath);
         log.info('Staged all changes');
@@ -1453,6 +1508,8 @@ export function activate(context: vscode.ExtensionContext) {
           vscode.window.showInformationMessage('No changes to commit.');
           return;
         }
+
+        // STEP 5: Push branch
         log.info(`Pushing to origin/${branch}...`);
         const pushResult = await gitPush(repoPath, 'origin', branch);
         log.info(`Push result: success=${pushResult.success}`);
@@ -1494,10 +1551,18 @@ export function activate(context: vscode.ExtensionContext) {
       const cfg = getSettings();
       if (!cfg.repoPath) { vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.'); return; }
       try {
-        log.info('Pull started...');
-        const ok = await gitPull(cfg.repoPath);
-        if (ok) { log.info('Pull complete'); vscode.window.showInformationMessage('Pull complete'); }
-        else { log.warn('Pull failed'); vscode.window.showWarningMessage('Pull failed. See Sync Status.'); }
+        log.info('Smart pull started...');
+        const result = await smartPull(cfg.repoPath);
+        if (result.success) {
+          const msg = result.autoCommitted
+            ? 'Pull complete (local changes were auto-committed first)'
+            : 'Pull complete';
+          log.info(msg);
+          vscode.window.showInformationMessage(msg);
+        } else {
+          log.warn(`Pull failed: ${result.error}`);
+          vscode.window.showWarningMessage(`Pull failed: ${result.error}`);
+        }
       } catch (e: any) {
         log.error(`Pull failed: ${e?.message || e}`);
         vscode.window.showWarningMessage('Pull failed. See Sync Status for details.');
@@ -1587,9 +1652,9 @@ export function activate(context: vscode.ExtensionContext) {
           await vscode.workspace.getConfiguration('promptLibrary')
             .update('repoPath', targetPath, vscode.ConfigurationTarget.Global);
         }
-        const pulled = await gitPull(targetPath);
-        if (!pulled) { log.warn('Pull failed'); vscode.window.showWarningMessage('Pull failed. See Sync Status.'); }
-        const groupsFromRepo = await readSharedGroups(vscode.Uri.file(targetPath), cfg.promptsSubdir);
+        const pullResult = await smartPull(targetPath);
+        if (!pullResult.success) { log.warn(`Pull failed: ${pullResult.error}`); vscode.window.showWarningMessage('Pull failed. See Sync Status.'); }
+        const groupsFromRepo = await readSharedGroups(vscode.Uri.file(targetPath));
         const countPrompts = (gs: any[]): number => gs.reduce((acc, g) => acc + (Array.isArray(g.prompts) ? g.prompts.length : 0) + countPrompts(g.children || []), 0);
         const totalPrompts = countPrompts(groupsFromRepo as any);
         const lib = await store.getLibrary();

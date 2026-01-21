@@ -68,11 +68,41 @@ class PluginSettingsService : PersistentStateComponent<PluginSettingsService.Sta
         }
 
         /**
-         * Gets the effective promptsSubdir (library folder), never empty.
+         * Gets the effective library path (folder name) for writing.
+         *
+         * Priority:
+         * 1. If promptsSubdir is set and that library exists on disk, use it
+         * 2. If only one library is discovered, use that library
+         * 3. Fall back to DEFAULT_LIBRARY_NAME ("general")
          */
         fun getEffectiveLibraryPath(): String {
-            val subdir = instance().data.promptsSubdir.trim()
-            return if (subdir.isNotEmpty()) subdir else DEFAULT_LIBRARY_NAME
+            val settings = instance().data
+            val repoPath = getEffectiveRepoPath()
+            val configuredSubdir = settings.promptsSubdir.trim()
+
+            // Discover what libraries actually exist on disk
+            val discoveredLibraries = discoverLibraries(repoPath)
+
+            // If the configured subdir exists as a library, use it
+            if (configuredSubdir.isNotEmpty() && discoveredLibraries.any { it.id == configuredSubdir }) {
+                return configuredSubdir
+            }
+
+            // If there's exactly one library discovered, use it automatically
+            if (discoveredLibraries.size == 1) {
+                return discoveredLibraries.first().id
+            }
+
+            // If there are multiple libraries but configured one doesn't exist,
+            // prefer the first enabled (non-hidden) one
+            val hidden = settings.hiddenLibraries
+            val enabledLibraries = discoveredLibraries.filter { it.id !in hidden }
+            if (enabledLibraries.isNotEmpty()) {
+                return enabledLibraries.first().id
+            }
+
+            // Fallback to configured or default
+            return if (configuredSubdir.isNotEmpty()) configuredSubdir else DEFAULT_LIBRARY_NAME
         }
 
         /**
@@ -105,19 +135,9 @@ class PluginSettingsService : PersistentStateComponent<PluginSettingsService.Sta
                 lib.copy(enabled = !hiddenLibraries.contains(lib.id))
             }
 
-            // Ensure active library is always included in the list (even if not yet discovered)
-            // but respect hidden setting
-            val activeExists = libraries.any { it.path == activeLibraryPath }
-            if (!activeExists) {
-                libraries = listOf(
-                    LibraryConfig(
-                        id = activeLibraryPath,
-                        path = activeLibraryPath,
-                        displayName = titleCase(activeLibraryPath),
-                        enabled = !hiddenLibraries.contains(activeLibraryPath)
-                    )
-                ) + libraries
-            }
+            // Note: We no longer add the active library if it doesn't exist on disk.
+            // This prevents phantom libraries from appearing when promptsSubdir points
+            // to a folder that doesn't exist or doesn't have a _library.yaml file.
 
             return RepoConfig(
                 url = settings.remoteRepoUrl,

@@ -367,6 +367,15 @@ class GroupTreePanel(
      * Rebuilds the tree from the repository data.
      */
     fun rebuildTree() {
+        try {
+            rebuildTreeInternal()
+        } catch (e: Exception) {
+            println("Error rebuilding tree: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+
+    private fun rebuildTreeInternal() {
         val prevSelected = selectedGroupId
 
         // Save expansion state before rebuilding

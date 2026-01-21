@@ -14,7 +14,7 @@ describe('LibraryStore', () => {
   beforeEach(async () => {
     // Create a temporary directory for each test
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-test-'));
-    
+
     // Create mock extension context
     mockContext = {
       globalStorageUri: vscode.Uri.file(tmpDir),
@@ -28,19 +28,19 @@ describe('LibraryStore', () => {
     // Cleanup temp directory
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {}
+    } catch { }
   });
 
   describe('initialization', () => {
     it('should initialize with default library structure', async () => {
       const lib = await store.load();
-      
+
       expect(lib.groups).toHaveLength(2);
       expect(lib.groups[0].id).toBe('root-shared');
       expect(lib.groups[0].name).toBe('Shared');
       expect(lib.groups[1].id).toBe('root-private');
       expect(lib.groups[1].name).toBe('Private');
-      
+
       // Private root should have Unfiled child
       expect(lib.groups[1].children).toHaveLength(1);
       expect(lib.groups[1].children[0].id).toBe('grp-unfiled');
@@ -49,7 +49,7 @@ describe('LibraryStore', () => {
 
     it('should create library file on first load', async () => {
       await store.load();
-      
+
       const libPath = path.join(tmpDir, 'library.v2.json');
       expect(fs.existsSync(libPath)).toBe(true);
     });
@@ -57,7 +57,7 @@ describe('LibraryStore', () => {
     it('should persist library across loads', async () => {
       const lib1 = await store.load();
       const lib2 = await store.load();
-      
+
       expect(lib1).toEqual(lib2);
     });
   });
@@ -65,15 +65,15 @@ describe('LibraryStore', () => {
   describe('save and load', () => {
     it('should save and reload library', async () => {
       const lib = await store.load();
-      
+
       // Add a prompt
       const result = await store.addPromptToGroup('grp-unfiled', 'Test prompt', 'Test Title');
       expect(result.ok).toBe(true);
-      
+
       // Create new store instance
       const store2 = new LibraryStore(mockContext);
       const lib2 = await store2.load();
-      
+
       // Should have the prompt
       const unfiled = lib2.groups[1].children[0];
       expect(unfiled.prompts).toHaveLength(1);
@@ -83,9 +83,9 @@ describe('LibraryStore', () => {
     it('should emit change event on save', async () => {
       const listener = vi.fn();
       store.onDidChange(listener);
-      
+
       await store.load();
-      
+
       // Should have emitted on initial save
       expect(listener).toHaveBeenCalled();
     });
@@ -94,20 +94,23 @@ describe('LibraryStore', () => {
   describe('addPromptToGroup', () => {
     it('should add prompt to group', async () => {
       const result = await store.addPromptToGroup('grp-unfiled', 'My prompt text', 'My Title');
-      
+
       expect(result.ok).toBe(true);
       expect(result.prompt).toBeDefined();
       expect(result.prompt?.text).toBe('My prompt text');
       expect(result.prompt?.title).toBe('My Title');
-      expect(result.prompt?.id).toMatch(/^p-/);
+      // Prompt IDs no longer have p- prefix (it's added in the filename)
+      expect(result.prompt?.id).toMatch(/^[a-z0-9]+-[a-z0-9]+$/);
       expect(result.groupId).toBe('grp-unfiled');
     });
 
     it('should generate ID for new prompt', async () => {
       const result = await store.addPromptToGroup('grp-unfiled', 'Test');
-      
+
       expect(result.ok).toBe(true);
-      expect(result.prompt?.id).toMatch(/^p-[a-z0-9]+-[a-z0-9]+$/);
+      // Prompt IDs are generated without prefix (just timestamp-random)
+      // The p- prefix is added when writing to disk as filename
+      expect(result.prompt?.id).toMatch(/^[a-z0-9]+-[a-z0-9]+$/);
     });
 
     it('should set timestamps on new prompt', async () => {
@@ -127,7 +130,7 @@ describe('LibraryStore', () => {
 
     it('should use fallback title when title is empty', async () => {
       const result = await store.addPromptToGroup('grp-unfiled', 'This is a long prompt text that should be truncated');
-      
+
       expect(result.ok).toBe(true);
       expect(result.prompt?.title).toBe('This is a long promp');
     });
@@ -135,7 +138,7 @@ describe('LibraryStore', () => {
     it('should reject duplicate prompts', async () => {
       await store.addPromptToGroup('grp-unfiled', 'Duplicate text');
       const result = await store.addPromptToGroup('grp-unfiled', 'Duplicate text');
-      
+
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('Duplicate');
     });
@@ -143,28 +146,28 @@ describe('LibraryStore', () => {
     it('should reject normalized duplicates', async () => {
       await store.addPromptToGroup('grp-unfiled', 'Test  Prompt');
       const result = await store.addPromptToGroup('grp-unfiled', 'test prompt');
-      
+
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('Duplicate');
     });
 
     it('should return error for invalid group', async () => {
       const result = await store.addPromptToGroup('invalid-group-id', 'Test');
-      
+
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('not found');
     });
 
     it('should default to unfiled when groupId is null', async () => {
       const result = await store.addPromptToGroup(null, 'Test');
-      
+
       expect(result.ok).toBe(true);
       expect(result.groupId).toBe('grp-unfiled');
     });
 
     it('should set private flag for private groups', async () => {
       const result = await store.addPromptToGroup('grp-unfiled', 'Test');
-      
+
       expect(result.ok).toBe(true);
       expect(result.prompt?.private).toBe(true);
     });

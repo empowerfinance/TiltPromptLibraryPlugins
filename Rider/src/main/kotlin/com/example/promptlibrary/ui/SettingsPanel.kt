@@ -282,17 +282,9 @@ class SettingsPanel(
         if (repoPath.isNotBlank()) {
             val expandedPath = expandTilde(repoPath)
             availableLibraries.addAll(discoverLibraries(expandedPath))
-        } else {
-            // Add default library if no repo path
-            availableLibraries.add(
-                LibraryConfig(
-                    id = DEFAULT_LIBRARY_NAME,
-                    path = DEFAULT_LIBRARY_NAME,
-                    displayName = titleCase(DEFAULT_LIBRARY_NAME),
-                    enabled = true
-                )
-            )
         }
+        // If no repo path or no libraries found, list will be empty.
+        // The UI should handle this appropriately (e.g., show "No libraries found").
     }
 
     private fun updateHiddenLibrariesPanel() {

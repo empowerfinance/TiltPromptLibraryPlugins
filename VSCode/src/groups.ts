@@ -212,6 +212,16 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
       log.info(`Inheriting libraryId from parent: ${libraryId}`);
     }
 
+    // If still no libraryId and we're adding to root-shared, use the active library
+    // This handles single-library mode where root-shared doesn't have a libraryId
+    if (!libraryId && actualRootId === 'root-shared') {
+      const activeLib = getActiveLibrary();
+      if (activeLib && activeLib.id) {
+        libraryId = activeLib.id;
+        log.info(`Using active library for root-shared: ${libraryId}`);
+      }
+    }
+
     const trimmedName = name.trim();
     const folderName = toPascalCase(trimmedName);
 

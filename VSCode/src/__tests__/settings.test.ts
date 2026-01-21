@@ -242,99 +242,149 @@ describe('settings', () => {
   });
 
   describe('getRepoConfig', () => {
-    it('should convert legacy settings to RepoConfig format', () => {
-      const mockConfig = {
-        get: vi.fn((key: string, defaultValue: any) => {
-          const values: Record<string, any> = {
-            'remoteRepoUrl': 'https://github.com/user/repo.git',
-            'repoPath': '/path/to/repo',
-            'promptsSubdir': 'platform',
-            'branchName': 'main',
-            'autoFetch.enabled': false,
-            'autoFetch.minutes': 5,
-          };
-          return values[key] ?? defaultValue;
-        }),
-        has: vi.fn(),
-        inspect: vi.fn(),
-        update: vi.fn(),
-      };
+    it('should convert settings to RepoConfig format with discovered libraries', () => {
+      const fs = require('fs');
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-config-test-'));
 
-      vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+      try {
+        // Create a library with _library.yaml
+        const platformDir = path.join(tmpDir, 'platform');
+        fs.mkdirSync(platformDir, { recursive: true });
+        fs.writeFileSync(path.join(platformDir, '_library.yaml'), 'name: Platform\n');
 
-      const repoConfig = getRepoConfig();
+        const mockConfig = {
+          get: vi.fn((key: string, defaultValue: any) => {
+            const values: Record<string, any> = {
+              'remoteRepoUrl': 'https://github.com/user/repo.git',
+              'repoPath': tmpDir,
+              'promptsSubdir': 'platform',
+              'branchName': 'main',
+              'hiddenLibraries': [],
+              'autoFetch.enabled': false,
+              'autoFetch.minutes': 5,
+            };
+            return values[key] ?? defaultValue;
+          }),
+          has: vi.fn(),
+          inspect: vi.fn(),
+          update: vi.fn(),
+        };
 
-      expect(repoConfig.url).toBe('https://github.com/user/repo.git');
-      expect(repoConfig.localPath).toBe('/path/to/repo');
-      expect(repoConfig.branch).toBe('main');
-      expect(repoConfig.libraries).toHaveLength(1);
-      expect(repoConfig.libraries[0].id).toBe('platform');
-      expect(repoConfig.libraries[0].path).toBe('platform');
-      expect(repoConfig.libraries[0].displayName).toBe('platform'); // Display as folder name on disk
-      expect(repoConfig.libraries[0].enabled).toBe(true);
+        vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+
+        const repoConfig = getRepoConfig();
+
+        expect(repoConfig.url).toBe('https://github.com/user/repo.git');
+        expect(repoConfig.localPath).toBe(tmpDir);
+        expect(repoConfig.branch).toBe('main');
+        expect(repoConfig.libraries).toHaveLength(1);
+        expect(repoConfig.libraries[0].id).toBe('platform');
+        expect(repoConfig.libraries[0].path).toBe('platform');
+        expect(repoConfig.libraries[0].displayName).toBe('platform');
+        expect(repoConfig.libraries[0].enabled).toBe(true);
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
 
-    it('should default to "general" when promptsSubdir is empty', () => {
-      const mockConfig = {
-        get: vi.fn((key: string, defaultValue: any) => {
-          const values: Record<string, any> = {
-            'remoteRepoUrl': '',
-            'repoPath': '/path/to/repo',
-            'promptsSubdir': '',
-            'branchName': '',
-          };
-          return values[key] ?? defaultValue;
-        }),
-        has: vi.fn(),
-        inspect: vi.fn(),
-        update: vi.fn(),
-      };
+    it('should return empty libraries when no _library.yaml files exist', () => {
+      const fs = require('fs');
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-config-test-'));
 
-      vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+      try {
+        // Empty repo with no library folders
+        const mockConfig = {
+          get: vi.fn((key: string, defaultValue: any) => {
+            const values: Record<string, any> = {
+              'remoteRepoUrl': '',
+              'repoPath': tmpDir,
+              'promptsSubdir': '',
+              'branchName': '',
+            };
+            return values[key] ?? defaultValue;
+          }),
+          has: vi.fn(),
+          inspect: vi.fn(),
+          update: vi.fn(),
+        };
 
-      const repoConfig = getRepoConfig();
+        vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
 
-      expect(repoConfig.libraries[0].id).toBe('general');
-      expect(repoConfig.libraries[0].path).toBe('general');
-      expect(repoConfig.libraries[0].displayName).toBe('general'); // Display as folder name
+        const repoConfig = getRepoConfig();
+
+        // Should return empty array when no libraries on disk
+        expect(repoConfig.libraries).toHaveLength(0);
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
 
     it('should display hyphenated library names as-is', () => {
-      const mockConfig = {
-        get: vi.fn((key: string, defaultValue: any) => {
-          if (key === 'promptsSubdir') return 'my-custom-library';
-          return defaultValue;
-        }),
-        has: vi.fn(),
-        inspect: vi.fn(),
-        update: vi.fn(),
-      };
+      const fs = require('fs');
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-config-test-'));
 
-      vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+      try {
+        // Create a library with hyphenated name
+        const libDir = path.join(tmpDir, 'my-custom-library');
+        fs.mkdirSync(libDir, { recursive: true });
+        fs.writeFileSync(path.join(libDir, '_library.yaml'), 'name: My Custom Library\n');
 
-      const repoConfig = getRepoConfig();
+        const mockConfig = {
+          get: vi.fn((key: string, defaultValue: any) => {
+            const values: Record<string, any> = {
+              'repoPath': tmpDir,
+              'promptsSubdir': 'my-custom-library',
+            };
+            return values[key] ?? defaultValue;
+          }),
+          has: vi.fn(),
+          inspect: vi.fn(),
+          update: vi.fn(),
+        };
 
-      // Display name should exactly match folder name on disk
-      expect(repoConfig.libraries[0].displayName).toBe('my-custom-library');
+        vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+
+        const repoConfig = getRepoConfig();
+
+        // Display name should exactly match folder name on disk
+        expect(repoConfig.libraries[0].displayName).toBe('my-custom-library');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
 
     it('should display underscored library names as-is', () => {
-      const mockConfig = {
-        get: vi.fn((key: string, defaultValue: any) => {
-          if (key === 'promptsSubdir') return 'data_science_prompts';
-          return defaultValue;
-        }),
-        has: vi.fn(),
-        inspect: vi.fn(),
-        update: vi.fn(),
-      };
+      const fs = require('fs');
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-config-test-'));
 
-      vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+      try {
+        // Create a library with underscored name
+        const libDir = path.join(tmpDir, 'data_science_prompts');
+        fs.mkdirSync(libDir, { recursive: true });
+        fs.writeFileSync(path.join(libDir, '_library.yaml'), 'name: Data Science Prompts\n');
 
-      const repoConfig = getRepoConfig();
+        const mockConfig = {
+          get: vi.fn((key: string, defaultValue: any) => {
+            const values: Record<string, any> = {
+              'repoPath': tmpDir,
+              'promptsSubdir': 'data_science_prompts',
+            };
+            return values[key] ?? defaultValue;
+          }),
+          has: vi.fn(),
+          inspect: vi.fn(),
+          update: vi.fn(),
+        };
 
-      // Display name should exactly match folder name on disk
-      expect(repoConfig.libraries[0].displayName).toBe('data_science_prompts');
+        vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+
+        const repoConfig = getRepoConfig();
+
+        // Display name should exactly match folder name on disk
+        expect(repoConfig.libraries[0].displayName).toBe('data_science_prompts');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -378,23 +428,39 @@ describe('settings', () => {
 
   describe('getEnabledLibraries', () => {
     it('should return all enabled libraries', () => {
-      const mockConfig = {
-        get: vi.fn((key: string, defaultValue: any) => {
-          if (key === 'promptsSubdir') return 'platform';
-          return defaultValue;
-        }),
-        has: vi.fn(),
-        inspect: vi.fn(),
-        update: vi.fn(),
-      };
+      const fs = require('fs');
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'enabled-libs-test-'));
 
-      vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+      try {
+        // Create a library with _library.yaml
+        const platformDir = path.join(tmpDir, 'platform');
+        fs.mkdirSync(platformDir, { recursive: true });
+        fs.writeFileSync(path.join(platformDir, '_library.yaml'), 'name: Platform\n');
 
-      const libraries = getEnabledLibraries();
+        const mockConfig = {
+          get: vi.fn((key: string, defaultValue: any) => {
+            const values: Record<string, any> = {
+              'repoPath': tmpDir,
+              'promptsSubdir': 'platform',
+              'hiddenLibraries': [],
+            };
+            return values[key] ?? defaultValue;
+          }),
+          has: vi.fn(),
+          inspect: vi.fn(),
+          update: vi.fn(),
+        };
 
-      expect(libraries).toHaveLength(1);
-      expect(libraries[0].id).toBe('platform');
-      expect(libraries[0].enabled).toBe(true);
+        vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+
+        const libraries = getEnabledLibraries();
+
+        expect(libraries).toHaveLength(1);
+        expect(libraries[0].id).toBe('platform');
+        expect(libraries[0].enabled).toBe(true);
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -452,20 +518,20 @@ describe('settings', () => {
       expect(libraries).toEqual([]);
     });
 
-    it('should discover libraries with _group.yaml in subdirectories', () => {
+    it('should discover libraries with _library.yaml at library root', () => {
       const fs = require('fs');
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'discover-test-'));
 
       try {
-        // Create library structure: repoRoot/libraryName/GroupName/_group.yaml
-        const lib1Path = path.join(tmpDir, 'general', 'TestGroup');
-        const lib2Path = path.join(tmpDir, 'platform', 'APIGroup');
+        // Create library structure: repoRoot/libraryName/_library.yaml
+        const lib1Path = path.join(tmpDir, 'general');
+        const lib2Path = path.join(tmpDir, 'platform');
 
         fs.mkdirSync(lib1Path, { recursive: true });
         fs.mkdirSync(lib2Path, { recursive: true });
 
-        fs.writeFileSync(path.join(lib1Path, '_group.yaml'), 'name: TestGroup\n');
-        fs.writeFileSync(path.join(lib2Path, '_group.yaml'), 'name: APIGroup\n');
+        fs.writeFileSync(path.join(lib1Path, '_library.yaml'), 'name: General\n');
+        fs.writeFileSync(path.join(lib2Path, '_library.yaml'), 'name: Platform\n');
 
         const libraries = discoverLibraries(tmpDir);
 
@@ -478,18 +544,18 @@ describe('settings', () => {
       }
     });
 
-    it('should not discover directories without _group.yaml subdirs', () => {
+    it('should not discover directories without _library.yaml', () => {
       const fs = require('fs');
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'discover-test-'));
 
       try {
-        // Create directory without _group.yaml
+        // Create directory without _library.yaml
         const emptyDir = path.join(tmpDir, 'empty-library');
-        const validLib = path.join(tmpDir, 'valid-library', 'TestGroup');
+        const validLib = path.join(tmpDir, 'valid-library');
 
         fs.mkdirSync(emptyDir, { recursive: true });
         fs.mkdirSync(validLib, { recursive: true });
-        fs.writeFileSync(path.join(validLib, '_group.yaml'), 'name: TestGroup\n');
+        fs.writeFileSync(path.join(validLib, '_library.yaml'), 'name: Valid Library\n');
 
         const libraries = discoverLibraries(tmpDir);
 
@@ -500,31 +566,30 @@ describe('settings', () => {
       }
     });
 
-    it('should return default library when no libraries found', () => {
+    it('should return empty array when no libraries found', () => {
       const fs = require('fs');
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'discover-test-'));
 
       try {
-        // Create empty directory
+        // Create empty directory (no _library.yaml files)
         const libraries = discoverLibraries(tmpDir);
 
-        expect(libraries).toHaveLength(1);
-        expect(libraries[0].id).toBe('general');
-        expect(libraries[0].displayName).toBe('general'); // Display as folder name
+        // Should return empty array, not a default "general" library
+        expect(libraries).toHaveLength(0);
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }
     });
 
-    it('should convert camelCase library names to proper display names', () => {
+    it('should preserve camelCase library names in displayName', () => {
       const fs = require('fs');
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'discover-test-'));
 
       try {
         // Create library with camelCase name
-        const libPath = path.join(tmpDir, 'promptsProduct', 'TestGroup');
+        const libPath = path.join(tmpDir, 'promptsProduct');
         fs.mkdirSync(libPath, { recursive: true });
-        fs.writeFileSync(path.join(libPath, '_group.yaml'), 'name: TestGroup\n');
+        fs.writeFileSync(path.join(libPath, '_library.yaml'), 'name: Prompts Product\n');
 
         const libraries = discoverLibraries(tmpDir);
 
@@ -543,13 +608,13 @@ describe('settings', () => {
 
       try {
         // Create hidden library directory
-        const hiddenLib = path.join(tmpDir, '.hidden-library', 'TestGroup');
-        const visibleLib = path.join(tmpDir, 'visible-library', 'TestGroup');
+        const hiddenLib = path.join(tmpDir, '.hidden-library');
+        const visibleLib = path.join(tmpDir, 'visible-library');
 
         fs.mkdirSync(hiddenLib, { recursive: true });
         fs.mkdirSync(visibleLib, { recursive: true });
-        fs.writeFileSync(path.join(hiddenLib, '_group.yaml'), 'name: TestGroup\n');
-        fs.writeFileSync(path.join(visibleLib, '_group.yaml'), 'name: TestGroup\n');
+        fs.writeFileSync(path.join(hiddenLib, '_library.yaml'), 'name: Hidden\n');
+        fs.writeFileSync(path.join(visibleLib, '_library.yaml'), 'name: Visible\n');
 
         const libraries = discoverLibraries(tmpDir);
 
@@ -566,13 +631,13 @@ describe('settings', () => {
 
       try {
         // Create node_modules with library-like structure
-        const nodeModulesLib = path.join(tmpDir, 'node_modules', 'TestGroup');
-        const visibleLib = path.join(tmpDir, 'visible-library', 'TestGroup');
+        const nodeModulesLib = path.join(tmpDir, 'node_modules');
+        const visibleLib = path.join(tmpDir, 'visible-library');
 
         fs.mkdirSync(nodeModulesLib, { recursive: true });
         fs.mkdirSync(visibleLib, { recursive: true });
-        fs.writeFileSync(path.join(nodeModulesLib, '_group.yaml'), 'name: TestGroup\n');
-        fs.writeFileSync(path.join(visibleLib, '_group.yaml'), 'name: TestGroup\n');
+        fs.writeFileSync(path.join(nodeModulesLib, '_library.yaml'), 'name: Node Modules\n');
+        fs.writeFileSync(path.join(visibleLib, '_library.yaml'), 'name: Visible\n');
 
         const libraries = discoverLibraries(tmpDir);
 
@@ -586,79 +651,127 @@ describe('settings', () => {
 
   describe('displayName (folder name as-is)', () => {
     it('should display folder name as-is for hyphenated names', () => {
-      const mockConfig = {
-        get: vi.fn((key: string, defaultValue: any) => {
-          if (key === 'promptsSubdir') return 'my-custom-library';
-          return defaultValue;
-        }),
-        has: vi.fn(),
-        inspect: vi.fn(),
-        update: vi.fn(),
-      };
+      const fs = require('fs');
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'displayname-test-'));
+      const libPath = path.join(tmpDir, 'my-custom-library');
+      fs.mkdirSync(libPath, { recursive: true });
+      fs.writeFileSync(path.join(libPath, '_library.yaml'), 'name: my-custom-library\n');
 
-      vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+      try {
+        const mockConfig = {
+          get: vi.fn((key: string, defaultValue: any) => {
+            if (key === 'repoPath') return tmpDir;
+            if (key === 'promptsSubdir') return 'my-custom-library';
+            if (key === 'hiddenLibraries') return [];
+            return defaultValue;
+          }),
+          has: vi.fn(),
+          inspect: vi.fn(),
+          update: vi.fn(),
+        };
 
-      const repoConfig = getRepoConfig();
+        vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
 
-      // Display name should exactly match folder name on disk
-      expect(repoConfig.libraries[0].displayName).toBe('my-custom-library');
+        const repoConfig = getRepoConfig();
+
+        // Display name should exactly match folder name on disk
+        expect(repoConfig.libraries[0].displayName).toBe('my-custom-library');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
 
     it('should display folder name as-is for camelCase', () => {
-      const mockConfig = {
-        get: vi.fn((key: string, defaultValue: any) => {
-          if (key === 'promptsSubdir') return 'promptsProduct';
-          return defaultValue;
-        }),
-        has: vi.fn(),
-        inspect: vi.fn(),
-        update: vi.fn(),
-      };
+      const fs = require('fs');
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'displayname-test-'));
+      const libPath = path.join(tmpDir, 'promptsProduct');
+      fs.mkdirSync(libPath, { recursive: true });
+      fs.writeFileSync(path.join(libPath, '_library.yaml'), 'name: promptsProduct\n');
 
-      vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+      try {
+        const mockConfig = {
+          get: vi.fn((key: string, defaultValue: any) => {
+            if (key === 'repoPath') return tmpDir;
+            if (key === 'promptsSubdir') return 'promptsProduct';
+            if (key === 'hiddenLibraries') return [];
+            return defaultValue;
+          }),
+          has: vi.fn(),
+          inspect: vi.fn(),
+          update: vi.fn(),
+        };
 
-      const repoConfig = getRepoConfig();
+        vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
 
-      // Display name should exactly match folder name on disk
-      expect(repoConfig.libraries[0].displayName).toBe('promptsProduct');
+        const repoConfig = getRepoConfig();
+
+        // Display name should exactly match folder name on disk
+        expect(repoConfig.libraries[0].displayName).toBe('promptsProduct');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
 
     it('should display folder name as-is for underscore names', () => {
-      const mockConfig = {
-        get: vi.fn((key: string, defaultValue: any) => {
-          if (key === 'promptsSubdir') return 'prompts_product';
-          return defaultValue;
-        }),
-        has: vi.fn(),
-        inspect: vi.fn(),
-        update: vi.fn(),
-      };
+      const fs = require('fs');
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'displayname-test-'));
+      const libPath = path.join(tmpDir, 'prompts_product');
+      fs.mkdirSync(libPath, { recursive: true });
+      fs.writeFileSync(path.join(libPath, '_library.yaml'), 'name: prompts_product\n');
 
-      vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+      try {
+        const mockConfig = {
+          get: vi.fn((key: string, defaultValue: any) => {
+            if (key === 'repoPath') return tmpDir;
+            if (key === 'promptsSubdir') return 'prompts_product';
+            if (key === 'hiddenLibraries') return [];
+            return defaultValue;
+          }),
+          has: vi.fn(),
+          inspect: vi.fn(),
+          update: vi.fn(),
+        };
 
-      const repoConfig = getRepoConfig();
+        vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
 
-      // Display name should exactly match folder name on disk
-      expect(repoConfig.libraries[0].displayName).toBe('prompts_product');
+        const repoConfig = getRepoConfig();
+
+        // Display name should exactly match folder name on disk
+        expect(repoConfig.libraries[0].displayName).toBe('prompts_product');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
 
     it('should handle single word names', () => {
-      const mockConfig = {
-        get: vi.fn((key: string, defaultValue: any) => {
-          if (key === 'promptsSubdir') return 'general';
-          return defaultValue;
-        }),
-        has: vi.fn(),
-        inspect: vi.fn(),
-        update: vi.fn(),
-      };
+      const fs = require('fs');
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'displayname-test-'));
+      const libPath = path.join(tmpDir, 'general');
+      fs.mkdirSync(libPath, { recursive: true });
+      fs.writeFileSync(path.join(libPath, '_library.yaml'), 'name: general\n');
 
-      vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+      try {
+        const mockConfig = {
+          get: vi.fn((key: string, defaultValue: any) => {
+            if (key === 'repoPath') return tmpDir;
+            if (key === 'promptsSubdir') return 'general';
+            if (key === 'hiddenLibraries') return [];
+            return defaultValue;
+          }),
+          has: vi.fn(),
+          inspect: vi.fn(),
+          update: vi.fn(),
+        };
 
-      const repoConfig = getRepoConfig();
+        vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
 
-      // Display name should exactly match folder name on disk
-      expect(repoConfig.libraries[0].displayName).toBe('general');
+        const repoConfig = getRepoConfig();
+
+        // Display name should exactly match folder name on disk
+        expect(repoConfig.libraries[0].displayName).toBe('general');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -715,16 +828,16 @@ describe('settings', () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hidden-test-'));
 
       try {
-        // Create 3 library folders on disk
-        const lib1Path = path.join(tmpDir, 'libraryA', 'GroupA');
-        const lib2Path = path.join(tmpDir, 'libraryB', 'GroupB');
-        const lib3Path = path.join(tmpDir, 'libraryC', 'GroupC');
+        // Create 3 library folders on disk with _library.yaml at root
+        const lib1Path = path.join(tmpDir, 'libraryA');
+        const lib2Path = path.join(tmpDir, 'libraryB');
+        const lib3Path = path.join(tmpDir, 'libraryC');
         fs.mkdirSync(lib1Path, { recursive: true });
         fs.mkdirSync(lib2Path, { recursive: true });
         fs.mkdirSync(lib3Path, { recursive: true });
-        fs.writeFileSync(path.join(lib1Path, '_group.yaml'), 'name: GroupA\n');
-        fs.writeFileSync(path.join(lib2Path, '_group.yaml'), 'name: GroupB\n');
-        fs.writeFileSync(path.join(lib3Path, '_group.yaml'), 'name: GroupC\n');
+        fs.writeFileSync(path.join(lib1Path, '_library.yaml'), 'name: libraryA\n');
+        fs.writeFileSync(path.join(lib2Path, '_library.yaml'), 'name: libraryB\n');
+        fs.writeFileSync(path.join(lib3Path, '_library.yaml'), 'name: libraryC\n');
 
         // Mock settings: hiddenLibraries is empty (show all)
         const mockConfig = {
@@ -757,16 +870,16 @@ describe('settings', () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hidden-test-'));
 
       try {
-        // Create 3 library folders on disk
-        const lib1Path = path.join(tmpDir, 'libraryA', 'GroupA');
-        const lib2Path = path.join(tmpDir, 'libraryB', 'GroupB');
-        const lib3Path = path.join(tmpDir, 'libraryC', 'GroupC');
+        // Create 3 library folders on disk with _library.yaml at root
+        const lib1Path = path.join(tmpDir, 'libraryA');
+        const lib2Path = path.join(tmpDir, 'libraryB');
+        const lib3Path = path.join(tmpDir, 'libraryC');
         fs.mkdirSync(lib1Path, { recursive: true });
         fs.mkdirSync(lib2Path, { recursive: true });
         fs.mkdirSync(lib3Path, { recursive: true });
-        fs.writeFileSync(path.join(lib1Path, '_group.yaml'), 'name: GroupA\n');
-        fs.writeFileSync(path.join(lib2Path, '_group.yaml'), 'name: GroupB\n');
-        fs.writeFileSync(path.join(lib3Path, '_group.yaml'), 'name: GroupC\n');
+        fs.writeFileSync(path.join(lib1Path, '_library.yaml'), 'name: libraryA\n');
+        fs.writeFileSync(path.join(lib2Path, '_library.yaml'), 'name: libraryB\n');
+        fs.writeFileSync(path.join(lib3Path, '_library.yaml'), 'name: libraryC\n');
 
         // Mock settings: hide libraryB
         const mockConfig = {
@@ -799,13 +912,13 @@ describe('settings', () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hidden-test-'));
 
       try {
-        // Create 2 library folders
-        const lib1Path = path.join(tmpDir, 'libraryA', 'GroupA');
-        const lib2Path = path.join(tmpDir, 'libraryB', 'GroupB');
+        // Create 2 library folders with _library.yaml at root
+        const lib1Path = path.join(tmpDir, 'libraryA');
+        const lib2Path = path.join(tmpDir, 'libraryB');
         fs.mkdirSync(lib1Path, { recursive: true });
         fs.mkdirSync(lib2Path, { recursive: true });
-        fs.writeFileSync(path.join(lib1Path, '_group.yaml'), 'name: GroupA\n');
-        fs.writeFileSync(path.join(lib2Path, '_group.yaml'), 'name: GroupB\n');
+        fs.writeFileSync(path.join(lib1Path, '_library.yaml'), 'name: libraryA\n');
+        fs.writeFileSync(path.join(lib2Path, '_library.yaml'), 'name: libraryB\n');
 
         // Mock settings: hide both libraries including the active one
         const mockConfig = {
@@ -835,10 +948,10 @@ describe('settings', () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hidden-test-'));
 
       try {
-        // Create 1 library on disk
-        const lib1Path = path.join(tmpDir, 'libraryA', 'GroupA');
+        // Create 1 library on disk with _library.yaml at root
+        const lib1Path = path.join(tmpDir, 'libraryA');
         fs.mkdirSync(lib1Path, { recursive: true });
-        fs.writeFileSync(path.join(lib1Path, '_group.yaml'), 'name: GroupA\n');
+        fs.writeFileSync(path.join(lib1Path, '_library.yaml'), 'name: libraryA\n');
 
         // Mock settings: try to hide a non-existent library
         const mockConfig = {

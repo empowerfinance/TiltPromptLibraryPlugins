@@ -49,19 +49,19 @@ describe('readSharedGroups (local repository import)', () => {
   const repoRoot = path.join(tmpRoot, 'PromptLibrary');
 
   beforeAll(() => {
-    // Layout with a top-level container named "prompts"
-    // prompts/
-    //   General/_group.yaml
-    //   General/prompts/a.yaml
-    //   PlatformPrompts/_group.yaml
-    //   PlatformPrompts/prompts/{b.yaml,c.yml}
-    write(path.join(repoRoot, 'prompts', 'General', '_group.yaml'), [
+    // Layout with groups directly under library root
+    // General/_group.yaml
+    // General/p-a.yaml            <- prompts directly in group folder
+    // PlatformPrompts/_group.yaml
+    // PlatformPrompts/p-b.yaml
+    // PlatformPrompts/p-c.yml
+    write(path.join(repoRoot, 'General', '_group.yaml'), [
       'id: "grp-general"',
       'name: "General"',
       ''
     ].join('\n'));
 
-    write(path.join(repoRoot, 'prompts', 'General', 'prompts', 'a.yaml'), [
+    write(path.join(repoRoot, 'General', 'p-a.yaml'), [
       'id: "a"',
       'title: "A"',
       'text: |',
@@ -72,19 +72,19 @@ describe('readSharedGroups (local repository import)', () => {
       ''
     ].join('\n'));
 
-    write(path.join(repoRoot, 'prompts', 'PlatformPrompts', '_group.yaml'), [
+    write(path.join(repoRoot, 'PlatformPrompts', '_group.yaml'), [
       'id: "grp-platform"',
       'name: "PlatformPrompts"',
       ''
     ].join('\n'));
 
-    write(path.join(repoRoot, 'prompts', 'PlatformPrompts', 'prompts', 'b.yaml'), [
+    write(path.join(repoRoot, 'PlatformPrompts', 'p-b.yaml'), [
       'id: "b"',
       'text: "B single line"',
       ''
     ].join('\n'));
 
-    write(path.join(repoRoot, 'prompts', 'PlatformPrompts', 'prompts', 'c.yml'), [
+    write(path.join(repoRoot, 'PlatformPrompts', 'p-c.yml'), [
       'id: "c"',
       'title: "C"',
       'text: |',
@@ -99,9 +99,9 @@ describe('readSharedGroups (local repository import)', () => {
     try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { }
   });
 
-  it('reads groups and prompts from a local repo folder (with top-level "prompts" container)', async () => {
+  it('reads groups and prompts from a local repo folder (flat structure)', async () => {
     const uri = vscode.Uri.file(repoRoot);
-    const groups = await readSharedGroups(uri, 'prompts');
+    const groups = await readSharedGroups(uri);
 
     // We expect two top-level groups
     expect(groups.length).toBe(2);
@@ -110,7 +110,7 @@ describe('readSharedGroups (local repository import)', () => {
     expect(general).toBeTruthy();
     expect(platform).toBeTruthy();
 
-    // Each group should have its prompts imported
+    // Each group should have its prompts imported (directly from group folder)
     expect(general!.prompts.length).toBe(1);
     expect(platform!.prompts.length).toBe(2);
 
@@ -125,14 +125,14 @@ describe('readFromLibrary', () => {
   const repoRoot = path.join(tmpRoot, 'MultiLibRepo');
 
   beforeAll(() => {
-    // Create a library structure
+    // Create a library structure (flat - prompts directly in group folder)
     write(path.join(repoRoot, 'platform', 'API', '_group.yaml'), [
       'id: "grp-api"',
       'name: "API"',
       ''
     ].join('\n'));
 
-    write(path.join(repoRoot, 'platform', 'API', 'prompts', 'endpoint.yaml'), [
+    write(path.join(repoRoot, 'platform', 'API', 'p-endpoint.yaml'), [
       'id: "endpoint"',
       'title: "Endpoint"',
       'text: "Create an API endpoint"',
@@ -179,14 +179,14 @@ describe('readFromLibraries', () => {
   const repoRoot = path.join(tmpRoot, 'MultiLibRepo');
 
   beforeAll(() => {
-    // Create platform library
+    // Create platform library (flat - prompts directly in group folder)
     write(path.join(repoRoot, 'platform', 'API', '_group.yaml'), [
       'id: "grp-api"',
       'name: "API"',
       ''
     ].join('\n'));
 
-    write(path.join(repoRoot, 'platform', 'API', 'prompts', 'endpoint.yaml'), [
+    write(path.join(repoRoot, 'platform', 'API', 'p-endpoint.yaml'), [
       'id: "endpoint"',
       'text: "Create an API endpoint"',
       ''
@@ -199,7 +199,7 @@ describe('readFromLibraries', () => {
       ''
     ].join('\n'));
 
-    write(path.join(repoRoot, 'analytics', 'Reports', 'prompts', 'dashboard.yaml'), [
+    write(path.join(repoRoot, 'analytics', 'Reports', 'p-dashboard.yaml'), [
       'id: "dashboard"',
       'text: "Create a dashboard"',
       ''

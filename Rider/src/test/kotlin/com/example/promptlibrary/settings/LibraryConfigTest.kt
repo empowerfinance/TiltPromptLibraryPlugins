@@ -94,30 +94,27 @@ class LibraryConfigTest {
     }
 
     @Test
-    fun `discoverLibraries should return default for non-existent path`() {
+    fun `discoverLibraries should return empty list for non-existent path`() {
         val libraries = discoverLibraries("/non/existent/path")
-        
-        assertThat(libraries).hasSize(1)
-        assertThat(libraries[0].id).isEqualTo("general")
-        assertThat(libraries[0].displayName).isEqualTo("General")
+
+        // Should return empty list, not a default "general" library
+        assertThat(libraries).isEmpty()
     }
 
     @Test
-    fun `discoverLibraries should return default for empty directory`(@TempDir tempDir: Path) {
+    fun `discoverLibraries should return empty list for empty directory`(@TempDir tempDir: Path) {
         val libraries = discoverLibraries(tempDir.toString())
-        
-        assertThat(libraries).hasSize(1)
-        assertThat(libraries[0].id).isEqualTo("general")
+
+        // Should return empty list when no _library.yaml files found
+        assertThat(libraries).isEmpty()
     }
 
     @Test
-    fun `discoverLibraries should find library with group yaml`(@TempDir tempDir: Path) {
-        // Create a library structure: platform/API/_group.yaml
+    fun `discoverLibraries should find library with _library yaml`(@TempDir tempDir: Path) {
+        // Create a library structure: platform/_library.yaml
         val platformDir = File(tempDir.toFile(), "platform")
         platformDir.mkdir()
-        val apiDir = File(platformDir, "API")
-        apiDir.mkdir()
-        File(apiDir, "_group.yaml").writeText("name: API\n")
+        File(platformDir, "_library.yaml").writeText("name: Platform\n")
 
         val libraries = discoverLibraries(tempDir.toString())
 
@@ -130,17 +127,15 @@ class LibraryConfigTest {
 
     @Test
     fun `discoverLibraries should find multiple libraries`(@TempDir tempDir: Path) {
-        // Create two library structures
+        // Create two library structures with _library.yaml
         listOf("platform", "analytics").forEach { libName ->
             val libDir = File(tempDir.toFile(), libName)
             libDir.mkdir()
-            val groupDir = File(libDir, "TestGroup")
-            groupDir.mkdir()
-            File(groupDir, "_group.yaml").writeText("name: TestGroup\n")
+            File(libDir, "_library.yaml").writeText("name: $libName\n")
         }
-        
+
         val libraries = discoverLibraries(tempDir.toString())
-        
+
         assertThat(libraries).hasSize(2)
         val ids = libraries.map { it.id }
         assertThat(ids).contains("platform", "analytics")
@@ -151,15 +146,12 @@ class LibraryConfigTest {
         // Create a hidden library (should be ignored)
         val hiddenDir = File(tempDir.toFile(), ".hidden")
         hiddenDir.mkdir()
-        val groupDir = File(hiddenDir, "Group")
-        groupDir.mkdir()
-        File(groupDir, "_group.yaml").writeText("name: Group\n")
-        
+        File(hiddenDir, "_library.yaml").writeText("name: Hidden\n")
+
         val libraries = discoverLibraries(tempDir.toString())
-        
-        // Should return default since no valid libraries found
-        assertThat(libraries).hasSize(1)
-        assertThat(libraries[0].id).isEqualTo("general")
+
+        // Should return empty list since hidden directories are ignored
+        assertThat(libraries).isEmpty()
     }
 
     @Test
@@ -167,15 +159,12 @@ class LibraryConfigTest {
         // Create a node_modules library (should be ignored)
         val nodeModulesDir = File(tempDir.toFile(), "node_modules")
         nodeModulesDir.mkdir()
-        val groupDir = File(nodeModulesDir, "Group")
-        groupDir.mkdir()
-        File(groupDir, "_group.yaml").writeText("name: Group\n")
+        File(nodeModulesDir, "_library.yaml").writeText("name: Node Modules\n")
 
         val libraries = discoverLibraries(tempDir.toString())
 
-        // Should return default since no valid libraries found
-        assertThat(libraries).hasSize(1)
-        assertThat(libraries[0].id).isEqualTo("general")
+        // Should return empty list since node_modules is ignored
+        assertThat(libraries).isEmpty()
     }
 
     @Test
@@ -219,13 +208,11 @@ class LibraryConfigTest {
 
     @Test
     fun `discoverLibraries should find all libraries regardless of order`(@TempDir tempDir: Path) {
-        // Create multiple libraries
+        // Create multiple libraries with _library.yaml
         listOf("zebra", "apple", "monkey").forEach { libName ->
             val libDir = File(tempDir.toFile(), libName)
             libDir.mkdir()
-            val groupDir = File(libDir, "Group")
-            groupDir.mkdir()
-            File(groupDir, "_group.yaml").writeText("name: Group\n")
+            File(libDir, "_library.yaml").writeText("name: $libName\n")
         }
 
         val libraries = discoverLibraries(tempDir.toString())
@@ -243,9 +230,7 @@ class LibraryConfigTest {
         // Create a library with mixed case: promptsProduct
         val libDir = File(tempDir.toFile(), "promptsProduct")
         libDir.mkdir()
-        val groupDir = File(libDir, "TestGroup")
-        groupDir.mkdir()
-        File(groupDir, "_group.yaml").writeText("name: TestGroup\n")
+        File(libDir, "_library.yaml").writeText("name: Prompts Product\n")
 
         val libraries = discoverLibraries(tempDir.toString())
 
@@ -261,9 +246,7 @@ class LibraryConfigTest {
         // Create a library with camelCase: enabledLibraries
         val libDir = File(tempDir.toFile(), "enabledLibraries")
         libDir.mkdir()
-        val groupDir = File(libDir, "API")
-        groupDir.mkdir()
-        File(groupDir, "_group.yaml").writeText("name: API\n")
+        File(libDir, "_library.yaml").writeText("name: Enabled Libraries\n")
 
         val libraries = discoverLibraries(tempDir.toString())
 
@@ -276,9 +259,7 @@ class LibraryConfigTest {
         // Create a library with all lowercase: platform
         val libDir = File(tempDir.toFile(), "platform")
         libDir.mkdir()
-        val groupDir = File(libDir, "API")
-        groupDir.mkdir()
-        File(groupDir, "_group.yaml").writeText("name: API\n")
+        File(libDir, "_library.yaml").writeText("name: Platform\n")
 
         val libraries = discoverLibraries(tempDir.toString())
 
@@ -291,9 +272,7 @@ class LibraryConfigTest {
         // Create a library with all uppercase: PROMPTS
         val libDir = File(tempDir.toFile(), "PROMPTS")
         libDir.mkdir()
-        val groupDir = File(libDir, "API")
-        groupDir.mkdir()
-        File(groupDir, "_group.yaml").writeText("name: API\n")
+        File(libDir, "_library.yaml").writeText("name: PROMPTS\n")
 
         val libraries = discoverLibraries(tempDir.toString())
 

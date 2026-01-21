@@ -58,14 +58,8 @@ object SyncOrchestrator {
 
                     indicator.text = "Committing & pushing..."
                     SyncLog.info("Committing & pushing...")
-                    val success = WriteStrategyService.commitUsingStrategy(project, rootDir)
-                    if (success) {
-                        SyncLog.info("Sync completed successfully")
-                        Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Sync completed", NotificationType.INFORMATION))
-                    } else {
-                        SyncLog.info("No changes to sync")
-                        Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "No changes to sync", NotificationType.INFORMATION))
-                    }
+                    // Note: commitUsingStrategy runs asynchronously and notifies success/failure via notifications
+                    WriteStrategyService.commitUsingStrategy(project, rootDir)
                     if (keptLocal > 0) {
                         val keptMsg = "Kept ${keptLocal} local prompt(s) in Private/Unfiled (not on remote)"
                         SyncLog.info(keptMsg)
