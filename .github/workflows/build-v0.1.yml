@@ -31,15 +31,19 @@ jobs:
       - name: Extract version from workflow filename
         id: extract_version
         run: |
-          WORKFLOW_FILENAME="${GITHUB_WORKFLOW}.yml"
+          # GITHUB_WORKFLOW contains the workflow name, not the filename
+          # GITHUB_WORKFLOW_REF contains: {owner}/{repo}/.github/workflows/{filename}@{ref}
+          # Extract the filename from the ref
+          WORKFLOW_REF="${{ github.workflow_ref }}"
+          WORKFLOW_FILENAME=$(echo "$WORKFLOW_REF" | sed -n 's|.*/\(build-v[0-9]\+\.[0-9]\+\.yml\)@.*|\1|p')
+
+          echo "Workflow ref: $WORKFLOW_REF"
+          echo "Extracted filename: $WORKFLOW_FILENAME"
+
           VERSION_PREFIX=$(echo "$WORKFLOW_FILENAME" | sed -n 's/.*build-v\([0-9]\+\.[0-9]\+\)\.yml.*/\1/p')
 
           if [ -z "$VERSION_PREFIX" ]; then
-            VERSION_PREFIX=$(echo "$GITHUB_WORKFLOW" | sed -n 's/.*v\([0-9]\+\.[0-9]\+\).*/\1/p')
-          fi
-
-          if [ -z "$VERSION_PREFIX" ]; then
-            echo "Error: Could not extract version from workflow name: $GITHUB_WORKFLOW"
+            echo "Error: Could not extract version from workflow ref: $WORKFLOW_REF"
             exit 1
           fi
 
