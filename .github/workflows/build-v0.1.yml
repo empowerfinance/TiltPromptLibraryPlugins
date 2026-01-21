@@ -7,7 +7,7 @@
 #   - Major: build-v1.1.yml -> build-v2.0.yml
 # =============================================================================
 
-name: Build Pipeline v1.0
+name: Build and Release Pipeline
 
 on:
   push:
