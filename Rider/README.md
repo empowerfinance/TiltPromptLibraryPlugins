@@ -52,16 +52,28 @@ Only **Shared** prompts are synced. Private prompts stay local.
 **YAML Repository Layout:**
 
 ```
-<repoPath>/<promptsSubdir>/
-  <GroupName>/
-    _group.yaml
-    prompts/
-      p-<uuid>.yaml
+<repoPath>/
+  LibraryName/
+    _library.yaml              # Library marker file (required)
+    GroupName/
+      _group.yaml              # Group metadata
+      p-{uuid}.yaml            # Prompt files (directly in group folder)
+    AnotherGroup/
+      _group.yaml
+      p-{uuid}.yaml
 ```
+
+**Key conventions:**
+
+- **`_library.yaml`** - Marker file identifying a library folder
+- **`_group.yaml`** - Group metadata (name, id, order)
+- **Flat structure** - Prompts stored directly in group folders (no `prompts/` subdirectory)
+- **Flat groups** - Groups only at library root level (no nested groups)
+- **Prompt filenames** - Format: `p-{uuid}.yaml`
 
 **Sync Operations:**
 
-- **Pull & Sync** - Get latest from Git (remote-wins merge)
+- **Pull & Sync** - Get latest from Git and update local library
 - **Quick Commit** - Push directly to current branch
 - **Branch+PR** - Create branch and open PR
 

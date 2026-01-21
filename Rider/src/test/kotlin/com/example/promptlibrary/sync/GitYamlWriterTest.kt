@@ -19,27 +19,66 @@ class GitYamlWriterTest {
     @Test
     fun `should write empty groups list`() {
         val rootDir = tempDir.resolve("repo").toFile()
-        
+
         val (added, updated, deleted) = GitYamlWriter.writeSharedGroups(rootDir, emptyList())
-        
+
         assertThat(rootDir).exists()
-        assertThat(rootDir.listFiles()).isEmpty()
-        assertThat(added).isEqualTo(0)
+        // Should contain only _library.yaml marker file
+        val files = rootDir.listFiles()?.filter { it.name != "_library.yaml" } ?: emptyList()
+        assertThat(files).isEmpty()
+        // _library.yaml is created, so 1 file added
+        assertThat(added).isEqualTo(1)
         assertThat(updated).isEqualTo(0)
         assertThat(deleted).isEqualTo(0)
+        // Verify _library.yaml was created
+        assertThat(File(rootDir, "_library.yaml")).exists()
+    }
+
+    @Test
+    fun `should create _library_yaml marker file when it does not exist`() {
+        val rootDir = tempDir.resolve("repo").toFile()
+        val group = Group(id = "g1", name = "Test Group")
+
+        GitYamlWriter.writeSharedGroups(rootDir, listOf(group))
+
+        // _library.yaml should be created in the root directory
+        val libraryYaml = File(rootDir, "_library.yaml")
+        assertThat(libraryYaml).exists()
+        // Should contain sensible default content
+        val content = libraryYaml.readText()
+        assertThat(content).contains("name:")
+    }
+
+    @Test
+    fun `should preserve existing _library_yaml content after write`() {
+        val rootDir = tempDir.resolve("repo").toFile()
+        rootDir.mkdirs()
+        // First, create a _library.yaml with custom content
+        val customContent = "name: MyCustomLibrary\ndescription: Custom description\n"
+        File(rootDir, "_library.yaml").writeText(customContent)
+
+        val group = Group(id = "g1", name = "Test Group")
+        GitYamlWriter.writeSharedGroups(rootDir, listOf(group))
+
+        // _library.yaml should still exist
+        val libraryYaml = File(rootDir, "_library.yaml")
+        assertThat(libraryYaml).exists()
+        // Should preserve the original content
+        assertThat(libraryYaml.readText()).isEqualTo(customContent)
     }
 
     @Test
     fun `should write single group with no prompts`() {
         val rootDir = tempDir.resolve("repo").toFile()
         val group = Group(id = "g1", name = "Test Group")
-        
+
         val (added, updated, deleted) = GitYamlWriter.writeSharedGroups(rootDir, listOf(group))
-        
+
         val groupDir = File(rootDir, "Test-Group")
         assertThat(groupDir).exists()
         assertThat(File(groupDir, "_group.yaml")).exists()
-        assertThat(File(groupDir, "prompts")).exists()
+        // prompts/ subdirectory should NOT exist (flat structure)
+        assertThat(File(groupDir, "prompts")).doesNotExist()
         assertThat(added).isGreaterThan(0)
     }
 
@@ -60,12 +99,13 @@ class GitYamlWriterTest {
         val prompt1 = Prompt(id = "p1", text = "Prompt 1")
         val prompt2 = Prompt(id = "p2", text = "Prompt 2")
         val group = Group(id = "g1", name = "Test", prompts = listOf(prompt1, prompt2))
-        
+
         GitYamlWriter.writeSharedGroups(rootDir, listOf(group))
-        
-        val promptsDir = File(rootDir, "Test/prompts")
-        assertThat(File(promptsDir, "p-p1.yaml")).exists()
-        assertThat(File(promptsDir, "p-p2.yaml")).exists()
+
+        // Prompts should be directly in group folder (no prompts/ subdirectory)
+        val groupDir = File(rootDir, "Test")
+        assertThat(File(groupDir, "p-p1.yaml")).exists()
+        assertThat(File(groupDir, "p-p2.yaml")).exists()
     }
 
     @Test
@@ -73,24 +113,28 @@ class GitYamlWriterTest {
         val rootDir = tempDir.resolve("repo").toFile()
         val privatePrompt = Prompt(id = "p1", text = "Private", isPrivate = true)
         val group = Group(id = "g1", name = "Test", prompts = listOf(privatePrompt))
-        
+
         GitYamlWriter.writeSharedGroups(rootDir, listOf(group))
-        
-        val promptFile = File(rootDir, "Test/prompts/p-p1.yaml")
+
+        // Prompt should be directly in group folder
+        val promptFile = File(rootDir, "Test/p-p1.yaml")
         val loaded = PromptYaml.readPrompt(promptFile)
         assertThat(loaded.isPrivate).isFalse()
     }
 
     @Test
-    fun `should write nested child groups`() {
+    fun `should NOT write nested child groups (groups are flat)`() {
         val rootDir = tempDir.resolve("repo").toFile()
+        // Even if children are provided, they should be ignored - groups are flat
         val child = Group(id = "child", name = "Child")
         val parent = Group(id = "parent", name = "Parent", children = listOf(child))
-        
+
         GitYamlWriter.writeSharedGroups(rootDir, listOf(parent))
-        
+
+        // Parent should exist
         assertThat(File(rootDir, "Parent/_group.yaml")).exists()
-        assertThat(File(rootDir, "Parent/Child/_group.yaml")).exists()
+        // Child should NOT exist - nested groups are not supported
+        assertThat(File(rootDir, "Parent/Child/_group.yaml")).doesNotExist()
     }
 
     @Test
@@ -126,11 +170,11 @@ class GitYamlWriterTest {
     fun `should track added files correctly`() {
         val rootDir = tempDir.resolve("repo").toFile()
         val group = Group(id = "g1", name = "Test", prompts = listOf(Prompt(id = "p1", text = "Text")))
-        
+
         val (added, _, _) = GitYamlWriter.writeSharedGroups(rootDir, listOf(group))
-        
-        // Should have: _group.yaml + p-p1.yaml = 2 files
-        assertThat(added).isEqualTo(2)
+
+        // Should have: _library.yaml + _group.yaml + p-p1.yaml = 3 files
+        assertThat(added).isEqualTo(3)
     }
 
     @Test
@@ -187,21 +231,24 @@ class GitYamlWriterTest {
     }
 
     @Test
-    fun `should handle complex nested structure`() {
+    fun `should NOT write nested structure (groups are flat)`() {
         val rootDir = tempDir.resolve("repo").toFile()
-        
+
+        // Even with nested children provided, only top-level group should be written
         val grandchild = Group(id = "gc", name = "Grandchild", prompts = listOf(Prompt(id = "p3", text = "Text 3")))
         val child = Group(id = "c", name = "Child", children = listOf(grandchild), prompts = listOf(Prompt(id = "p2", text = "Text 2")))
         val parent = Group(id = "p", name = "Parent", children = listOf(child), prompts = listOf(Prompt(id = "p1", text = "Text 1")))
-        
+
         GitYamlWriter.writeSharedGroups(rootDir, listOf(parent))
-        
+
+        // Only parent group should exist (with its prompts)
         assertThat(File(rootDir, "Parent/_group.yaml")).exists()
-        assertThat(File(rootDir, "Parent/prompts/p-p1.yaml")).exists()
-        assertThat(File(rootDir, "Parent/Child/_group.yaml")).exists()
-        assertThat(File(rootDir, "Parent/Child/prompts/p-p2.yaml")).exists()
-        assertThat(File(rootDir, "Parent/Child/Grandchild/_group.yaml")).exists()
-        assertThat(File(rootDir, "Parent/Child/Grandchild/prompts/p-p3.yaml")).exists()
+        assertThat(File(rootDir, "Parent/p-p1.yaml")).exists()
+        // Nested groups should NOT exist - groups are flat
+        assertThat(File(rootDir, "Parent/Child/_group.yaml")).doesNotExist()
+        assertThat(File(rootDir, "Parent/Child/p-p2.yaml")).doesNotExist()
+        assertThat(File(rootDir, "Parent/Child/Grandchild/_group.yaml")).doesNotExist()
+        assertThat(File(rootDir, "Parent/Child/Grandchild/p-p3.yaml")).doesNotExist()
     }
 }
 

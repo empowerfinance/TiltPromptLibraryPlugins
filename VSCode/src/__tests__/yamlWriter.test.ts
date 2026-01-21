@@ -42,6 +42,55 @@ describe('yamlWriter', () => {
       expect(fs.statSync(groupDir).isDirectory()).toBe(true);
     });
 
+    it('should create _library.yaml marker file when it does not exist', async () => {
+      const groups: Group[] = [
+        {
+          id: 'grp-1',
+          name: 'Test Group',
+          kind: 'shared',
+          prompts: [],
+          children: [],
+        },
+      ];
+
+      await writeSharedGroups(rootUri, groups);
+
+      // _library.yaml should be created in the root directory
+      const libraryYaml = path.join(tempDir, '_library.yaml');
+      expect(fs.existsSync(libraryYaml)).toBe(true);
+
+      // Should contain sensible default content
+      const content = fs.readFileSync(libraryYaml, 'utf8');
+      expect(content).toContain('name:');
+    });
+
+    it('should preserve existing _library.yaml content after write', async () => {
+      // First, create a _library.yaml with custom content
+      fs.mkdirSync(tempDir, { recursive: true });
+      const customContent = 'name: MyCustomLibrary\ndescription: Custom description\n';
+      fs.writeFileSync(path.join(tempDir, '_library.yaml'), customContent);
+
+      const groups: Group[] = [
+        {
+          id: 'grp-1',
+          name: 'Test Group',
+          kind: 'shared',
+          prompts: [],
+          children: [],
+        },
+      ];
+
+      await writeSharedGroups(rootUri, groups);
+
+      // _library.yaml should still exist
+      const libraryYaml = path.join(tempDir, '_library.yaml');
+      expect(fs.existsSync(libraryYaml)).toBe(true);
+
+      // Should preserve the original content
+      const content = fs.readFileSync(libraryYaml, 'utf8');
+      expect(content).toBe(customContent);
+    });
+
     it('should write _group.yaml metadata file', async () => {
       const groups: Group[] = [
         {
@@ -81,7 +130,7 @@ describe('yamlWriter', () => {
       expect(fs.existsSync(groupDir)).toBe(true);
     });
 
-    it('should create prompts subdirectory', async () => {
+    it('should NOT create prompts subdirectory (flat structure)', async () => {
       const groups: Group[] = [
         {
           id: 'grp-1',
@@ -94,9 +143,13 @@ describe('yamlWriter', () => {
 
       await writeSharedGroups(rootUri, groups);
 
+      // Prompts subdirectory should NOT exist (flat structure)
       const promptsDir = path.join(tempDir, 'Test-Group', 'prompts');
-      expect(fs.existsSync(promptsDir)).toBe(true);
-      expect(fs.statSync(promptsDir).isDirectory()).toBe(true);
+      expect(fs.existsSync(promptsDir)).toBe(false);
+
+      // Group directory should exist
+      const groupDir = path.join(tempDir, 'Test-Group');
+      expect(fs.existsSync(groupDir)).toBe(true);
     });
 
     it('should write prompt files', async () => {
@@ -122,7 +175,8 @@ describe('yamlWriter', () => {
 
       await writeSharedGroups(rootUri, groups);
 
-      const promptFile = path.join(tempDir, 'Test-Group', 'prompts', 'p-p-1.yaml');
+      // Prompts are now directly in the group folder (no prompts/ subdirectory)
+      const promptFile = path.join(tempDir, 'Test-Group', 'p-p-1.yaml');
       expect(fs.existsSync(promptFile)).toBe(true);
 
       const content = fs.readFileSync(promptFile, 'utf8');
@@ -155,9 +209,9 @@ describe('yamlWriter', () => {
 
       await writeSharedGroups(rootUri, groups);
 
-      const promptFile = path.join(tempDir, 'Test', 'prompts', 'p-p-1.yaml');
+      const promptFile = path.join(tempDir, 'Test', 'p-p-1.yaml');
       const content = fs.readFileSync(promptFile, 'utf8');
-      
+
       expect(content).toContain('  Line 1');
       expect(content).toContain('  Line 2');
       expect(content).toContain('  Line 3');
@@ -186,7 +240,7 @@ describe('yamlWriter', () => {
 
       await writeSharedGroups(rootUri, groups);
 
-      const promptFile = path.join(tempDir, 'Test', 'prompts', 'p-p-1.yaml');
+      const promptFile = path.join(tempDir, 'Test', 'p-p-1.yaml');
       const content = fs.readFileSync(promptFile, 'utf8');
 
       expect(content).toContain('tags:');
@@ -218,14 +272,15 @@ describe('yamlWriter', () => {
 
       await writeSharedGroups(rootUri, groups);
 
-      const promptFile = path.join(tempDir, 'Test', 'prompts', 'p-p-1.yaml');
+      const promptFile = path.join(tempDir, 'Test', 'p-p-1.yaml');
       const content = fs.readFileSync(promptFile, 'utf8');
 
       // Should not contain private flag
       expect(content).not.toContain('private');
     });
 
-    it('should handle nested groups', async () => {
+    it('should NOT write nested groups (groups are flat)', async () => {
+      // Even if children are provided, they should be ignored - groups are flat
       const groups: Group[] = [
         {
           id: 'grp-1',
@@ -249,9 +304,10 @@ describe('yamlWriter', () => {
       const parentDir = path.join(tempDir, 'Parent');
       const childDir = path.join(parentDir, 'Child');
 
+      // Parent should exist
       expect(fs.existsSync(parentDir)).toBe(true);
-      expect(fs.existsSync(childDir)).toBe(true);
-      expect(fs.existsSync(path.join(childDir, '_group.yaml'))).toBe(true);
+      // Child should NOT exist - nested groups are not supported
+      expect(fs.existsSync(childDir)).toBe(false);
     });
 
     it('should handle special characters in YAML values', async () => {
@@ -277,7 +333,7 @@ describe('yamlWriter', () => {
 
       await writeSharedGroups(rootUri, groups);
 
-      const promptFile = path.join(tempDir, 'Test', 'prompts', 'p-p-1.yaml');
+      const promptFile = path.join(tempDir, 'Test', 'p-p-1.yaml');
       const content = fs.readFileSync(promptFile, 'utf8');
 
       // Special characters should be quoted

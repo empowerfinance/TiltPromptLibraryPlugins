@@ -23,6 +23,41 @@ TiltPromptLibraryPlugins/
 └── docs/             # Shared documentation
 ```
 
+## 📂 Prompt Library Directory Structure
+
+Both plugins use the same on-disk YAML format for shared prompts:
+
+```
+<repoPath>/
+  LibraryName/
+    _library.yaml           # Library marker file (identifies this as a library)
+    GroupName/
+      _group.yaml           # Group metadata (name, display order)
+      p-1234567890-abc.yaml # Prompt files (directly in group folder)
+      p-1234567891-def.yaml
+    AnotherGroup/
+      _group.yaml
+      p-1234567892-ghi.yaml
+```
+
+**Key conventions:**
+
+- **`_library.yaml`** - Marker file at library root (required to identify a library folder)
+- **`_group.yaml`** - Group metadata file (name, id, order)
+- **Flat structure** - Prompts are stored directly in group folders (no `prompts/` subdirectory)
+- **Flat groups** - Groups are only at the library root level (no nested groups)
+- **Prompt filenames** - Format: `p-{timestamp}-{random}.yaml` (VSCode) or `p-{uuid}.yaml` (Rider)
+
+## 🔄 Smart Sync / Git Operations
+
+Both plugins feature **Smart Sync** that automatically handles local changes before pulling:
+
+1. **Auto-commit before pull** - If you have uncommitted local changes (new prompts, edits, etc.), the plugin automatically stages and commits them with the message "Auto-commit: Local changes before sync"
+2. **Rebase-based pull** - Uses `git pull --rebase` to cleanly integrate remote changes
+3. **No data loss** - Local work is never lost; it's committed first, then rebased on top of remote changes
+
+This eliminates "Pull failed" errors when you have local uncommitted changes.
+
 ## 🚀 Quick Start
 
 ### VS Code Extension

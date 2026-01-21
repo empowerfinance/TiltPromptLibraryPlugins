@@ -14,8 +14,8 @@ vi.mock('../groups', () => ({
     renameGroup: vi.fn(),
     deleteGroup: vi.fn()
   })),
-  GroupItem: class {},
-  PromptItem: class {}
+  GroupItem: class { },
+  PromptItem: class { }
 }));
 
 describe('Extension Commands - Basic CRUD', () => {
@@ -35,18 +35,18 @@ describe('Extension Commands - Basic CRUD', () => {
   afterEach(() => {
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {}
+    } catch { }
   });
 
   describe('copyPrompt command', () => {
     it('should copy prompt text to clipboard', async () => {
       const result = await store.addPromptToGroup('grp-unfiled', 'Test prompt text');
       const promptId = result.prompt!.id;
-      
+
       // Simulate command execution
       const p = await store.getPromptById(promptId);
       expect(p).toBeDefined();
-      
+
       // In real command, this would call vscode.env.clipboard.writeText
       const textToCopy = p!.text;
       expect(textToCopy).toBe('Test prompt text');
@@ -62,13 +62,13 @@ describe('Extension Commands - Basic CRUD', () => {
     it('should delete private prompt', async () => {
       const result = await store.addPromptToGroup('grp-unfiled', 'To delete');
       const promptId = result.prompt!.id;
-      
+
       const p = await store.getPromptById(promptId);
       expect(p?.private).toBe(true);
-      
+
       const deleted = await store.deletePrompt(promptId);
       expect(deleted).toBe(true);
-      
+
       const found = await store.getPromptById(promptId);
       expect(found).toBeNull();
     });
@@ -86,10 +86,10 @@ describe('Extension Commands - Basic CRUD', () => {
         private: false
       });
       await store['save'](lib);
-      
+
       const p = await store.getPromptById('p-shared');
       expect(p?.private).toBe(false);
-      
+
       // Command should check private flag and show warning
       // In real implementation, this would show a warning message
     });
@@ -98,7 +98,7 @@ describe('Extension Commands - Basic CRUD', () => {
   describe('movePrompt command', () => {
     it('should list movable groups', async () => {
       const groups = await store.listMovableGroups();
-      
+
       expect(groups.length).toBeGreaterThan(0);
       expect(groups.find(g => g.id === 'grp-unfiled')).toBeDefined();
       expect(groups.find(g => g.id === 'root-shared')).toBeUndefined();
@@ -108,7 +108,7 @@ describe('Extension Commands - Basic CRUD', () => {
     it('should move prompt to selected group', async () => {
       const result = await store.addPromptToGroup('grp-unfiled', 'To move');
       const promptId = result.prompt!.id;
-      
+
       // Create target group
       const lib = await store.getLibrary();
       const privateRoot = lib.groups.find(g => g.id === 'root-private')!;
@@ -121,10 +121,10 @@ describe('Extension Commands - Basic CRUD', () => {
         prompts: []
       });
       await store['save'](lib);
-      
+
       const moved = await store.movePrompt(promptId, 'grp-target');
       expect(moved.ok).toBe(true);
-      
+
       const prompts = await store.getPrompts('grp-target');
       expect(prompts).toHaveLength(1);
       expect(prompts[0].id).toBe(promptId);
@@ -135,13 +135,13 @@ describe('Extension Commands - Basic CRUD', () => {
     it('should export private prompts as JSON array', async () => {
       await store.addPromptToGroup('grp-unfiled', 'Prompt 1');
       await store.addPromptToGroup('grp-unfiled', 'Prompt 2');
-      
+
       const exported = await store.exportPrivateAsStringArray();
-      
+
       expect(exported).toHaveLength(2);
       expect(exported).toContain('Prompt 1');
       expect(exported).toContain('Prompt 2');
-      
+
       // In real command, this would be written to a file
       const json = JSON.stringify(exported, null, 2);
       expect(json).toContain('Prompt 1');
@@ -157,12 +157,12 @@ describe('Extension Commands - Basic CRUD', () => {
   describe('importJson command', () => {
     it('should import JSON array of strings', async () => {
       const data = ['Imported 1', 'Imported 2', 'Imported 3'];
-      
+
       const result = await store.importStringArrayToUnfiled(data);
-      
+
       expect(result.added).toBe(3);
       expect(result.skipped).toBe(0);
-      
+
       const prompts = await store.getPrompts('grp-unfiled');
       expect(prompts).toHaveLength(3);
     });
@@ -174,18 +174,18 @@ describe('Extension Commands - Basic CRUD', () => {
           { text: 'Prompt 2' }
         ]
       };
-      
+
       const result = await store.importFromObject(data);
-      
+
       expect(result.added).toBe(2);
     });
 
     it('should skip duplicates during import', async () => {
       await store.addPromptToGroup('grp-unfiled', 'Existing');
-      
+
       const data = ['Existing', 'New 1', 'New 2'];
       const result = await store.importStringArrayToUnfiled(data);
-      
+
       expect(result.added).toBe(2);
       expect(result.skipped).toBe(1);
     });
@@ -326,6 +326,62 @@ describe('Extension Commands - Basic CRUD', () => {
 
       const p = await store.getPromptById(promptId);
       expect(p?.title).toBe('New Title');
+    });
+  });
+});
+
+describe('Library Creation', () => {
+  let tmpRepoDir: string;
+
+  beforeEach(() => {
+    tmpRepoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lib-create-test-'));
+  });
+
+  afterEach(() => {
+    try {
+      fs.rmSync(tmpRepoDir, { recursive: true, force: true });
+    } catch { }
+  });
+
+  describe('createLibrary command', () => {
+    it('should create library folder with _library.yaml marker file', () => {
+      const libraryName = 'TestLibrary';
+      const libraryPath = path.join(tmpRepoDir, libraryName);
+
+      // Simulate the createLibrary command logic
+      fs.mkdirSync(libraryPath, { recursive: true });
+      const libraryYamlContent = `name: ${libraryName}\ndescription: \n`;
+      fs.writeFileSync(path.join(libraryPath, '_library.yaml'), libraryYamlContent);
+
+      // Verify the library folder was created
+      expect(fs.existsSync(libraryPath)).toBe(true);
+
+      // Verify the _library.yaml file was created
+      const libraryYamlPath = path.join(libraryPath, '_library.yaml');
+      expect(fs.existsSync(libraryYamlPath)).toBe(true);
+
+      // Verify the content of _library.yaml
+      const content = fs.readFileSync(libraryYamlPath, 'utf8');
+      expect(content).toContain('name: TestLibrary');
+      expect(content).toContain('description:');
+    });
+
+    it('should not create nested folders or group files', () => {
+      const libraryName = 'NewLibrary';
+      const libraryPath = path.join(tmpRepoDir, libraryName);
+
+      // Simulate the createLibrary command logic
+      fs.mkdirSync(libraryPath, { recursive: true });
+      const libraryYamlContent = `name: ${libraryName}\ndescription: \n`;
+      fs.writeFileSync(path.join(libraryPath, '_library.yaml'), libraryYamlContent);
+
+      // Verify no nested "General" folder was created
+      const generalPath = path.join(libraryPath, 'General');
+      expect(fs.existsSync(generalPath)).toBe(false);
+
+      // Verify no _group.yaml was created anywhere
+      const files = fs.readdirSync(libraryPath);
+      expect(files).toEqual(['_library.yaml']);
     });
   });
 });

@@ -190,6 +190,15 @@ export async function cleanUntracked(path: string): Promise<boolean> {
   return res.code === 0;
 }
 
+/**
+ * Check if the repository has uncommitted changes (staged, unstaged, or untracked)
+ */
+export async function isDirty(path: string): Promise<boolean> {
+  // git status --porcelain returns non-empty output if there are changes
+  const res = await runGit(path, ['status', '--porcelain']);
+  if (res.code !== 0) return false;
+  return res.stdout.trim().length > 0;
+}
 
 export function tryBuildGithubCompareUrl(remoteUrl: string, branch: string): vscode.Uri | null {
   // Supports https://github.com/org/repo.git and git@github.com:org/repo.git

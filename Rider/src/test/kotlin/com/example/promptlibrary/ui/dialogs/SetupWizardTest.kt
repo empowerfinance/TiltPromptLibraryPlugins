@@ -131,7 +131,7 @@ class SetupWizardTest {
     }
 
     @Test
-    fun `createDefaultLibraryStructure should create library folder with group yaml`() {
+    fun `createDefaultLibraryStructure should create library folder with library yaml`() {
         // Given
         val libraryPath = File(tempDir, "MyLibrary")
 
@@ -141,13 +141,18 @@ class SetupWizardTest {
         // Then
         assertThat(result.success).isTrue()
         assertThat(libraryPath.exists()).isTrue()
-        
-        val generalDir = File(libraryPath, "general/General")
+
+        // Should create just the library folder with _library.yaml, no nested folders
+        val generalDir = File(libraryPath, "general")
         assertThat(generalDir.exists()).isTrue()
-        
-        val groupYaml = File(generalDir, "_group.yaml")
-        assertThat(groupYaml.exists()).isTrue()
-        assertThat(groupYaml.readText()).contains("name: General")
+
+        val libraryYaml = File(generalDir, "_library.yaml")
+        assertThat(libraryYaml.exists()).isTrue()
+        assertThat(libraryYaml.readText()).contains("name: general")
+
+        // Should NOT create nested group folder
+        val nestedGroupDir = File(libraryPath, "general/General")
+        assertThat(nestedGroupDir.exists()).isFalse()
     }
 
     @Test

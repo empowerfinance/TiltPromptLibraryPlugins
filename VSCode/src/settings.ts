@@ -154,18 +154,11 @@ export function getRepoConfig(): RepoConfig {
     enabled: !hiddenLibrariesSetting.includes(lib.id)
   }));
 
-  // Ensure active library exists in the list (even if not yet discovered or hidden)
-  const activeExists = libraries.some(lib => lib.path === activeLibraryPath);
-  if (!activeExists) {
-    // Add active library - but respect hidden setting
-    const isHidden = hiddenLibrariesSetting.includes(activeLibraryPath);
-    libraries.unshift({
-      id: activeLibraryPath,
-      path: activeLibraryPath,
-      displayName: activeLibraryPath, // Display exactly as folder name
-      enabled: !isHidden
-    });
-  }
+  // Note: We no longer add the active library if it doesn't exist on disk.
+  // This prevents phantom libraries from appearing when promptsSubdir points
+  // to a folder that doesn't exist or doesn't have a _library.yaml file.
+  // The active library setting should be updated when the user selects
+  // a different library or when the current one is deleted.
 
   return {
     url: settings.remoteRepoUrl,
@@ -253,7 +246,15 @@ export async function hideAllLibraries(): Promise<void> {
 
 /**
  * Gets available libraries based on folders in the repository.
- * Scans the repository root for directories that could be libraries.
+ * Scans the repository root for directories that contain a _library.yaml file.
+ *
+ * A valid library structure:
+ *   repoRoot/
+ *     MyLibrary/
+ *       _library.yaml    <- Identifies this folder as a library
+ *       GroupA/
+ *         _group.yaml    <- Identifies this folder as a group
+ *         prompts/
  */
 export function discoverLibraries(repoPath: string): LibraryConfig[] {
   const fs = require('fs');
@@ -267,16 +268,11 @@ export function discoverLibraries(repoPath: string): LibraryConfig[] {
     const entries = fs.readdirSync(repoPath, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
-        // Check if this directory looks like a library (has subdirs with _group.yaml)
+        // Check if this directory is a library (has _library.yaml at its root)
         const potentialLibPath = path.join(repoPath, entry.name);
-        const subDirs = fs.readdirSync(potentialLibPath, { withFileTypes: true });
-        const hasGroupYaml = subDirs.some((sub: any) => {
-          if (!sub.isDirectory()) return false;
-          const groupYamlPath = path.join(potentialLibPath, sub.name, '_group.yaml');
-          return fs.existsSync(groupYamlPath);
-        });
+        const libraryYamlPath = path.join(potentialLibPath, '_library.yaml');
 
-        if (hasGroupYaml) {
+        if (fs.existsSync(libraryYamlPath)) {
           libraries.push({
             id: entry.name,
             path: entry.name,
@@ -290,16 +286,9 @@ export function discoverLibraries(repoPath: string): LibraryConfig[] {
     // Silently ignore errors during discovery
   }
 
-  // If no libraries found, return the default
-  if (libraries.length === 0) {
-    libraries.push({
-      id: DEFAULT_LIBRARY_NAME,
-      path: DEFAULT_LIBRARY_NAME,
-      displayName: DEFAULT_LIBRARY_NAME, // Display as-is
-      enabled: true
-    });
-  }
-
+  // Return discovered libraries only - no default fallback
+  // If no libraries found, return empty array.
+  // The UI should handle this case by prompting user to create a library.
   return libraries;
 }
 

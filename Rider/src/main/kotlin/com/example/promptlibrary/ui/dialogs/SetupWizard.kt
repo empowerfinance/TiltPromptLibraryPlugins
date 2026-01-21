@@ -66,15 +66,18 @@ object SetupWizardActions {
 
     /**
      * Creates the default library folder structure at the given path.
+     * Creates just the library folder with a _library.yaml marker file.
+     * No nested folders - user will add groups themselves.
      */
     fun createDefaultLibraryStructure(libraryPath: File): CreateResult {
         return try {
-            val defaultLibPath = File(libraryPath, "general/General")
+            // Create the library folder with a _library.yaml marker file
+            val defaultLibPath = File(libraryPath, "general")
             defaultLibPath.mkdirs()
-            
-            val groupYaml = File(defaultLibPath, "_group.yaml")
-            groupYaml.writeText("name: General\ndescription: Default group\n")
-            
+
+            val libraryYaml = File(defaultLibPath, "_library.yaml")
+            libraryYaml.writeText("name: general\ndescription: \n")
+
             CreateResult(success = true)
         } catch (e: Exception) {
             CreateResult(success = false, error = e.message)

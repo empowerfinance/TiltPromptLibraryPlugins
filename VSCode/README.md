@@ -48,13 +48,25 @@ npm run compile
 **YAML Repository Layout**
 
 ```
-<repoPath>/<promptsSubdir>/
-  <GroupName>/
-    _group.yaml              # Group metadata
-    prompts/
-      p-<uuid>.yaml          # One file per prompt
-    <ChildGroup>/            # Nested groups
+<repoPath>/
+  LibraryName/
+    _library.yaml              # Library marker file (required)
+    GroupName/
+      _group.yaml              # Group metadata
+      p-1234567890-abc.yaml    # Prompt files (directly in group folder)
+      p-1234567891-def.yaml
+    AnotherGroup/
+      _group.yaml
+      p-1234567892-ghi.yaml
 ```
+
+**Key conventions:**
+
+- **`_library.yaml`** - Marker file identifying a library folder
+- **`_group.yaml`** - Group metadata (name, id, order)
+- **Flat structure** - Prompts stored directly in group folders (no `prompts/` subdirectory)
+- **Flat groups** - Groups only at library root level (no nested groups)
+- **Prompt filenames** - Format: `p-{timestamp}-{random}.yaml`
 
 **Sync Operations**
 
@@ -63,6 +75,16 @@ npm run compile
 - **Create Pull Request** - Create branch and open PR
 
 Only Shared prompts are synced. Private prompts stay local.
+
+**Smart Sync (Auto-commit before pull)**
+
+If you have uncommitted local changes when syncing, the extension automatically:
+
+1. Stages all local changes
+2. Commits with message "Auto-commit: Local changes before sync"
+3. Pulls with rebase (`git pull --rebase`)
+
+This prevents "Pull failed" errors and ensures your local work is never lost.
 
 ## 🛠️ Development
 

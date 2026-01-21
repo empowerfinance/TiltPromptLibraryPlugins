@@ -8,16 +8,16 @@ let gitExtension: any = null;
 
 async function getGitExtension() {
   if (gitExtension) return gitExtension;
-  
+
   const ext = vscode.extensions.getExtension('vscode.git');
   if (!ext) {
     throw new Error('VSCode Git extension not found. Please enable the built-in Git extension.');
   }
-  
+
   if (!ext.isActive) {
     await ext.activate();
   }
-  
+
   gitExtension = ext.exports;
   return gitExtension;
 }
@@ -70,7 +70,7 @@ export async function getCurrentBranch(path: string): Promise<string | null> {
 export async function stageAll(path: string): Promise<void> {
   const repo = await getRepository(path);
   if (!repo) throw new Error('Not a git repository');
-  
+
   // Stage all changes
   await repo.add([]);
 }
@@ -81,12 +81,12 @@ export async function commit(path: string, message: string): Promise<GitResult> 
     if (!repo) {
       return { success: false, error: 'Not a git repository' };
     }
-    
+
     // Check if there are changes to commit
     if (repo.state.workingTreeChanges.length === 0 && repo.state.indexChanges.length === 0) {
       return { success: true, nothingToCommit: true };
     }
-    
+
     await repo.commit(message);
     return { success: true };
   } catch (e: any) {
@@ -100,10 +100,10 @@ export async function push(path: string, remote = 'origin', branch?: string): Pr
     if (!repo) {
       return { success: false, error: 'Not a git repository' };
     }
-    
+
     const remoteName = remote;
     const refspec = branch ? `refs/heads/${branch}` : undefined;
-    
+
     await repo.push(remoteName, refspec, true); // true = setUpstream
     return { success: true };
   } catch (e: any) {
@@ -117,7 +117,7 @@ export async function checkoutNewBranch(path: string, branch: string): Promise<G
     if (!repo) {
       return { success: false, error: 'Not a git repository' };
     }
-    
+
     await repo.createBranch(branch, true); // true = checkout
     return { success: true };
   } catch (e: any) {
@@ -129,7 +129,7 @@ export async function getRemoteUrl(path: string, remote = 'origin'): Promise<str
   try {
     const repo = await getRepository(path);
     if (!repo) return null;
-    
+
     const remotes = repo.state.remotes;
     const remoteObj = remotes.find((r: any) => r.name === remote);
     return remoteObj?.fetchUrl || remoteObj?.pushUrl || null;
@@ -150,6 +150,26 @@ export async function getGitVersion(): Promise<{ version?: string; error?: strin
     return { version: 'Git extension loaded' };
   } catch (e: any) {
     return { error: e.message };
+  }
+}
+
+/**
+ * Check if the repository has uncommitted changes (staged or unstaged)
+ */
+export async function isDirty(path: string): Promise<boolean> {
+  try {
+    const repo = await getRepository(path);
+    if (!repo) return false;
+
+    // Check for working tree changes (unstaged) and index changes (staged)
+    const hasWorkingTreeChanges = repo.state.workingTreeChanges.length > 0;
+    const hasIndexChanges = repo.state.indexChanges.length > 0;
+    const hasUntrackedChanges = repo.state.untrackedChanges?.length > 0;
+
+    return hasWorkingTreeChanges || hasIndexChanges || hasUntrackedChanges;
+  } catch (e) {
+    log.warn(`isDirty error: ${e}`);
+    return false;
   }
 }
 

@@ -184,6 +184,12 @@
           "order": 1,
           "markdownDescription": "**Local Repository Path** - Path to your prompt library folder. Use the [Setup Wizard](command:promptLibrary.setupRepository) to configure this (clone a repo, select existing folder, or create new)."
         },
+        "promptLibrary.promptsSubdir": {
+          "type": "string",
+          "default": "",
+          "order": 2,
+          "markdownDescription": "**Active Library** - The library folder where new prompts will be saved. This is automatically set when you create a new library."
+        },
         "promptLibrary.hiddenLibraries": {
           "type": "array",
           "items": {
@@ -306,7 +312,7 @@
     "compile": "tsc -p ./ && npm run copy-html",
     "copy-html": "node -e \"const fs=require('fs'),path=require('path');const src='src/ui',dst='out/ui';fs.mkdirSync(dst,{recursive:true});fs.readdirSync(src).filter(f=>f.endsWith('.html')).forEach(f=>fs.copyFileSync(path.join(src,f),path.join(dst,f)))\"",
     "watch": "tsc -w -p ./",
-    "pretest": "npm run copy-html",
+    "pretest": "tsc --noEmit && npm run copy-html",
     "test": "vitest run",
     "test:watch": "vitest",
     "package": "npm run compile && npx --yes @vscode/vsce package",

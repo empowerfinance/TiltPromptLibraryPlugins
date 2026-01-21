@@ -82,39 +82,20 @@ function parsePrompt(content: string): Omit<Prompt, 'createdAt' | 'updatedAt' | 
 function isDirEntryDir(e: [string, vscode.FileType]) { return e[1] === vscode.FileType.Directory; }
 function isDirEntryFile(e: [string, vscode.FileType]) { return e[1] === vscode.FileType.File; }
 
-export async function readSharedGroups(rootDir: vscode.Uri, promptsSubdir = 'prompts'): Promise<Group[]> {
+export async function readSharedGroups(rootDir: vscode.Uri): Promise<Group[]> {
   const entries = await safeReadDir(rootDir);
-
-  // Some repos (including Empower's) place all groups under a top-level container directory
-  // also named like the prompts subdirectory (e.g. "prompts/General/_group.yaml").
-  // If we detect that pattern, scan inside that container instead of the root.
-  const container = entries.find(([name, type]) => type === vscode.FileType.Directory && name.toLowerCase() === promptsSubdir.toLowerCase());
-  if (container) {
-    const containerUri = vscode.Uri.joinPath(rootDir, container[0]);
-    const sub = await safeReadDir(containerUri);
-    const fromContainer: Group[] = [];
-    for (const [name, type] of sub) {
-      if (type !== vscode.FileType.Directory) continue;
-      const g = await readGroupDir(vscode.Uri.joinPath(containerUri, name), promptsSubdir);
-      if (g) fromContainer.push(g);
-    }
-    if (fromContainer.length > 0) {
-      return fromContainer;
-    }
-    // If container exists but no groups were found, fall through to root scan
-  }
 
   const groups: Group[] = [];
   for (const [name, type] of entries) {
     if (type !== vscode.FileType.Directory) continue;
     const dir = vscode.Uri.joinPath(rootDir, name);
-    const g = await readGroupDir(dir, promptsSubdir);
+    const g = await readGroupDir(dir);
     if (g) groups.push(g);
   }
   return groups;
 }
 
-async function readGroupDir(dir: vscode.Uri, promptsSubdir: string): Promise<Group | null> {
+async function readGroupDir(dir: vscode.Uri): Promise<Group | null> {
   // Support both _group.yaml and _group.yml for compatibility
   let meta = await safeReadFile(vscode.Uri.joinPath(dir, '_group.yaml'));
   if (!meta) {
@@ -123,34 +104,28 @@ async function readGroupDir(dir: vscode.Uri, promptsSubdir: string): Promise<Gro
   if (!meta) return null;
   const parsed = parseGroupMeta(meta);
   if (!parsed) return null;
-  const children: Group[] = [];
   const prompts: Prompt[] = [];
 
   const entries = await safeReadDir(dir);
   for (const [name, type] of entries) {
-    if (name === '_group.yaml') continue;
-    if (type === vscode.FileType.Directory) {
-      if (name === promptsSubdir) {
-        const promptFiles = await safeReadDir(vscode.Uri.joinPath(dir, name));
-        for (const [pf, ptype] of promptFiles) {
-          if (ptype !== vscode.FileType.File) continue;
-          const lower = pf.toLowerCase();
-          if (!(lower.endsWith('.yaml') || lower.endsWith('.yml'))) continue;
-          const content = await safeReadFile(vscode.Uri.joinPath(dir, name, pf));
-          if (!content) continue;
-          const parsedP = parsePrompt(content);
-          if (!parsedP) continue;
-          const now = new Date().toISOString();
-          prompts.push({ id: parsedP.id, title: parsedP.title, text: parsedP.text, tags: parsedP.tags ?? [], createdAt: now, updatedAt: now, private: false });
-        }
-      } else {
-        const child = await readGroupDir(vscode.Uri.joinPath(dir, name), promptsSubdir);
-        if (child) children.push(child);
-      }
+    if (name === '_group.yaml' || name === '_group.yml') continue;
+    // Skip subdirectories - groups are flat (no nested groups allowed)
+    if (type === vscode.FileType.Directory) continue;
+    if (type === vscode.FileType.File) {
+      // Prompt files are directly in the group folder (p-*.yaml)
+      const lower = name.toLowerCase();
+      if (!(lower.endsWith('.yaml') || lower.endsWith('.yml'))) continue;
+      const content = await safeReadFile(vscode.Uri.joinPath(dir, name));
+      if (!content) continue;
+      const parsedP = parsePrompt(content);
+      if (!parsedP) continue;
+      const now = new Date().toISOString();
+      prompts.push({ id: parsedP.id, title: parsedP.title, text: parsedP.text, tags: parsedP.tags ?? [], createdAt: now, updatedAt: now, private: false });
     }
   }
 
-  return { id: parsed.id, name: parsed.name, kind: 'shared', tags: ['ns:shared'], description: undefined, children, prompts };
+  // No children - groups are flat (only at library root level)
+  return { id: parsed.id, name: parsed.name, kind: 'shared', tags: ['ns:shared'], description: undefined, children: [], prompts };
 }
 
 async function safeReadDir(uri: vscode.Uri): Promise<[string, vscode.FileType][]> {
@@ -169,22 +144,20 @@ async function safeReadFile(uri: vscode.Uri): Promise<string | null> {
  *
  * @param repoRoot - The root directory of the Git repository (as a file system path)
  * @param library - The library configuration specifying which library to read
- * @param promptsSubdirName - The name of the prompts subdirectory within groups (default: 'prompts')
  * @returns Array of groups found in the library
  *
  * Example folder structure:
  *   ~/PromptLibrary/           <- repoRoot
  *     platform/                <- library.path = "platform"
  *       API/_group.yaml
- *       API/prompts/p-xxx.yaml
+ *       API/p-xxx.yaml         <- prompts directly in group folder
  */
 export async function readFromLibrary(
   repoRoot: string,
-  library: LibraryConfig,
-  promptsSubdirName: string = 'prompts'
+  library: LibraryConfig
 ): Promise<Group[]> {
   const libraryDir = vscode.Uri.file(repoRoot).with({ path: `${repoRoot}/${library.path}` });
-  return readSharedGroups(libraryDir, promptsSubdirName);
+  return readSharedGroups(libraryDir);
 }
 
 /**
@@ -193,19 +166,17 @@ export async function readFromLibrary(
  *
  * @param repoRoot - The root directory of the Git repository
  * @param libraries - Array of library configurations to read from
- * @param promptsSubdirName - The name of the prompts subdirectory within groups
  * @returns Map of library ID to array of groups
  */
 export async function readFromLibraries(
   repoRoot: string,
-  libraries: LibraryConfig[],
-  promptsSubdirName: string = 'prompts'
+  libraries: LibraryConfig[]
 ): Promise<Map<string, Group[]>> {
   const result = new Map<string, Group[]>();
 
   for (const library of libraries.filter(l => l.enabled)) {
     try {
-      const groups = await readFromLibrary(repoRoot, library, promptsSubdirName);
+      const groups = await readFromLibrary(repoRoot, library);
       // Tag all groups and prompts with libraryId so they can be written back to disk
       tagWithLibraryId(groups, library.id);
       result.set(library.id, groups);
@@ -219,7 +190,8 @@ export async function readFromLibraries(
 }
 
 /**
- * Recursively tags groups and their prompts with a libraryId.
+ * Tags groups and their prompts with a libraryId.
+ * Note: Groups are flat (no nested children), so no recursion needed.
  */
 function tagWithLibraryId(groups: Group[], libraryId: string): void {
   for (const g of groups) {
@@ -227,7 +199,7 @@ function tagWithLibraryId(groups: Group[], libraryId: string): void {
     for (const p of g.prompts) {
       p.libraryId = libraryId;
     }
-    tagWithLibraryId(g.children, libraryId);
+    // No recursion - groups are flat (no children)
   }
 }
 

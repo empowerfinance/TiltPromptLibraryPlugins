@@ -7,7 +7,7 @@ import * as path from 'path';
 vi.mock('vscode', () => {
   enum FileType { File = 1, Directory = 2 }
   class Uri {
-    constructor(public fsPath: string) {}
+    constructor(public fsPath: string) { }
     static file(p: string) { return new Uri(path.resolve(p)); }
     static joinPath(base: Uri, ...parts: string[]) { return Uri.file(path.join(base.fsPath, ...parts)); }
   }
@@ -41,7 +41,7 @@ describe('readSharedGroups - Error Handling & Edge Cases', () => {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-yaml-errors-'));
 
   afterAll(() => {
-    try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { }
   });
 
   describe('malformed YAML', () => {
@@ -55,10 +55,10 @@ describe('readSharedGroups - Error Handling & Edge Cases', () => {
       ].join('\n'));
 
       const uri = vscode.Uri.file(repoRoot);
-      
+
       // Should not throw, but may skip the malformed group
       const groups = await readSharedGroups(uri, 'prompts');
-      
+
       // Verify it doesn't crash
       expect(Array.isArray(groups)).toBe(true);
     });
@@ -70,7 +70,7 @@ describe('readSharedGroups - Error Handling & Edge Cases', () => {
         'name: "Group1"',
         ''
       ].join('\n'));
-      
+
       write(path.join(repoRoot, 'prompts', 'Group1', 'prompts', 'bad.yaml'), [
         'id: "bad-prompt"',
         'text: |',
@@ -81,7 +81,7 @@ describe('readSharedGroups - Error Handling & Edge Cases', () => {
 
       const uri = vscode.Uri.file(repoRoot);
       const groups = await readSharedGroups(uri, 'prompts');
-      
+
       // Should still read the group, may skip bad prompt
       expect(groups.length).toBeGreaterThanOrEqual(0);
     });
@@ -97,7 +97,7 @@ describe('readSharedGroups - Error Handling & Edge Cases', () => {
 
       const uri = vscode.Uri.file(repoRoot);
       const groups = await readSharedGroups(uri, 'prompts');
-      
+
       // Should handle gracefully
       expect(Array.isArray(groups)).toBe(true);
     });
@@ -109,7 +109,7 @@ describe('readSharedGroups - Error Handling & Edge Cases', () => {
         'name: "Group2"',
         ''
       ].join('\n'));
-      
+
       write(path.join(repoRoot, 'prompts', 'Group2', 'prompts', 'noid.yaml'), [
         'text: "Some text"',  // Missing id
         ''
@@ -117,7 +117,7 @@ describe('readSharedGroups - Error Handling & Edge Cases', () => {
 
       const uri = vscode.Uri.file(repoRoot);
       const groups = await readSharedGroups(uri, 'prompts');
-      
+
       expect(Array.isArray(groups)).toBe(true);
     });
 
@@ -128,7 +128,7 @@ describe('readSharedGroups - Error Handling & Edge Cases', () => {
         'name: "Group3"',
         ''
       ].join('\n'));
-      
+
       write(path.join(repoRoot, 'prompts', 'Group3', 'prompts', 'notext.yaml'), [
         'id: "notext"',
         'title: "No Text"',  // Missing text field
@@ -137,7 +137,7 @@ describe('readSharedGroups - Error Handling & Edge Cases', () => {
 
       const uri = vscode.Uri.file(repoRoot);
       const groups = await readSharedGroups(uri, 'prompts');
-      
+
       expect(Array.isArray(groups)).toBe(true);
     });
   });
@@ -149,7 +149,7 @@ describe('readSharedGroups - Error Handling & Edge Cases', () => {
 
       const uri = vscode.Uri.file(repoRoot);
       const groups = await readSharedGroups(uri, 'prompts');
-      
+
       expect(groups).toEqual([]);
     });
 
@@ -159,7 +159,7 @@ describe('readSharedGroups - Error Handling & Edge Cases', () => {
 
       const uri = vscode.Uri.file(repoRoot);
       const groups = await readSharedGroups(uri, 'prompts');
-      
+
       expect(Array.isArray(groups)).toBe(true);
     });
 
@@ -170,12 +170,12 @@ describe('readSharedGroups - Error Handling & Edge Cases', () => {
         'name: "Group4"',
         ''
       ].join('\n'));
-      
+
       write(path.join(repoRoot, 'prompts', 'Group4', 'prompts', 'empty.yaml'), '');
 
       const uri = vscode.Uri.file(repoRoot);
       const groups = await readSharedGroups(uri, 'prompts');
-      
+
       expect(Array.isArray(groups)).toBe(true);
     });
 
@@ -190,7 +190,7 @@ describe('readSharedGroups - Error Handling & Edge Cases', () => {
 
       const uri = vscode.Uri.file(repoRoot);
       const groups = await readSharedGroups(uri, 'prompts');
-      
+
       expect(groups.length).toBeGreaterThanOrEqual(0);
       const group5 = groups.find(g => g.id === 'grp-5');
       if (group5) {
@@ -199,41 +199,39 @@ describe('readSharedGroups - Error Handling & Edge Cases', () => {
     });
   });
 
-  describe('nested structures', () => {
-    it('should handle nested groups', async () => {
+  describe('flat group structure', () => {
+    it('should IGNORE nested groups (groups are flat)', async () => {
       const repoRoot = path.join(tmpRoot, 'nested-groups');
-      
-      // Parent group
-      write(path.join(repoRoot, 'prompts', 'Parent', '_group.yaml'), [
+
+      // Parent group (prompts directly in group folder)
+      write(path.join(repoRoot, 'Parent', '_group.yaml'), [
         'id: "grp-parent"',
         'name: "Parent"',
         ''
       ].join('\n'));
-      
-      // Child group
-      write(path.join(repoRoot, 'prompts', 'Parent', 'Child', '_group.yaml'), [
+
+      // Child group inside Parent (should be ignored - groups are flat)
+      write(path.join(repoRoot, 'Parent', 'Child', '_group.yaml'), [
         'id: "grp-child"',
         'name: "Child"',
         ''
       ].join('\n'));
-      
-      write(path.join(repoRoot, 'prompts', 'Parent', 'Child', 'prompts', 'nested.yaml'), [
+
+      write(path.join(repoRoot, 'Parent', 'Child', 'p-nested.yaml'), [
         'id: "nested"',
         'text: "Nested prompt"',
         ''
       ].join('\n'));
 
       const uri = vscode.Uri.file(repoRoot);
-      const groups = await readSharedGroups(uri, 'prompts');
-      
+      const groups = await readSharedGroups(uri);
+
       expect(groups.length).toBeGreaterThan(0);
       const parent = groups.find(g => g.id === 'grp-parent');
       expect(parent).toBeTruthy();
-      
-      // Check if child is nested or flat
-      if (parent && parent.children.length > 0) {
-        expect(parent.children[0].id).toBe('grp-child');
-      }
+
+      // Children should be empty - nested groups are not supported
+      expect(parent!.children).toEqual([]);
     });
   });
 });

@@ -105,19 +105,9 @@ class PluginSettingsService : PersistentStateComponent<PluginSettingsService.Sta
                 lib.copy(enabled = !hiddenLibraries.contains(lib.id))
             }
 
-            // Ensure active library is always included in the list (even if not yet discovered)
-            // but respect hidden setting
-            val activeExists = libraries.any { it.path == activeLibraryPath }
-            if (!activeExists) {
-                libraries = listOf(
-                    LibraryConfig(
-                        id = activeLibraryPath,
-                        path = activeLibraryPath,
-                        displayName = titleCase(activeLibraryPath),
-                        enabled = !hiddenLibraries.contains(activeLibraryPath)
-                    )
-                ) + libraries
-            }
+            // Note: We no longer add the active library if it doesn't exist on disk.
+            // This prevents phantom libraries from appearing when promptsSubdir points
+            // to a folder that doesn't exist or doesn't have a _library.yaml file.
 
             return RepoConfig(
                 url = settings.remoteRepoUrl,

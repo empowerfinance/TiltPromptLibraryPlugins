@@ -10,12 +10,11 @@ import java.io.File
 
 /**
  * Reads a YAML tree from a local folder into Group/Prompt models.
- * This is read-only and makes no Git calls. Structure:
+ * This is read-only and makes no Git calls. Structure (flat - prompts directly in group folder):
  *   <root>/
  *     <group>/
  *       _group.yaml
- *       prompts/
- *         p-<uuid>.yaml
+ *       p-<uuid>.yaml    (prompts directly in group folder)
  *       <child>/
  *         ...
  */
@@ -30,14 +29,16 @@ object GitYamlLoader {
         val meta = File(dir, "_group.yaml")
         if (!meta.exists()) return null
         val group = GroupYaml.readGroup(meta)
-        val promptsDir = File(dir, "prompts")
-        val prompts = if (promptsDir.exists()) {
-            promptsDir.listFiles { f -> f.isFile && f.name.endsWith(".yaml") }?.map { PromptYaml.readPrompt(it) }
-                ?.filter { !it.isPrivate } // never import private=true
-                ?: emptyList()
-        } else emptyList()
-        val children = dir.listFiles { f -> f.isDirectory && File(f, "_group.yaml").exists() }?.mapNotNull { readGroupDir(it) } ?: emptyList()
-        return group.copy(children = children, prompts = prompts)
+
+        // Read prompts directly from the group folder (p-*.yaml files)
+        val prompts = dir.listFiles { f ->
+            f.isFile && (f.name.endsWith(".yaml") || f.name.endsWith(".yml")) && f.name != "_group.yaml" && f.name != "_group.yml"
+        }?.map { PromptYaml.readPrompt(it) }
+            ?.filter { !it.isPrivate } // never import private=true
+            ?: emptyList()
+
+        // No nested child groups - groups are flat (only at library root level)
+        return group.copy(children = emptyList(), prompts = prompts)
     }
 
     // ============================================================================
@@ -89,14 +90,15 @@ object GitYamlLoader {
     }
 
     /**
-     * Recursively tags groups and their prompts with a libraryId.
+     * Tags groups and their prompts with a libraryId.
+     * Note: Groups are flat (no nested children), so no recursion needed.
      */
     private fun tagWithLibraryId(groups: List<Group>, libraryId: String): List<Group> {
         return groups.map { g ->
             g.copy(
                 libraryId = libraryId,
-                prompts = g.prompts.map { it.copy(libraryId = libraryId) },
-                children = tagWithLibraryId(g.children, libraryId)
+                prompts = g.prompts.map { it.copy(libraryId = libraryId) }
+                // No children recursion - groups are flat
             )
         }
     }

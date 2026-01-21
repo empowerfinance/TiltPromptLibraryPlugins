@@ -67,19 +67,19 @@ class GitYamlLoaderTest {
     fun `should load group with prompts`() {
         val rootDir = tempDir.toFile()
         val groupDir = File(rootDir, "test-group")
-        val promptsDir = File(groupDir, "prompts")
-        promptsDir.mkdirs()
-        
+        groupDir.mkdirs()
+
         val group = Group(id = "g1", name = "Test Group")
         GroupYaml.writeGroup(group, File(groupDir, "_group.yaml"))
-        
+
+        // Prompts should be directly in the group folder (no prompts/ subdirectory)
         val prompt1 = Prompt(id = "p1", text = "Prompt 1")
         val prompt2 = Prompt(id = "p2", text = "Prompt 2")
-        PromptYaml.writePrompt(prompt1, File(promptsDir, "p-p1.yaml"))
-        PromptYaml.writePrompt(prompt2, File(promptsDir, "p-p2.yaml"))
-        
+        PromptYaml.writePrompt(prompt1, File(groupDir, "p-p1.yaml"))
+        PromptYaml.writePrompt(prompt2, File(groupDir, "p-p2.yaml"))
+
         val loaded = GitYamlLoader.loadFromRoot(rootDir)
-        
+
         assertThat(loaded).hasSize(1)
         assertThat(loaded[0].prompts).hasSize(2)
         assertThat(loaded[0].prompts.map { it.id }).containsExactlyInAnyOrder("p1", "p2")
@@ -89,45 +89,45 @@ class GitYamlLoaderTest {
     fun `should filter out private prompts`() {
         val rootDir = tempDir.toFile()
         val groupDir = File(rootDir, "test-group")
-        val promptsDir = File(groupDir, "prompts")
-        promptsDir.mkdirs()
-        
+        groupDir.mkdirs()
+
         val group = Group(id = "g1", name = "Test Group")
         GroupYaml.writeGroup(group, File(groupDir, "_group.yaml"))
-        
+
+        // Prompts should be directly in the group folder (no prompts/ subdirectory)
         val publicPrompt = Prompt(id = "public", text = "Public", isPrivate = false)
         val privatePrompt = Prompt(id = "private", text = "Private", isPrivate = true)
-        PromptYaml.writePrompt(publicPrompt, File(promptsDir, "p-public.yaml"))
-        PromptYaml.writePrompt(privatePrompt, File(promptsDir, "p-private.yaml"))
-        
+        PromptYaml.writePrompt(publicPrompt, File(groupDir, "p-public.yaml"))
+        PromptYaml.writePrompt(privatePrompt, File(groupDir, "p-private.yaml"))
+
         val loaded = GitYamlLoader.loadFromRoot(rootDir)
-        
+
         assertThat(loaded[0].prompts).hasSize(1)
         assertThat(loaded[0].prompts[0].id).isEqualTo("public")
     }
 
     @Test
-    fun `should load nested child groups`() {
+    fun `should IGNORE nested child groups (groups are flat)`() {
         val rootDir = tempDir.toFile()
-        
+
         // Parent group
         val parentDir = File(rootDir, "parent")
         parentDir.mkdirs()
         val parent = Group(id = "parent", name = "Parent Group")
         GroupYaml.writeGroup(parent, File(parentDir, "_group.yaml"))
-        
-        // Child group
+
+        // Child group inside parent (should be ignored - groups are flat)
         val childDir = File(parentDir, "child")
         childDir.mkdirs()
         val child = Group(id = "child", name = "Child Group")
         GroupYaml.writeGroup(child, File(childDir, "_group.yaml"))
-        
+
         val loaded = GitYamlLoader.loadFromRoot(rootDir)
-        
+
         assertThat(loaded).hasSize(1)
         assertThat(loaded[0].id).isEqualTo("parent")
-        assertThat(loaded[0].children).hasSize(1)
-        assertThat(loaded[0].children[0].id).isEqualTo("child")
+        // Children should be empty - nested groups are not supported
+        assertThat(loaded[0].children).isEmpty()
     }
 
     @Test
@@ -167,21 +167,21 @@ class GitYamlLoaderTest {
     }
 
     @Test
-    fun `should skip non-yaml files in prompts directory`() {
+    fun `should skip non-yaml files in group directory`() {
         val rootDir = tempDir.toFile()
         val groupDir = File(rootDir, "test-group")
-        val promptsDir = File(groupDir, "prompts")
-        promptsDir.mkdirs()
-        
+        groupDir.mkdirs()
+
         GroupYaml.writeGroup(Group(id = "g1", name = "Test"), File(groupDir, "_group.yaml"))
-        
+
+        // Prompts should be directly in the group folder
         val validPrompt = Prompt(id = "valid", text = "Valid")
-        PromptYaml.writePrompt(validPrompt, File(promptsDir, "p-valid.yaml"))
-        
-        // Create non-YAML files
-        File(promptsDir, "readme.txt").writeText("Not a prompt")
-        File(promptsDir, "data.json").writeText("{}")
-        
+        PromptYaml.writePrompt(validPrompt, File(groupDir, "p-valid.yaml"))
+
+        // Create non-YAML files in group directory
+        File(groupDir, "readme.txt").writeText("Not a prompt")
+        File(groupDir, "data.json").writeText("{}")
+
         val loaded = GitYamlLoader.loadFromRoot(rootDir)
 
         assertThat(loaded[0].prompts).hasSize(1)
