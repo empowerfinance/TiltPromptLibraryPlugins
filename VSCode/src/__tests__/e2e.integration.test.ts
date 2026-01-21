@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -27,16 +27,18 @@ let repoDir: string;
 let libraryDir: string;
 
 function runGit(cwd: string, ...args: string[]): { stdout: string; stderr: string; exitCode: number } {
-  try {
-    const stdout = execSync(`git ${args.join(' ')}`, { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-    return { stdout, stderr: '', exitCode: 0 };
-  } catch (error: any) {
-    return {
-      stdout: error.stdout?.toString() || '',
-      stderr: error.stderr?.toString() || '',
-      exitCode: error.status || 1
-    };
-  }
+  // Use spawnSync with array args to properly handle arguments with spaces (e.g., commit messages)
+  const result = spawnSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    timeout: 30000, // 30 second timeout
+  });
+
+  return {
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
+    exitCode: result.status ?? 1
+  };
 }
 
 describe('E2E Git Integration Tests', () => {
@@ -133,7 +135,8 @@ describe('E2E Git Integration Tests', () => {
 
   it('should write new prompt to disk immediately', () => {
     const testGroupName = `E2E-Prompt-Test-${Date.now()}`;
-    const promptId = `p-${Date.now()}`;
+    // Don't prefix with "p-" - the filename already adds "p-" prefix
+    const promptId = `${Date.now()}`;
     const groupDir = path.join(libraryDir, testGroupName);
 
     // Create group first
@@ -141,7 +144,7 @@ describe('E2E Git Integration Tests', () => {
     const groupYaml = `id: ${testGroupName.toLowerCase()}\nname: ${testGroupName}\ntags:\n  - shared\n`;
     fs.writeFileSync(path.join(groupDir, '_group.yaml'), groupYaml);
 
-    // Write prompt
+    // Write prompt (filename is "p-{id}.yaml")
     const promptYaml = `id: ${promptId}\ntext: Test prompt content for E2E testing\nprivate: false\n`;
     fs.writeFileSync(path.join(groupDir, `p-${promptId}.yaml`), promptYaml);
 

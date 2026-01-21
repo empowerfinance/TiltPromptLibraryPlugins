@@ -137,8 +137,9 @@ class E2EGitIntegrationTest {
     @Order(20)
     fun `should write new prompt to disk immediately`() {
         val testGroupName = "E2E-Prompt-Test-${UUID.randomUUID().toString().take(8)}"
-        val promptId = "p-${UUID.randomUUID()}"
-        
+        // Don't prefix with "p-" - writeSinglePrompt already adds the "p-" prefix to the filename
+        val promptId = UUID.randomUUID().toString()
+
         val newGroup = Group(
             id = UUID.randomUUID().toString(),
             name = testGroupName,
@@ -148,14 +149,14 @@ class E2EGitIntegrationTest {
             id = promptId,
             text = "Test prompt content for E2E testing"
         )
-        
+
         // Create group first
         GitYamlWriter.ensureGroupOnDisk(repoDir, TEST_LIBRARY, listOf(testGroupName), newGroup)
-        
+
         // Write prompt
         GitYamlWriter.writeSinglePrompt(repoDir, TEST_LIBRARY, listOf(testGroupName), newPrompt)
-        
-        // Verify prompt exists on disk
+
+        // Verify prompt exists on disk (writeSinglePrompt creates "p-{id}.yaml")
         val promptFile = File(libraryDir, "$testGroupName/p-$promptId.yaml")
         assertThat(promptFile).exists()
 
@@ -290,14 +291,40 @@ class E2EGitIntegrationTest {
             .redirectErrorStream(false)
             .start()
 
-        val stdout = process.inputStream.bufferedReader().readText()
-        val stderr = process.errorStream.bufferedReader().readText()
-        val exitCode = process.waitFor(30, TimeUnit.SECONDS)
+        // Read stdout and stderr in separate threads to avoid blocking
+        // (if we read synchronously before waitFor, the process can hang indefinitely)
+        val stdoutBuilder = StringBuilder()
+        val stderrBuilder = StringBuilder()
+
+        val stdoutThread = Thread {
+            process.inputStream.bufferedReader().use { reader ->
+                stdoutBuilder.append(reader.readText())
+            }
+        }
+        val stderrThread = Thread {
+            process.errorStream.bufferedReader().use { reader ->
+                stderrBuilder.append(reader.readText())
+            }
+        }
+
+        stdoutThread.start()
+        stderrThread.start()
+
+        // Wait for process with timeout
+        val completed = process.waitFor(30, TimeUnit.SECONDS)
+
+        if (!completed) {
+            process.destroyForcibly()
+        }
+
+        // Wait for reader threads to finish (with timeout)
+        stdoutThread.join(1000)
+        stderrThread.join(1000)
 
         return GitResult(
-            exitCode = if (exitCode) process.exitValue() else -1,
-            stdout = stdout,
-            stderr = stderr
+            exitCode = if (completed) process.exitValue() else -1,
+            stdout = stdoutBuilder.toString(),
+            stderr = stderrBuilder.toString()
         )
     }
 }
