@@ -55,6 +55,12 @@ describe('E2E Git Integration Tests', () => {
     runGit(repoDir, 'config', 'user.email', 'e2e-test@example.com');
     runGit(repoDir, 'config', 'user.name', 'E2E Test');
 
+    // Reset to clean state at START (in case previous run left artifacts)
+    runGit(repoDir, 'fetch', 'origin');
+    runGit(repoDir, 'checkout', 'main');
+    runGit(repoDir, 'reset', '--hard', 'origin/main');
+    runGit(repoDir, 'clean', '-fd');
+
     libraryDir = path.join(repoDir, TEST_LIBRARY);
     expect(fs.existsSync(libraryDir)).toBe(true);
     expect(fs.existsSync(path.join(libraryDir, '_library.yaml'))).toBe(true);

@@ -49,6 +49,16 @@ class E2EGitIntegrationTest {
         val cloneResult = runGit(tempDir, "clone", E2E_REPO_URL, repoDir.name)
         assertThat(cloneResult.exitCode).withFailMessage("Clone failed: ${cloneResult.stderr}").isEqualTo(0)
 
+        // Configure git user for commits (required for git commit to work in CI)
+        runGit(repoDir, "config", "user.email", "e2e-test@example.com")
+        runGit(repoDir, "config", "user.name", "E2E Test")
+
+        // Reset to clean state at START (in case previous run left artifacts)
+        runGit(repoDir, "fetch", "origin")
+        runGit(repoDir, "checkout", "main")
+        runGit(repoDir, "reset", "--hard", "origin/main")
+        runGit(repoDir, "clean", "-fd")
+
         libraryDir = File(repoDir, TEST_LIBRARY)
         assertThat(libraryDir).exists()
         assertThat(File(libraryDir, "_library.yaml")).exists()
