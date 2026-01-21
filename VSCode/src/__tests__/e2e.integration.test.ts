@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execSync, spawn } from 'child_process';
+import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -17,7 +17,9 @@ import { discoverLibraries } from '../settings';
  * 5. Clean up by resetting the repo
  */
 
-const E2E_REPO_URL = 'git@github.com:empowerfinance/TiltPromptLibraryE2ETestRepo.git';
+// Use HTTPS in CI (with token), SSH locally
+// CI should set E2E_REPO_URL env var to: https://x-access-token:${GITHUB_TOKEN}@github.com/empowerfinance/TiltPromptLibraryE2ETestRepo.git
+const E2E_REPO_URL = process.env.E2E_REPO_URL || 'git@github.com:empowerfinance/TiltPromptLibraryE2ETestRepo.git';
 const TEST_LIBRARY = 'TestLibrary';
 
 let tempDir: string;

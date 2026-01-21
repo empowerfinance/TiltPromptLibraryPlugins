@@ -27,7 +27,10 @@ import java.util.concurrent.TimeUnit
 class E2EGitIntegrationTest {
 
     companion object {
-        private const val E2E_REPO_URL = "git@github.com:empowerfinance/TiltPromptLibraryE2ETestRepo.git"
+        // Use HTTPS in CI (with token), SSH locally
+        // CI should set E2E_REPO_URL env var to: https://x-access-token:${GITHUB_TOKEN}@github.com/empowerfinance/TiltPromptLibraryE2ETestRepo.git
+        private val E2E_REPO_URL = System.getenv("E2E_REPO_URL")
+            ?: "git@github.com:empowerfinance/TiltPromptLibraryE2ETestRepo.git"
         private const val TEST_LIBRARY = "TestLibrary"
     }
 
