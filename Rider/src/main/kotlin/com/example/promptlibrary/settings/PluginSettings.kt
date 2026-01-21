@@ -68,11 +68,41 @@ class PluginSettingsService : PersistentStateComponent<PluginSettingsService.Sta
         }
 
         /**
-         * Gets the effective promptsSubdir (library folder), never empty.
+         * Gets the effective library path (folder name) for writing.
+         *
+         * Priority:
+         * 1. If promptsSubdir is set and that library exists on disk, use it
+         * 2. If only one library is discovered, use that library
+         * 3. Fall back to DEFAULT_LIBRARY_NAME ("general")
          */
         fun getEffectiveLibraryPath(): String {
-            val subdir = instance().data.promptsSubdir.trim()
-            return if (subdir.isNotEmpty()) subdir else DEFAULT_LIBRARY_NAME
+            val settings = instance().data
+            val repoPath = getEffectiveRepoPath()
+            val configuredSubdir = settings.promptsSubdir.trim()
+
+            // Discover what libraries actually exist on disk
+            val discoveredLibraries = discoverLibraries(repoPath)
+
+            // If the configured subdir exists as a library, use it
+            if (configuredSubdir.isNotEmpty() && discoveredLibraries.any { it.id == configuredSubdir }) {
+                return configuredSubdir
+            }
+
+            // If there's exactly one library discovered, use it automatically
+            if (discoveredLibraries.size == 1) {
+                return discoveredLibraries.first().id
+            }
+
+            // If there are multiple libraries but configured one doesn't exist,
+            // prefer the first enabled (non-hidden) one
+            val hidden = settings.hiddenLibraries
+            val enabledLibraries = discoveredLibraries.filter { it.id !in hidden }
+            if (enabledLibraries.isNotEmpty()) {
+                return enabledLibraries.first().id
+            }
+
+            // Fallback to configured or default
+            return if (configuredSubdir.isNotEmpty()) configuredSubdir else DEFAULT_LIBRARY_NAME
         }
 
         /**

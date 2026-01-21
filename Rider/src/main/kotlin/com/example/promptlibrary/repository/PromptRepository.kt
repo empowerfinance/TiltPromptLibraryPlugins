@@ -173,8 +173,25 @@ class PromptRepository {
             // return existing in that space
             return flattenGroups(space).first { normalizeName(it.name) == normalizeName(trimmed) }
         }
-        val newGroup = Group(id = java.util.UUID.randomUUID().toString(), name = trimmed, tags = listOf(tag))
+
+        // For shared groups, set the libraryId from the active library
+        val libraryId = if (tag == TAG_SHARED) {
+            try { PluginSettingsService.getEffectiveLibraryPath() } catch (_: Exception) { null }
+        } else null
+
+        val newGroup = Group(
+            id = java.util.UUID.randomUUID().toString(),
+            name = trimmed,
+            tags = listOf(tag),
+            libraryId = libraryId
+        )
         saveLibrary(lib.copy(groups = lib.groups + newGroup))
+
+        // Disk sync: write shared group to disk immediately
+        if (tag == TAG_SHARED && libraryId != null) {
+            writeGroupToDisk(newGroup)
+        }
+
         return newGroup
     }
 
@@ -568,6 +585,24 @@ class PromptRepository {
             println("Deleted prompt $promptId from disk: ${targetGroup.libraryId}/${folderPath.joinToString("/")}")
         } catch (e: Exception) {
             println("Failed to delete prompt from disk: ${e.message}")
+        }
+    }
+
+    /**
+     * Writes a group to disk for a shared group.
+     * Creates the group folder and _group.yaml metadata file.
+     */
+    private fun writeGroupToDisk(group: Group) {
+        val repoPath = PluginSettingsService.getEffectiveRepoPath()
+        if (repoPath.isBlank() || group.libraryId == null) return
+
+        try {
+            // For a new top-level group, the folder path is just the group name
+            val folderPath = listOf(group.name)
+            GitYamlWriter.ensureGroupOnDisk(File(repoPath), group.libraryId!!, folderPath, group)
+            println("Wrote group ${group.id} to disk: ${group.libraryId}/${folderPath.joinToString("/")}")
+        } catch (e: Exception) {
+            println("Failed to write group to disk: ${e.message}")
         }
     }
 
