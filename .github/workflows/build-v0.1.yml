@@ -104,7 +104,7 @@ jobs:
         run: cd Rider && ./gradlew test --no-daemon --stacktrace
         timeout-minutes: 10
         env:
-          E2E_REPO_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/empowerfinance/TiltPromptLibraryE2ETestRepo.git
+          E2E_REPO_URL: https://x-access-token:${{ secrets.E2E_REPO_TOKEN }}@github.com/empowerfinance/TiltPromptLibraryE2ETestRepo.git
 
       - name: Generate test report
         if: always()
@@ -174,7 +174,7 @@ jobs:
       - name: Run tests
         run: npm test
         env:
-          E2E_REPO_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/empowerfinance/TiltPromptLibraryE2ETestRepo.git
+          E2E_REPO_URL: https://x-access-token:${{ secrets.E2E_REPO_TOKEN }}@github.com/empowerfinance/TiltPromptLibraryE2ETestRepo.git
 
       - name: Set package version
         run: npm version --no-git-tag-version ${{ env.EXT_VERSION }}
