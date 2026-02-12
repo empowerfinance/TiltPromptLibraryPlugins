@@ -104,9 +104,12 @@ export class SyncOpsPanel {
       return;
     }
 
-    const repoPath = s.repoPath.startsWith('~')
-      ? path.join(os.homedir(), s.repoPath.slice(1))
-      : s.repoPath;
+    // Handle ~ expansion: slice(2) to skip both '~' and '/' to avoid path.join ignoring homedir
+    const repoPath = s.repoPath.startsWith('~/')
+      ? path.join(os.homedir(), s.repoPath.slice(2))
+      : s.repoPath.startsWith('~')
+        ? os.homedir()
+        : s.repoPath;
 
     log.info('Returning to main branch...');
 
@@ -161,9 +164,12 @@ export class SyncOpsPanel {
     let currentBranch = '';
     let isOnMainBranch = true;
     if (s.repoPath) {
-      const repoPath = s.repoPath.startsWith('~')
-        ? path.join(os.homedir(), s.repoPath.slice(1))
-        : s.repoPath;
+      // Handle ~ expansion: slice(2) to skip both '~' and '/' to avoid path.join ignoring homedir
+      const repoPath = s.repoPath.startsWith('~/')
+        ? path.join(os.homedir(), s.repoPath.slice(2))
+        : s.repoPath.startsWith('~')
+          ? os.homedir()
+          : s.repoPath;
       try {
         const branch = await getCurrentBranch(repoPath);
         currentBranch = branch || '(unknown)';

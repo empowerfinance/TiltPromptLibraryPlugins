@@ -250,6 +250,15 @@ export async function ensureGroupOnDisk(
 }
 
 /**
+ * Result of a disk operation.
+ */
+export interface DiskOpResult {
+  success: boolean;
+  skipped?: boolean; // True if folder didn't exist (not an error)
+  error?: string;
+}
+
+/**
  * Renames a group folder on disk.
  *
  * @param repoRoot - The root directory of the Git repository
@@ -257,6 +266,7 @@ export async function ensureGroupOnDisk(
  * @param oldFolderName - The current folder name
  * @param newFolderName - The new folder name
  * @param group - The group metadata to update in _group.yaml
+ * @returns Result indicating success, skip (folder didn't exist), or error
  */
 export async function renameGroupOnDisk(
   repoRoot: string,
@@ -264,14 +274,19 @@ export async function renameGroupOnDisk(
   oldFolderName: string,
   newFolderName: string,
   group: Group
-): Promise<void> {
+): Promise<DiskOpResult> {
   const oldDir = vscode.Uri.file(path.join(repoRoot, libraryPath, sanitize(oldFolderName)));
   const newDir = vscode.Uri.file(path.join(repoRoot, libraryPath, sanitize(newFolderName)));
 
   try {
     // Check if old directory exists
     await vscode.workspace.fs.stat(oldDir);
+  } catch {
+    // Folder doesn't exist yet on disk, skip (not an error)
+    return { success: true, skipped: true };
+  }
 
+  try {
     // Rename the folder
     await vscode.workspace.fs.rename(oldDir, newDir);
 
@@ -281,8 +296,9 @@ export async function renameGroupOnDisk(
       meta,
       Buffer.from(writeGroupMeta({ ...group, children: [], prompts: [] }), 'utf8')
     );
-  } catch {
-    // Folder might not exist yet on disk, ignore
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
   }
 }
 
@@ -292,18 +308,28 @@ export async function renameGroupOnDisk(
  * @param repoRoot - The root directory of the Git repository
  * @param libraryPath - The library folder name
  * @param folderName - The folder name to delete
+ * @returns Result indicating success, skip (folder didn't exist), or error
  */
 export async function deleteGroupOnDisk(
   repoRoot: string,
   libraryPath: string,
   folderName: string
-): Promise<void> {
+): Promise<DiskOpResult> {
   const dir = vscode.Uri.file(path.join(repoRoot, libraryPath, sanitize(folderName)));
 
   try {
-    await vscode.workspace.fs.delete(dir, { recursive: true });
+    // Check if directory exists first
+    await vscode.workspace.fs.stat(dir);
   } catch {
-    // Folder might not exist, ignore
+    // Folder doesn't exist, skip (not an error)
+    return { success: true, skipped: true };
+  }
+
+  try {
+    await vscode.workspace.fs.delete(dir, { recursive: true });
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
   }
 }
 

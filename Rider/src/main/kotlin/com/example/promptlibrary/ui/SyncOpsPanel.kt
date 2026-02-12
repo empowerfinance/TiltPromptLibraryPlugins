@@ -100,8 +100,8 @@ class SyncOpsPanel(
      * Can be called from outside after branch changes.
      */
     fun refresh() {
+        updateBranchIndicator()
         SwingUtilities.invokeLater {
-            updateBranchIndicator()
             updateSettingsDisplay()
         }
     }
@@ -111,40 +111,50 @@ class SyncOpsPanel(
         return if (repoPath.isNotBlank()) File(repoPath) else GitRepoManager.ensureWorkingCopy(project).first
     }
 
+    /**
+     * Updates the branch indicator UI. Runs git operations on a background thread
+     * to avoid blocking the EDT.
+     */
     private fun updateBranchIndicator() {
-        val repoRoot = getRepoRoot()
-        if (repoRoot == null) {
-            branchIndicatorPanel?.isVisible = false
-            return
+        // Run git operations on background thread to avoid freezing UI
+        com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
+            val repoRoot = getRepoRoot()
+            val currentBranch = if (repoRoot != null) GitUtils.currentBranch(project, repoRoot) else null
+            val isOnMain = currentBranch == "main" || currentBranch == "master"
+
+            // Update UI on EDT
+            SwingUtilities.invokeLater {
+                if (repoRoot == null) {
+                    branchIndicatorPanel?.isVisible = false
+                    return@invokeLater
+                }
+
+                branchLabel?.text = if (currentBranch != null) {
+                    if (isOnMain) "✓ On branch: $currentBranch" else "⚠️ On branch: $currentBranch"
+                } else {
+                    "⚠️ Not on a branch"
+                }
+
+                // Update styling based on branch
+                if (isOnMain) {
+                    branchLabel?.foreground = JBColor.namedColor("Label.foreground", JBColor.foreground())
+                    branchIndicatorPanel?.border = BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(JBColor.namedColor("Borders.color", JBColor.GRAY), 1, true),
+                        JBUI.Borders.empty(6, 10)
+                    )
+                } else {
+                    branchLabel?.foreground = JBColor.namedColor("Label.warningForeground", JBColor(0xB5740D, 0xBBB529))
+                    branchIndicatorPanel?.border = BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(JBColor.namedColor("Label.warningForeground", JBColor(0xB5740D, 0xBBB529)), 1, true),
+                        JBUI.Borders.empty(6, 10)
+                    )
+                }
+
+                // Show/hide return to main button
+                returnToMainButton?.isVisible = !isOnMain
+                branchIndicatorPanel?.isVisible = true
+            }
         }
-
-        val currentBranch = GitUtils.currentBranch(project, repoRoot)
-        val isOnMain = currentBranch == "main" || currentBranch == "master"
-
-        branchLabel?.text = if (currentBranch != null) {
-            if (isOnMain) "✓ On branch: $currentBranch" else "⚠️ On branch: $currentBranch"
-        } else {
-            "⚠️ Not on a branch"
-        }
-
-        // Update styling based on branch
-        if (isOnMain) {
-            branchLabel?.foreground = JBColor.namedColor("Label.foreground", JBColor.foreground())
-            branchIndicatorPanel?.border = BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(JBColor.namedColor("Borders.color", JBColor.GRAY), 1, true),
-                JBUI.Borders.empty(6, 10)
-            )
-        } else {
-            branchLabel?.foreground = JBColor.namedColor("Label.warningForeground", JBColor(0xB5740D, 0xBBB529))
-            branchIndicatorPanel?.border = BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(JBColor.namedColor("Label.warningForeground", JBColor(0xB5740D, 0xBBB529)), 1, true),
-                JBUI.Borders.empty(6, 10)
-            )
-        }
-
-        // Show/hide return to main button
-        returnToMainButton?.isVisible = !isOnMain
-        branchIndicatorPanel?.isVisible = true
     }
 
     private fun returnToMainAndPull() {
