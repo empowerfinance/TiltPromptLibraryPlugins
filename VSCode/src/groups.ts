@@ -4,7 +4,7 @@ import { Group, Library, Prompt } from './model';
 import { LibraryStore } from './store';
 import { getSettings, getEnabledLibraries, getActiveLibrary, LibraryConfig, toPascalCase } from './settings';
 import { getRemoteUrl, isGitRepo } from './sync/git';
-import { ensureGroupOnDisk } from './sync/yamlWriter';
+import { ensureGroupOnDisk, renameGroupOnDisk, deleteGroupOnDisk } from './sync/yamlWriter';
 import { log } from './log';
 
 function genId(prefix: string): string {
@@ -288,15 +288,40 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
     if (!this.library) this.library = await this.store.load();
     const g = this.findGroup(groupId);
     if (!g) return;
-    // Do not allow renaming Shared (GitHub) groups, root groups, or 'Unfiled'
-    if (g.kind === 'shared' || g.id === 'root-shared' || g.id === 'root-private' || g.id === 'grp-unfiled') {
+    // Do not allow renaming root groups or 'Unfiled'
+    if (g.id === 'root-shared' || g.id === 'root-private' || g.id === 'grp-unfiled') {
       vscode.window.showWarningMessage('Cannot rename this group.');
       return;
     }
     const name = await vscode.window.showInputBox({ prompt: 'Rename group', value: g.name, validateInput: v => v.trim() ? undefined : 'Required' });
     if (!name) return;
-    g.name = name.trim();
+
+    const oldFolderName = g.folderName || g.name;
+    const newName = name.trim();
+    const newFolderName = toPascalCase(newName);
+
+    g.name = newName;
+    g.folderName = newFolderName;
     await this.store.save(this.library!);
+
+    // If this is a shared group, sync rename to disk
+    if (g.kind === 'shared' && g.libraryId) {
+      const cfg = getSettings();
+      if (cfg.repoPath) {
+        const result = await renameGroupOnDisk(cfg.repoPath, g.libraryId, oldFolderName, newFolderName, g);
+        if (result.success) {
+          if (result.skipped) {
+            log.info(`Group folder didn't exist on disk (new group): ${oldFolderName}`);
+          } else {
+            log.info(`Renamed group folder on disk: ${oldFolderName} -> ${newFolderName}`);
+          }
+        } else {
+          log.warn(`Failed to rename group on disk: ${result.error}`);
+          vscode.window.showWarningMessage(`Group renamed in library but disk sync failed: ${result.error}`);
+        }
+      }
+    }
+
     this.refresh();
   }
 
@@ -304,23 +329,19 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
     if (!this.library) this.library = await this.store.load();
     const target = this.findGroup(groupId);
     if (!target) return;
-    if (target.kind === 'shared') {
-      vscode.window.showWarningMessage('Shared groups cannot be deleted.');
-      return;
-    }
     if (groupId === 'root-shared' || groupId === 'root-private' || groupId === 'grp-unfiled') {
       vscode.window.showWarningMessage('This group cannot be deleted.');
       return;
     }
-    const ok = await vscode.window.showWarningMessage('Delete group and rehome its prompts to Private/Unfiled?', { modal: true }, 'Delete');
+
+    // For shared groups, warn that prompts will be deleted (not rehomed)
+    const isShared = target.kind === 'shared';
+    const confirmMsg = isShared
+      ? 'Delete group and all its prompts? (Shared prompts will be removed from disk)'
+      : 'Delete group and rehome its prompts to Private/Unfiled?';
+
+    const ok = await vscode.window.showWarningMessage(confirmMsg, { modal: true }, 'Delete');
     if (ok !== 'Delete') return;
-
-    const unfiled = this.findGroup('grp-unfiled');
-    if (!unfiled) {
-      vscode.window.showErrorMessage('Unable to locate Private/Unfiled group.');
-      return;
-    }
-
 
     const collectPrompts = (g: Group): Prompt[] => {
       const acc: Prompt[] = [...g.prompts];
@@ -332,8 +353,8 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
     const removeAndCollect = (gs: Group[]): { removed: boolean; collected: Prompt[] } => {
       const idx = gs.findIndex(x => x.id === groupId);
       if (idx >= 0) {
-        const target = gs[idx];
-        const collected = collectPrompts(target);
+        const targetGroup = gs[idx];
+        const collected = collectPrompts(targetGroup);
         gs.splice(idx, 1);
         return { removed: true, collected };
       }
@@ -344,11 +365,50 @@ export class GroupsProvider implements vscode.TreeDataProvider<GroupItem | Promp
       return { removed: false, collected: [] };
     };
 
-    const res = removeAndCollect(this.library!.groups);
-    if (!res.removed) return;
+    // If shared group, delete from disk first (before removing from library)
+    if (isShared && target.libraryId) {
+      const cfg = getSettings();
+      if (cfg.repoPath) {
+        const folderName = target.folderName || target.name;
+        const result = await deleteGroupOnDisk(cfg.repoPath, target.libraryId, folderName);
+        if (result.success) {
+          if (result.skipped) {
+            log.info(`Group folder didn't exist on disk: ${target.libraryId}/${folderName}`);
+          } else {
+            log.info(`Deleted group folder from disk: ${target.libraryId}/${folderName}`);
+          }
+        } else {
+          log.warn(`Failed to delete group from disk: ${result.error}`);
+          vscode.window.showWarningMessage(`Group deletion may be incomplete - disk sync failed: ${result.error}`);
+        }
+      }
+    }
 
-    // Rehome into Unfiled
-    unfiled.prompts.push(...res.collected);
+    // For private groups, verify unfiled group exists before deleting
+    // to prevent accidental data loss
+    const promptsToRehome = collectPrompts(target);
+    if (!isShared && promptsToRehome.length > 0) {
+      const unfiled = this.findGroup('grp-unfiled');
+      if (!unfiled) {
+        log.error('Cannot delete group: Unfiled group not found. Prompts would be lost.');
+        vscode.window.showErrorMessage('Cannot delete group: Unfiled group not found. Prompts would be lost.');
+        return;
+      }
+    }
+
+    const result = removeAndCollect(this.library!.groups);
+    if (!result.removed) return;
+
+    // For private groups, rehome prompts into Unfiled
+    // For shared groups, prompts are deleted along with the folder
+    if (!isShared && result.collected.length > 0) {
+      const unfiled = this.findGroup('grp-unfiled');
+      // We already verified unfiled exists above, but double-check
+      if (unfiled) {
+        unfiled.prompts.push(...result.collected);
+        log.info(`Moved ${result.collected.length} prompts to Unfiled`);
+      }
+    }
 
     await this.store.save(this.library!);
     this.refresh();

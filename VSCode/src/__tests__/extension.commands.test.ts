@@ -73,7 +73,7 @@ describe('Extension Commands - Basic CRUD', () => {
       expect(found).toBeNull();
     });
 
-    it('should not delete shared prompts', async () => {
+    it('should delete shared prompts', async () => {
       // Create shared prompt
       const lib = await store.getLibrary();
       const sharedRoot = lib.groups.find(g => g.id === 'root-shared')!;
@@ -90,8 +90,12 @@ describe('Extension Commands - Basic CRUD', () => {
       const p = await store.getPromptById('p-shared');
       expect(p?.private).toBe(false);
 
-      // Command should check private flag and show warning
-      // In real implementation, this would show a warning message
+      // Shared prompts can now be deleted (for PR-based workflow)
+      const deleted = await store.deletePrompt('p-shared');
+      expect(deleted).toBe(true);
+
+      const found = await store.getPromptById('p-shared');
+      expect(found).toBeNull();
     });
   });
 

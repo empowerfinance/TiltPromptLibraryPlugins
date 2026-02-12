@@ -12,8 +12,14 @@ name: Build and Release Pipeline
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
 
 permissions:
   contents: write
@@ -229,6 +235,7 @@ jobs:
             ### Installation
             - **Rider**: File > Settings > Plugins > Install Plugin from Disk...
             - **VS Code**: Extensions > ... > Install from VSIX...
+            - **VS Code Marketplace**: Search "Prompt Library" by Tilt
           files: |
             ./artifacts/**/*.zip
             ./artifacts/**/*.vsix
@@ -236,3 +243,22 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish_vscode_marketplace:
+    needs: [set_version, build_vscode, release]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.set_version.outputs.version }}
+    steps:
+      - name: Download VS Code artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vscode-extension-${{ env.VERSION }}
+          path: ./artifacts/vscode
+
+      - name: Publish to VS Code Marketplace
+        run: |
+          npx --yes @vscode/vsce publish --packagePath ./artifacts/vscode/Tilt-Prompt-Library-${{ env.VERSION }}.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}

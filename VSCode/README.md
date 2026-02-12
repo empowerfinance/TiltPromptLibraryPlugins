@@ -5,9 +5,10 @@ A VS Code extension for organizing and managing reusable prompts with GitHub syn
 ## ✨ Features
 
 - **Shared/Private namespaces** - Keep private prompts local, sync shared prompts to Git
-- **One-click copy** - Click any prompt to copy to clipboard
+- **Copy to clipboard** - Click 📋 to copy any prompt to clipboard
 - **Send to Augment** - 📤 One-click send prompts directly to Augment chat
-- **GitHub Sync** - Export shared prompts as merge-friendly YAML
+- **GitHub Sync** - Export shared prompts as merge-friendly YAML with PR workflow support
+- **Full CRUD for shared content** - Rename, edit, and delete shared groups/prompts locally, then sync via PR
 - **Import/Export** - JSON backup and restore
 - **Duplicate detection** - Automatic prevention via normalized text
 - **Search & Filter** - Real-time prompt filtering

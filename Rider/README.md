@@ -5,9 +5,10 @@ A prompt library for JetBrains Rider to organize, search, and reuse text prompts
 ## ✨ Features
 
 - **Shared/Private namespaces** - Keep private prompts local, sync shared prompts to Git
-- **One-click copy** - Click any prompt to copy to clipboard
+- **Copy to clipboard** - Click 📋 to copy any prompt to clipboard
 - **Send to Editor** - Insert prompts directly at cursor position
-- **GitHub Sync** - Export shared prompts as merge-friendly YAML
+- **GitHub Sync** - Export shared prompts as merge-friendly YAML with PR workflow support
+- **Full CRUD for shared content** - Rename, edit, and delete shared groups/prompts locally, then sync via PR
 - **Import/Export** - JSON backup and restore
 - **Duplicate detection** - Automatic prevention via normalized text
 - **Search & Filter** - Real-time prompt filtering
@@ -76,6 +77,16 @@ Only **Shared** prompts are synced. Private prompts stay local.
 - **Pull & Sync** - Get latest from Git and update local library
 - **Quick Commit** - Push directly to current branch
 - **Branch+PR** - Create branch and open PR
+
+**PR Workflow:**
+
+When creating a Pull Request, the plugin:
+
+1. Creates a timestamped branch and commits your changes
+2. Opens the GitHub compare URL to create the PR
+3. Shows a dialog asking if you want to return to main and pull latest
+4. Displays a branch indicator showing your current branch (with warning when not on main/master)
+5. Provides a "Return to Main & Pull" button for easy branch switching
 
 Configure via **Settings > Prompt Library**.
 

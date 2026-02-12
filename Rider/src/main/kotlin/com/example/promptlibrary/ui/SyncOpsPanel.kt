@@ -20,6 +20,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import java.awt.*
+import java.io.File
 import javax.swing.*
 
 /**
@@ -32,55 +33,209 @@ class SyncOpsPanel(
 ) : JPanel(BorderLayout()) {
     private val logArea = JTextPane()
     private val settingsLabels = mutableMapOf<String, JLabel>()
-    
+    private var branchIndicatorPanel: JPanel? = null
+    private var branchLabel: JLabel? = null
+    private var returnToMainButton: JButton? = null
+
     private val logListener: () -> Unit = { updateLogDisplay() }
 
+    companion object {
+        // Static reference to allow refresh from WriteStrategyService
+        private var currentInstance: SyncOpsPanel? = null
+
+        fun refreshCurrentInstance() {
+            currentInstance?.refresh()
+        }
+    }
+
     init {
+        currentInstance = this
         border = JBUI.Borders.empty(12)
-        
+
         // Main content with vertical layout
         val mainPanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
         }
-        
+
         // Actions Card
         mainPanel.add(createActionsCard())
         mainPanel.add(Box.createVerticalStrut(12))
-        
+
         // Settings Display Card
         mainPanel.add(createSettingsCard())
         mainPanel.add(Box.createVerticalStrut(12))
-        
+
         // Logs Card (takes remaining space)
         val logsCard = createLogsCard()
-        
+
         // Use a split: top for actions/settings, bottom for logs
         val topPanel = JPanel(BorderLayout()).apply {
             add(mainPanel, BorderLayout.NORTH)
         }
-        
+
         val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT, topPanel, logsCard).apply {
             resizeWeight = 0.3
             dividerSize = 6
             border = null
         }
-        
+
         add(splitPane, BorderLayout.CENTER)
-        
+
         // Register log listener
         SyncLog.addListener(logListener)
         updateLogDisplay()
         updateSettingsDisplay()
+        updateBranchIndicator()
     }
-    
+
     fun dispose() {
         SyncLog.removeListener(logListener)
+        if (currentInstance == this) {
+            currentInstance = null
+        }
+    }
+
+    /**
+     * Refresh the panel UI to update branch status and settings.
+     * Can be called from outside after branch changes.
+     */
+    fun refresh() {
+        updateBranchIndicator()
+        SwingUtilities.invokeLater {
+            updateSettingsDisplay()
+        }
+    }
+
+    private fun getRepoRoot(): File? {
+        val repoPath = PluginSettingsService.getEffectiveRepoPath()
+        return if (repoPath.isNotBlank()) File(repoPath) else GitRepoManager.ensureWorkingCopy(project).first
+    }
+
+    /**
+     * Updates the branch indicator UI. Runs git operations on a background thread
+     * to avoid blocking the EDT.
+     */
+    private fun updateBranchIndicator() {
+        // Run git operations on background thread to avoid freezing UI
+        com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
+            val repoRoot = getRepoRoot()
+            val currentBranch = if (repoRoot != null) GitUtils.currentBranch(project, repoRoot) else null
+            val isOnMain = currentBranch == "main" || currentBranch == "master"
+
+            // Update UI on EDT
+            SwingUtilities.invokeLater {
+                if (repoRoot == null) {
+                    branchIndicatorPanel?.isVisible = false
+                    return@invokeLater
+                }
+
+                branchLabel?.text = if (currentBranch != null) {
+                    if (isOnMain) "✓ On branch: $currentBranch" else "⚠️ On branch: $currentBranch"
+                } else {
+                    "⚠️ Not on a branch"
+                }
+
+                // Update styling based on branch
+                if (isOnMain) {
+                    branchLabel?.foreground = JBColor.namedColor("Label.foreground", JBColor.foreground())
+                    branchIndicatorPanel?.border = BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(JBColor.namedColor("Borders.color", JBColor.GRAY), 1, true),
+                        JBUI.Borders.empty(6, 10)
+                    )
+                } else {
+                    branchLabel?.foreground = JBColor.namedColor("Label.warningForeground", JBColor(0xB5740D, 0xBBB529))
+                    branchIndicatorPanel?.border = BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(JBColor.namedColor("Label.warningForeground", JBColor(0xB5740D, 0xBBB529)), 1, true),
+                        JBUI.Borders.empty(6, 10)
+                    )
+                }
+
+                // Show/hide return to main button
+                returnToMainButton?.isVisible = !isOnMain
+                branchIndicatorPanel?.isVisible = true
+            }
+        }
+    }
+
+    private fun returnToMainAndPull() {
+        val repoRoot = getRepoRoot() ?: return
+
+        SyncLog.info("Returning to main branch and pulling...")
+
+        // Run on background thread to avoid blocking UI
+        com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
+            // Try 'main' first, then 'master'
+            var success = GitUtils.checkout(project, repoRoot, "main")
+            if (!success) {
+                SyncLog.info("'main' branch not found, trying 'master'...")
+                success = GitUtils.checkout(project, repoRoot, "master")
+            }
+
+            if (!success) {
+                SyncLog.error("Failed to checkout main/master branch")
+                SwingUtilities.invokeLater {
+                    Notifications.Bus.notify(
+                        Notification("PromptLibrary", "Branch Switch", "Failed to checkout main/master branch", NotificationType.ERROR)
+                    )
+                    updateBranchIndicator()
+                }
+                return@executeOnPooledThread
+            }
+
+            SyncLog.info("Switched to main branch, pulling latest...")
+
+            // Pull latest changes using synchronous pull
+            val pullResult = GitPullService.pullSync(project, repoRoot)
+
+            SwingUtilities.invokeLater {
+                if (pullResult.success) {
+                    SyncLog.info("Successfully returned to main and pulled latest changes")
+                    Notifications.Bus.notify(
+                        Notification("PromptLibrary", "Branch Switch", "Returned to main and pulled latest changes", NotificationType.INFORMATION)
+                    )
+                    // Reload prompts from disk
+                    SyncOrchestrator.reloadFromDisk(repository)
+                } else {
+                    SyncLog.error("Pull failed: ${pullResult.error}")
+                    Notifications.Bus.notify(
+                        Notification("PromptLibrary", "Branch Switch", "Returned to main but pull failed: ${pullResult.error}", NotificationType.WARNING)
+                    )
+                }
+                updateBranchIndicator()
+            }
+        }
     }
 
     private fun createActionsCard(): JPanel {
         return createCard("Actions") {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            
+
+            // Branch indicator at the top
+            branchIndicatorPanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
+                alignmentX = Component.LEFT_ALIGNMENT
+                isOpaque = false
+                border = BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(JBColor.namedColor("Borders.color", JBColor.GRAY), 1, true),
+                    JBUI.Borders.empty(6, 10)
+                )
+
+                branchLabel = JLabel("").apply {
+                    font = font.deriveFont(12f)
+                }
+                add(branchLabel)
+
+                returnToMainButton = JButton("↩ Return to Main & Pull").apply {
+                    isVisible = false
+                    isFocusPainted = false
+                    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                    background = JBColor.namedColor("Button.startBackground", JBColor(0xB5740D, 0xBBB529))
+                    addActionListener { returnToMainAndPull() }
+                }
+                add(returnToMainButton)
+            }
+            add(branchIndicatorPanel)
+            add(Box.createVerticalStrut(12))
+
             // Get Latest from GitHub section
             add(createButtonGroup(
                 "📥 Get Latest from GitHub",

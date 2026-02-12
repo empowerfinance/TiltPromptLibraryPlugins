@@ -7,7 +7,7 @@ import { Prompt, Group } from './model';
 import { getSettings, getActiveLibrary, getLibraryPath, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries, setRemoteRepoUrl, setRepoPath, setActiveLibrary } from './settings';
 import { writeSharedGroups, writeToLibrary } from './sync/yamlWriter';
 import { log } from './log';
-import { checkoutNewBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, getGitVersion, smartPull } from './sync/hybridGit';
+import { checkoutNewBranch, checkoutBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, getGitVersion, smartPull } from './sync/hybridGit';
 import { tryBuildGithubCompareUrl, fetch as gitFetch, clone as gitClone, resetHardToRemote, cleanUntracked } from './sync/git';
 import { start as startScheduler } from './sync/scheduler';
 import { readSharedGroups, readFromLibrary, readFromLibraries } from './sync/yamlReader';
@@ -83,8 +83,6 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
       case 'deletePrompt': {
         const id: string = String(msg.id || '');
         if (!id) return;
-        const p = await this.store.getPromptById(id);
-        if (p && !p.private) { vscode.window.showWarningMessage('Cannot delete prompts from the GitHub collection.'); return; }
         const ok = await this.store.deletePrompt(id);
         if (ok) { await this.pushList(); }
         break;
@@ -125,14 +123,11 @@ class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
       }
       case 'deleteMany': {
         const ids: string[] = Array.isArray(msg.ids) ? msg.ids : [];
-        const deletable: string[] = [];
+        if (ids.length === 0) { return; }
         for (const raw of ids) {
           const id = String(raw);
-          const p = await this.store.getPromptById(id);
-          if (p && p.private) deletable.push(id);
+          await this.store.deletePrompt(id);
         }
-        if (deletable.length === 0) { vscode.window.showInformationMessage('No deletable prompts (GitHub collection prompts cannot be deleted).'); return; }
-        for (const id of deletable) { await this.store.deletePrompt(id); }
         await this.pushList();
         break;
       }
@@ -363,7 +358,7 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
-    // If a prompt is selected: open Prompt view and copy to clipboard
+    // If a prompt is selected: open Prompt view
     if (item instanceof PromptItem || (item as any).contextValue === 'prompt') {
       try {
         const pid = (item as any).promptId as string;
@@ -371,8 +366,6 @@ export function activate(context: vscode.ExtensionContext) {
         if (p) {
           // Bring container into focus FIRST to ensure webview is resolved
           try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch { }
-
-          await vscode.env.clipboard.writeText(p.text || '');
 
           // Also switch the Prompt Library context to the prompt's group so composer is enabled
           const gid = (item as any).groupId as (string | undefined);
@@ -384,8 +377,6 @@ export function activate(context: vscode.ExtensionContext) {
           // Populate the composer with this prompt's content for viewing/editing
           // (do this AFTER ensuring view is visible and group is selected)
           provider.populateComposer({ id: pid, title: p.title, text: p.text || '' });
-
-          vscode.window.setStatusBarMessage('Prompt copied to clipboard', 1500);
         }
       } catch (err) {
         log.warn('Failed to open prompt: ' + String((err as any)?.message || err));
@@ -451,13 +442,9 @@ export function activate(context: vscode.ExtensionContext) {
         // Bring container into focus FIRST to ensure webview is resolved
         try { await vscode.commands.executeCommand('workbench.view.extension.promptLibrary'); } catch { }
 
-        await vscode.env.clipboard.writeText(p.text || '');
-
         // Populate the composer with this prompt's content for viewing/editing
         // (do this AFTER ensuring view is visible)
         provider.populateComposer({ id: pid, title: p.title, text: p.text || '' });
-
-        vscode.window.setStatusBarMessage('Prompt copied to clipboard', 1500);
       } catch (e) { log.warn('openPrompt failed: ' + String((e as any)?.message || e)); }
     }),
     vscode.commands.registerCommand('promptLibrary.sendToAugment', async (arg?: any) => {
@@ -610,8 +597,6 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('promptLibrary.deletePrompt', async (item?: any) => {
       const pid: string | undefined = (item as any)?.promptId;
       if (!pid) return;
-      const p = await store.getPromptById(pid);
-      if (p && !p.private) { vscode.window.showWarningMessage('Cannot delete prompts from the GitHub collection.'); return; }
       const ok = await vscode.window.showWarningMessage('Delete this prompt?', { modal: true }, 'Delete');
       if (ok !== 'Delete') return;
       const done = await store.deletePrompt(pid);
@@ -1528,7 +1513,47 @@ export function activate(context: vscode.ExtensionContext) {
             log.warn('Remote is not a recognized GitHub URL; open a PR manually.');
           }
         }
-        vscode.window.showInformationMessage('Sync (Branch + PR) pushed.');
+
+        // Ask user if they want to return to main branch
+        const choice = await vscode.window.showInformationMessage(
+          `PR branch '${branch}' pushed successfully! Would you like to return to main and pull latest changes?`,
+          'Return to Main',
+          'Stay on Branch'
+        );
+
+        if (choice === 'Return to Main') {
+          log.info('User chose to return to main branch');
+
+          // Try 'main' first, then 'master'
+          let checkoutResult = await checkoutBranch(repoPath, 'main');
+          if (!checkoutResult.success) {
+            log.info('main branch not found, trying master...');
+            checkoutResult = await checkoutBranch(repoPath, 'master');
+          }
+
+          if (!checkoutResult.success) {
+            log.error(`Failed to checkout main/master: ${checkoutResult.error}`);
+            vscode.window.showWarningMessage(`Failed to checkout main/master: ${checkoutResult.error}`);
+          } else {
+            log.info('Switched to main branch, pulling latest...');
+
+            // Pull latest changes
+            const pullResult = await smartPull(repoPath);
+            if (pullResult.success) {
+              log.info('Successfully returned to main and pulled latest changes.');
+              vscode.window.showInformationMessage('Returned to main and pulled latest changes.');
+            } else {
+              log.error(`Pull failed: ${pullResult.error}`);
+              vscode.window.showWarningMessage(`Returned to main but pull failed: ${pullResult.error}`);
+            }
+          }
+        } else {
+          log.info('User chose to stay on PR branch');
+          vscode.window.showInformationMessage('Staying on PR branch. Use Sync Status panel to return to main when ready.');
+        }
+
+        // Refresh SyncOps panel to show updated branch
+        await SyncOpsPanel.refresh();
       } catch (e: any) {
         log.error(`Branch+PR failed: ${e?.message || e}`);
         vscode.window.showWarningMessage('Branch + PR failed. See Sync Status for details.');

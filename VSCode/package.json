@@ -4,12 +4,30 @@
   "description": "Unified prompt library with one-click editing, GitHub sync, and Augment integration. Organize prompts in shared/private groups.",
   "version": "0.0.1",
   "publisher": "tilt",
+  "license": "MIT",
+  "icon": "media/prompt-library.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/empowerfinance/TiltPromptLibraryPlugins.git"
   },
+  "bugs": {
+    "url": "https://github.com/empowerfinance/TiltPromptLibraryPlugins/issues"
+  },
+  "homepage": "https://github.com/empowerfinance/TiltPromptLibraryPlugins#readme",
   "engines": {
     "vscode": "^1.85.0"
+  },
+  "keywords": [
+    "prompts",
+    "prompt library",
+    "AI",
+    "augment",
+    "github sync",
+    "yaml"
+  ],
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
   },
   "categories": [
     "Other"
@@ -272,12 +290,12 @@
         },
         {
           "command": "promptLibrary.renameGroup",
-          "when": "view == promptLibraryGroups && viewItem == group",
+          "when": "view == promptLibraryGroups && viewItem =~ /^group(-shared)?$/",
           "group": "inline@2"
         },
         {
           "command": "promptLibrary.deleteGroup",
-          "when": "view == promptLibraryGroups && viewItem == group",
+          "when": "view == promptLibraryGroups && viewItem =~ /^group(-shared)?$/",
           "group": "inline@3"
         },
         {

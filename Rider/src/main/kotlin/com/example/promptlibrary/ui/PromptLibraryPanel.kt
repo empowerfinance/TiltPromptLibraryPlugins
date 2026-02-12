@@ -183,10 +183,6 @@ class PromptLibraryPanel(
     }
 
     private fun handlePromptSelected(prompt: Prompt, groupId: String) {
-        // Copy to clipboard
-        CopyPasteManagerEx.getInstance().setContents(StringSelection(prompt.text))
-        Notifications.Bus.notify(Notification("PromptLibrary", "Prompt copied", "", NotificationType.INFORMATION))
-
         // Load prompt directly into composer for editing
         promptComposer.enterEditMode(prompt, groupId)
 

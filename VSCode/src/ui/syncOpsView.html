@@ -169,6 +169,33 @@
     .time {
       opacity: 0.7;
     }
+
+    .branch-indicator {
+      padding: 8px 12px;
+      background: var(--vscode-editor-inactiveSelectionBackground);
+      border-radius: 6px;
+      font-size: 12px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .branch-hint {
+      font-size: 11px;
+      opacity: 0.8;
+    }
+
+    .btn-warning {
+      background: #c8a600;
+      color: #000;
+      border-color: #c8a600;
+    }
+
+    .btn-warning:hover {
+      background: #e6c200;
+    }
   </style>
 </head>
 
@@ -179,6 +206,7 @@
         <h4>Actions</h4>
 
         <div class="body">
+          {{BRANCH_INDICATOR}}
           {{BANNER}}
           <div class="btn-rows">
             <div class="btn-group">
@@ -244,6 +272,8 @@
 
     const sd2 = document.getElementById('syncDirectCommitBtn'); if (sd2) sd2.addEventListener('click', () => { try { logEl.innerHTML += '<div class="entry lvl-info"><span class="time">[UI]</span> clicked Direct Commit</div>'; logEl.scrollTop = logEl.scrollHeight; } catch { } vscode.postMessage({ type: 'syncDirectCommit' }); });
     const sb2 = document.getElementById('syncBranchPRBtn'); if (sb2) sb2.addEventListener('click', () => { try { logEl.innerHTML += '<div class="entry lvl-info"><span class="time">[UI]</span> clicked Branch + PR</div>'; logEl.scrollTop = logEl.scrollHeight; } catch { } vscode.postMessage({ type: 'syncBranchPR' }); });
+
+    const returnBtn = document.getElementById('returnToMain'); if (returnBtn) returnBtn.addEventListener('click', () => { try { logEl.innerHTML += '<div class="entry lvl-info"><span class="time">[UI]</span> returning to main...</div>'; logEl.scrollTop = logEl.scrollHeight; } catch { } vscode.postMessage({ type: 'returnToMain' }); });
 
     document.getElementById('clear').addEventListener('click', () => vscode.postMessage({ type: 'clear' }));
     window.addEventListener('message', (event) => {
