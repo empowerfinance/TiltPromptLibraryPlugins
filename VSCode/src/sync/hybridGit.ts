@@ -67,6 +67,14 @@ export async function checkoutNewBranch(path: string, branch: string): Promise<{
   }
 }
 
+export async function checkoutBranch(path: string, branch: string): Promise<{ success: boolean; error?: string }> {
+  if (isInWorkspace(path)) {
+    return vscodeGit.checkoutBranch(path, branch);
+  } else {
+    return spawnGit.checkoutBranch(path, branch);
+  }
+}
+
 export async function getRemoteUrl(path: string, remote = 'origin'): Promise<string | null> {
   if (isInWorkspace(path)) {
     return vscodeGit.getRemoteUrl(path, remote);

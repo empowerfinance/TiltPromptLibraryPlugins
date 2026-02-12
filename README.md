@@ -146,6 +146,12 @@ cd Rider
 ./gradlew test
 ```
 
+### E2E Testing
+
+E2E tests run against a dedicated test repository: [TiltPromptLibraryE2ETestRepo](https://github.com/empowerfinance/TiltPromptLibraryE2ETestRepo)
+
+The E2E test suite validates Git sync operations by cloning and manipulating this repository. In CI, tests authenticate using the `E2E_REPO_TOKEN` secret.
+
 ## 🤝 Contributing
 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.

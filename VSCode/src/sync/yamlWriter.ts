@@ -249,6 +249,64 @@ export async function ensureGroupOnDisk(
   );
 }
 
+/**
+ * Renames a group folder on disk.
+ *
+ * @param repoRoot - The root directory of the Git repository
+ * @param libraryPath - The library folder name
+ * @param oldFolderName - The current folder name
+ * @param newFolderName - The new folder name
+ * @param group - The group metadata to update in _group.yaml
+ */
+export async function renameGroupOnDisk(
+  repoRoot: string,
+  libraryPath: string,
+  oldFolderName: string,
+  newFolderName: string,
+  group: Group
+): Promise<void> {
+  const oldDir = vscode.Uri.file(path.join(repoRoot, libraryPath, sanitize(oldFolderName)));
+  const newDir = vscode.Uri.file(path.join(repoRoot, libraryPath, sanitize(newFolderName)));
+
+  try {
+    // Check if old directory exists
+    await vscode.workspace.fs.stat(oldDir);
+
+    // Rename the folder
+    await vscode.workspace.fs.rename(oldDir, newDir);
+
+    // Update the _group.yaml with new name
+    const meta = vscode.Uri.joinPath(newDir, '_group.yaml');
+    await vscode.workspace.fs.writeFile(
+      meta,
+      Buffer.from(writeGroupMeta({ ...group, children: [], prompts: [] }), 'utf8')
+    );
+  } catch {
+    // Folder might not exist yet on disk, ignore
+  }
+}
+
+/**
+ * Deletes a group folder and all its contents from disk.
+ *
+ * @param repoRoot - The root directory of the Git repository
+ * @param libraryPath - The library folder name
+ * @param folderName - The folder name to delete
+ */
+export async function deleteGroupOnDisk(
+  repoRoot: string,
+  libraryPath: string,
+  folderName: string
+): Promise<void> {
+  const dir = vscode.Uri.file(path.join(repoRoot, libraryPath, sanitize(folderName)));
+
+  try {
+    await vscode.workspace.fs.delete(dir, { recursive: true });
+  } catch {
+    // Folder might not exist, ignore
+  }
+}
+
 // ============================================================================
 // Multi-Library Support Functions
 // ============================================================================

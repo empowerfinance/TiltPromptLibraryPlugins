@@ -2,6 +2,9 @@ import * as vscode from 'vscode';
 import { log } from './log';
 import { getSettings } from './settings';
 import { loadHtmlTemplate, getNonce, generateCSP } from './ui/htmlLoader';
+import { getCurrentBranch, checkoutBranch, smartPull } from './sync/hybridGit';
+import * as path from 'path';
+import * as os from 'os';
 
 export class SyncOpsPanel {
   private static _panel: vscode.WebviewPanel | undefined;
@@ -68,6 +71,8 @@ export class SyncOpsPanel {
         try {
           await vscode.commands.executeCommand('promptLibrary.syncBranchPR');
           log.info('UI -> syncBranchPR command completed');
+          // Refresh the panel to show updated branch
+          await this.render();
         } catch (e: any) {
           log.error(`UI -> syncBranchPR command failed: ${e?.message || e}`);
           log.error(`Stack: ${e?.stack}`);
@@ -86,7 +91,50 @@ export class SyncOpsPanel {
       case 'resetAll':
         vscode.commands.executeCommand('promptLibrary.resetAll');
         break;
+      case 'returnToMain':
+        await this.returnToMainAndPull();
+        break;
     }
+  }
+
+  private static async returnToMainAndPull() {
+    const s = getSettings();
+    if (!s.repoPath) {
+      vscode.window.showWarningMessage('No repoPath configured.');
+      return;
+    }
+
+    const repoPath = s.repoPath.startsWith('~')
+      ? path.join(os.homedir(), s.repoPath.slice(1))
+      : s.repoPath;
+
+    log.info('Returning to main branch...');
+
+    // Try 'main' first, then 'master'
+    let result = await checkoutBranch(repoPath, 'main');
+    if (!result.success) {
+      result = await checkoutBranch(repoPath, 'master');
+    }
+
+    if (!result.success) {
+      log.error(`Failed to checkout main/master: ${result.error}`);
+      vscode.window.showWarningMessage(`Failed to checkout main/master: ${result.error}`);
+      return;
+    }
+
+    log.info('Switched to main branch, pulling latest...');
+
+    const pullResult = await smartPull(repoPath);
+    if (pullResult.success) {
+      log.info('Successfully returned to main and pulled latest changes.');
+      vscode.window.showInformationMessage('Returned to main and pulled latest changes.');
+    } else {
+      log.error(`Pull failed: ${pullResult.error}`);
+      vscode.window.showWarningMessage(`Returned to main but pull failed: ${pullResult.error}`);
+    }
+
+    // Refresh the view to show updated branch
+    await this.render();
   }
 
   private static postEntries() {
@@ -95,12 +143,49 @@ export class SyncOpsPanel {
     } catch { }
   }
 
-  private static render() {
+  /** Refresh the panel to update branch status. Can be called from outside. */
+  static async refresh() {
+    if (this._panel) {
+      await this.render();
+    }
+  }
+
+  private static async render() {
     const s = getSettings();
     const disabledAttr = !s.repoPath ? 'disabled' : '';
     const webview = this._panel!.webview;
     const nonce = getNonce();
     const csp = generateCSP(webview, nonce);
+
+    // Get current branch if repo is configured
+    let currentBranch = '';
+    let isOnMainBranch = true;
+    if (s.repoPath) {
+      const repoPath = s.repoPath.startsWith('~')
+        ? path.join(os.homedir(), s.repoPath.slice(1))
+        : s.repoPath;
+      try {
+        const branch = await getCurrentBranch(repoPath);
+        currentBranch = branch || '(unknown)';
+        isOnMainBranch = currentBranch === 'main' || currentBranch === 'master';
+      } catch (e) {
+        currentBranch = '(error)';
+      }
+    }
+
+    const branchWarningStyle = isOnMainBranch ? '' : 'color: #c8a600; font-weight: bold;';
+    const branchIcon = isOnMainBranch ? '✓' : '⚠️';
+    const returnToMainBtn = !isOnMainBranch && currentBranch
+      ? '<button id="returnToMain" class="btn btn-warning">↩ Return to Main & Pull</button>'
+      : '';
+
+    const branchIndicator = s.repoPath ? `
+      <div class="branch-indicator">
+        <span style="${branchWarningStyle}">${branchIcon} Branch: <b>${currentBranch}</b></span>
+        ${!isOnMainBranch ? '<span class="branch-hint">(PR branch - return to main when done)</span>' : ''}
+        ${returnToMainBtn}
+      </div>
+    ` : '';
 
     const banner = !s.repoPath
       ? '<div class="banner">Set promptLibrary.repoPath in settings to enable Pull & Sync.</div>'
@@ -110,6 +195,7 @@ export class SyncOpsPanel {
       CSP: csp,
       NONCE: nonce,
       BANNER: banner,
+      BRANCH_INDICATOR: branchIndicator,
       DISABLED: disabledAttr,
       REPO_PATH: s.repoPath || '(not set)',
       PROMPTS_SUBDIR: s.promptsSubdir

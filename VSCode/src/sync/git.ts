@@ -131,6 +131,15 @@ export async function checkoutNewBranch(path: string, branch: string): Promise<{
   }
 }
 
+export async function checkoutBranch(path: string, branch: string): Promise<{ success: boolean; error?: string }> {
+  const res = await runGit(path, ['checkout', branch]);
+  if (res.code === 0) {
+    return { success: true };
+  } else {
+    return { success: false, error: `Git checkout failed (code ${res.code}): ${res.stderr || res.stdout}` };
+  }
+}
+
 export async function getRemoteUrl(path: string, remote = 'origin'): Promise<string | null> {
   const res = await runGit(path, ['remote', 'get-url', remote]);
   if (res.code !== 0) return null;

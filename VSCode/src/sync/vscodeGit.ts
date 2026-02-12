@@ -125,6 +125,20 @@ export async function checkoutNewBranch(path: string, branch: string): Promise<G
   }
 }
 
+export async function checkoutBranch(path: string, branch: string): Promise<GitResult> {
+  try {
+    const repo = await getRepository(path);
+    if (!repo) {
+      return { success: false, error: 'Not a git repository' };
+    }
+
+    await repo.checkout(branch);
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: `Checkout failed: ${e.message}` };
+  }
+}
+
 export async function getRemoteUrl(path: string, remote = 'origin'): Promise<string | null> {
   try {
     const repo = await getRepository(path);

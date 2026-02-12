@@ -393,7 +393,7 @@ describe('GroupsProvider', () => {
       expect(warningSpy).toHaveBeenCalledWith('Cannot rename this group.');
     });
 
-    it('should not rename shared groups', async () => {
+    it('should rename shared groups', async () => {
       const lib = await store.getLibrary();
       const sharedRoot = lib.groups.find(g => g.id === 'root-shared')!;
       sharedRoot.children.push({
@@ -407,11 +407,16 @@ describe('GroupsProvider', () => {
       await store['save'](lib);
       await provider.init();
 
-      const warningSpy = vi.spyOn(vscode.window, 'showWarningMessage');
+      // Mock showInputBox to return new name
+      vi.spyOn(vscode.window, 'showInputBox').mockResolvedValue('Renamed Shared Group');
 
       await provider.renameGroup('grp-shared-test');
 
-      expect(warningSpy).toHaveBeenCalledWith('Cannot rename this group.');
+      // Verify group was renamed (for PR-based workflow)
+      const updatedLib = await store.getLibrary();
+      const updatedSharedRoot = updatedLib.groups.find(g => g.id === 'root-shared')!;
+      const renamedGroup = updatedSharedRoot.children.find(g => g.id === 'grp-shared-test');
+      expect(renamedGroup?.name).toBe('Renamed Shared Group');
     });
   });
 
@@ -473,7 +478,7 @@ describe('GroupsProvider', () => {
       expect(warningSpy).toHaveBeenCalledWith('This group cannot be deleted.');
     });
 
-    it('should not delete shared groups', async () => {
+    it('should delete shared groups', async () => {
       const lib = await store.getLibrary();
       const sharedRoot = lib.groups.find(g => g.id === 'root-shared')!;
       sharedRoot.children.push({
@@ -487,11 +492,16 @@ describe('GroupsProvider', () => {
       await store['save'](lib);
       await provider.init();
 
-      const warningSpy = vi.spyOn(vscode.window, 'showWarningMessage');
+      // Mock confirmation dialog to accept deletion
+      vi.spyOn(vscode.window, 'showWarningMessage').mockResolvedValue('Delete' as any);
 
       await provider.deleteGroup('grp-shared-test');
 
-      expect(warningSpy).toHaveBeenCalledWith('Shared groups cannot be deleted.');
+      // Verify group was deleted (for PR-based workflow)
+      const updatedLib = await store.getLibrary();
+      const updatedSharedRoot = updatedLib.groups.find(g => g.id === 'root-shared')!;
+      const deletedGroup = updatedSharedRoot.children.find(g => g.id === 'grp-shared-test');
+      expect(deletedGroup).toBeUndefined();
     });
 
     it('should collect prompts from nested groups', async () => {

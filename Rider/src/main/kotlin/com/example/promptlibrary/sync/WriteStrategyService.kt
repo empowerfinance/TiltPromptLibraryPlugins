@@ -308,11 +308,82 @@ object WriteStrategyService {
                     SyncLog.info("Opening GitHub compare page...")
                     PRActions.openCompare(owner, repoName, currentBranch, name)
                 }
+
+                // Show dialog asking if user wants to return to main branch
+                if (pushResult.success()) {
+                    javax.swing.SwingUtilities.invokeLater {
+                        showReturnToMainDialog(project, repoRoot, name)
+                    }
+                }
             } catch (e: Exception) {
                 val errMsg = "Error: ${e.message}"
                 SyncLog.error(errMsg)
                 Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
             }
+        }
+    }
+
+    private fun showReturnToMainDialog(project: Project, repoRoot: File, branchName: String) {
+        val options = arrayOf("Return to Main", "Stay on Branch")
+        val choice = javax.swing.JOptionPane.showOptionDialog(
+            null,
+            "PR branch '$branchName' pushed successfully!\nWould you like to return to main and pull latest changes?",
+            "PR Created",
+            javax.swing.JOptionPane.DEFAULT_OPTION,
+            javax.swing.JOptionPane.QUESTION_MESSAGE,
+            null,
+            options,
+            options[0]
+        )
+
+        if (choice == 0) {
+            // Return to Main
+            SyncLog.info("User chose to return to main branch")
+            ApplicationManager.getApplication().executeOnPooledThread {
+                // Try 'main' first, then 'master'
+                var success = GitUtils.checkout(project, repoRoot, "main")
+                if (!success) {
+                    SyncLog.info("'main' branch not found, trying 'master'...")
+                    success = GitUtils.checkout(project, repoRoot, "master")
+                }
+
+                if (!success) {
+                    SyncLog.error("Failed to checkout main/master branch")
+                    Notifications.Bus.notify(
+                        Notification("PromptLibrary", "Branch Switch", "Failed to checkout main/master branch", NotificationType.ERROR)
+                    )
+                } else {
+                    SyncLog.info("Switched to main branch, pulling latest...")
+
+                    // Pull latest changes
+                    val pullResult = GitPullService.pullSync(project, repoRoot)
+                    if (pullResult.success) {
+                        SyncLog.info("Successfully returned to main and pulled latest changes")
+                        Notifications.Bus.notify(
+                            Notification("PromptLibrary", "Branch Switch", "Returned to main and pulled latest changes", NotificationType.INFORMATION)
+                        )
+                    } else {
+                        SyncLog.error("Pull failed: ${pullResult.error}")
+                        Notifications.Bus.notify(
+                            Notification("PromptLibrary", "Branch Switch", "Returned to main but pull failed: ${pullResult.error}", NotificationType.WARNING)
+                        )
+                    }
+                }
+
+                // Refresh the SyncOpsPanel to show updated branch
+                javax.swing.SwingUtilities.invokeLater {
+                    com.example.promptlibrary.ui.SyncOpsPanel.refreshCurrentInstance()
+                }
+            }
+        } else {
+            // Stay on Branch
+            SyncLog.info("User chose to stay on PR branch")
+            Notifications.Bus.notify(
+                Notification("PromptLibrary", "Branch Switch", "Staying on PR branch. Use Sync Ops panel to return to main when ready.", NotificationType.INFORMATION)
+            )
+
+            // Still refresh the panel to show updated branch
+            com.example.promptlibrary.ui.SyncOpsPanel.refreshCurrentInstance()
         }
     }
 }
