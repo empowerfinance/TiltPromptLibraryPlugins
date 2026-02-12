@@ -9,9 +9,10 @@ A collection of IDE plugins for organizing and managing reusable prompts with Gi
 These plugins help developers organize, search, and reuse text prompts—perfect for AI assistant interactions, code templates, or frequently used text snippets. Both plugins share the same core concepts:
 
 - **Shared/Private namespaces** - Keep private prompts local, sync shared prompts to Git
-- **GitHub sync** - Export shared prompts as merge-friendly YAML
+- **GitHub sync** - Export shared prompts as merge-friendly YAML with PR workflow support
+- **Full CRUD for shared content** - Rename, edit, and delete shared groups/prompts locally, then sync via PR
 - **Duplicate detection** - Automatic prevention via normalized text
-- **One-click copy** - Quickly copy prompts to clipboard
+- **Copy to clipboard** - Quickly copy prompts with the copy button
 - **Augment integration** - Send prompts directly to Augment chat (VS Code)
 
 ## 📁 Repository Structure
@@ -57,6 +58,17 @@ Both plugins feature **Smart Sync** that automatically handles local changes bef
 3. **No data loss** - Local work is never lost; it's committed first, then rebased on top of remote changes
 
 This eliminates "Pull failed" errors when you have local uncommitted changes.
+
+### PR Workflow
+
+When creating a Pull Request from the plugin:
+
+1. **Branch creation** - Creates a timestamped branch (e.g., `prompt-sync/2026-02-12-14-30`)
+2. **Commit & push** - Commits your changes and pushes the branch
+3. **GitHub PR page** - Opens the GitHub compare URL to create the PR
+4. **Return to main dialog** - After pushing, you're asked if you want to return to main and pull latest changes
+5. **Branch indicator** - The Sync Ops panel shows your current branch with a warning when not on main/master
+6. **Return to Main button** - One-click return to main branch and pull latest changes
 
 ## 🚀 Quick Start
 
