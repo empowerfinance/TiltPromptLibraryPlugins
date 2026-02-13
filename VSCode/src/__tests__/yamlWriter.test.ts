@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { writeSharedGroups } from '../sync/yamlWriter';
+import { writeSharedGroups, deleteSinglePrompt } from '../sync/yamlWriter';
 import { Group, Prompt } from '../model';
 
 describe('yamlWriter', () => {
@@ -419,6 +419,77 @@ describe('yamlWriter', () => {
 
       // Should have updated the prompt file
       expect(result.updated).toBeGreaterThan(0);
+    });
+  });
+
+  describe('deleteSinglePrompt', () => {
+    it('should delete prompt file with simple ID', async () => {
+      // Create a prompt file
+      const groupDir = path.join(tempDir, 'TestGroup');
+      fs.mkdirSync(groupDir, { recursive: true });
+      fs.writeFileSync(path.join(groupDir, 'p-abc123.yaml'), 'id: abc123\ntext: test');
+
+      await deleteSinglePrompt(tempDir, '', ['TestGroup'], 'abc123');
+
+      expect(fs.existsSync(path.join(groupDir, 'p-abc123.yaml'))).toBe(false);
+    });
+
+    it('should delete prompt file with library-prefixed ID (new format)', async () => {
+      // Create a prompt file with library prefix in filename
+      const groupDir = path.join(tempDir, 'TestGroup');
+      fs.mkdirSync(groupDir, { recursive: true });
+      fs.writeFileSync(path.join(groupDir, 'p-MyLibrary:abc123.yaml'), 'id: MyLibrary:abc123\ntext: test');
+
+      await deleteSinglePrompt(tempDir, '', ['TestGroup'], 'MyLibrary:abc123');
+
+      expect(fs.existsSync(path.join(groupDir, 'p-MyLibrary:abc123.yaml'))).toBe(false);
+    });
+
+    it('should delete BOTH old and new format files when ID is library-prefixed', async () => {
+      // Create both old format and new format files for the same base ID
+      const groupDir = path.join(tempDir, 'TestGroup');
+      fs.mkdirSync(groupDir, { recursive: true });
+
+      // Old format: p-{baseId}.yaml
+      fs.writeFileSync(path.join(groupDir, 'p-abc123.yaml'), 'id: abc123\ntext: old format');
+      // New format: p-{libraryId}:{baseId}.yaml
+      fs.writeFileSync(path.join(groupDir, 'p-MyLibrary:abc123.yaml'), 'id: MyLibrary:abc123\ntext: new format');
+
+      // Delete using the library-prefixed ID
+      await deleteSinglePrompt(tempDir, '', ['TestGroup'], 'MyLibrary:abc123');
+
+      // Both files should be deleted
+      expect(fs.existsSync(path.join(groupDir, 'p-MyLibrary:abc123.yaml'))).toBe(false);
+      expect(fs.existsSync(path.join(groupDir, 'p-abc123.yaml'))).toBe(false);
+    });
+
+    it('should handle library path correctly', async () => {
+      // Create a prompt file within a library subdirectory
+      const groupDir = path.join(tempDir, 'MyLibrary', 'TestGroup');
+      fs.mkdirSync(groupDir, { recursive: true });
+      fs.writeFileSync(path.join(groupDir, 'p-MyLibrary:abc123.yaml'), 'id: MyLibrary:abc123\ntext: test');
+
+      await deleteSinglePrompt(tempDir, 'MyLibrary', ['TestGroup'], 'MyLibrary:abc123');
+
+      expect(fs.existsSync(path.join(groupDir, 'p-MyLibrary:abc123.yaml'))).toBe(false);
+    });
+
+    it('should not throw when file does not exist', async () => {
+      const groupDir = path.join(tempDir, 'TestGroup');
+      fs.mkdirSync(groupDir, { recursive: true });
+
+      // Should not throw even if file doesn't exist
+      await expect(deleteSinglePrompt(tempDir, '', ['TestGroup'], 'nonexistent')).resolves.toBeUndefined();
+    });
+
+    it('should handle nested group paths', async () => {
+      const groupDir = path.join(tempDir, 'Parent', 'Child');
+      fs.mkdirSync(groupDir, { recursive: true });
+      fs.writeFileSync(path.join(groupDir, 'p-abc123.yaml'), 'id: abc123\ntext: test');
+
+      await deleteSinglePrompt(tempDir, '', ['Parent', 'Child'], 'abc123');
+
+      expect(fs.existsSync(path.join(groupDir, 'p-abc123.yaml'))).toBe(false);
     });
   });
 });
