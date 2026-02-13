@@ -7,7 +7,7 @@ import { Prompt, Group } from './model';
 import { getSettings, getActiveLibrary, getLibraryPath, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries, setRemoteRepoUrl, setRepoPath, setActiveLibrary } from './settings';
 import { writeSharedGroups, writeToLibrary } from './sync/yamlWriter';
 import { log } from './log';
-import { checkoutNewBranch, checkoutBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, getGitVersion, smartPull } from './sync/hybridGit';
+import { checkoutNewBranch, checkoutBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, getGitVersion, smartPull, getGitUserName, generateBranchName } from './sync/hybridGit';
 import { tryBuildGithubCompareUrl, fetch as gitFetch, clone as gitClone, resetHardToRemote, cleanUntracked } from './sync/git';
 import { start as startScheduler } from './sync/scheduler';
 import { readSharedGroups, readFromLibrary, readFromLibraries } from './sync/yamlReader';
@@ -1422,8 +1422,11 @@ export function activate(context: vscode.ExtensionContext) {
         });
         return;
       }
-      // Prefer configured branchName; fallback to timestamped branch
-      const branch = cfg.branchName && cfg.branchName.trim() ? cfg.branchName.trim() : `prompt-sync/${new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16)}`;
+      // Generate branch name: try git author name first, fall back to configured branchName, always add random suffix
+      const gitUserName = await getGitUserName(repoPath);
+      const baseName = gitUserName || (cfg.branchName && cfg.branchName.trim()) || null;
+      const branch = generateBranchName(baseName);
+      log.info(`Generated branch name using "${baseName || 'timestamp'}": ${branch}`);
       try {
         // STEP 1: Smart pull - commits local changes first if needed, then pulls with rebase
         log.info('Smart pull: checking for local changes before creating branch...');
@@ -1505,7 +1508,8 @@ export function activate(context: vscode.ExtensionContext) {
         }
         const remote = await getRemoteUrl(repoPath, 'origin');
         if (remote) {
-          const prUrl = tryBuildGithubCompareUrl(remote, branch);
+          const prTitle = `Prompt Library Sync - ${gitUserName || 'Unknown User'}`;
+          const prUrl = tryBuildGithubCompareUrl(remote, branch, prTitle);
           if (prUrl) {
             log.info(`Opening PR URL: ${prUrl.toString()}`);
             await vscode.env.openExternal(prUrl);

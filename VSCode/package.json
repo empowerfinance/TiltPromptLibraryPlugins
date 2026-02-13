@@ -1,6 +1,6 @@
 {
-  "name": "prompt-library",
-  "displayName": "Prompt Library",
+  "name": "tilt-prompt-library",
+  "displayName": "Tilt Prompt Library",
   "description": "Unified prompt library with one-click editing, GitHub sync, and Augment integration. Organize prompts in shared/private groups.",
   "version": "0.0.1",
   "publisher": "tilt",
@@ -188,7 +188,7 @@
       "activitybar": [
         {
           "id": "promptLibrary",
-          "title": "Prompt Library",
+          "title": "Tilt Prompt Library",
           "icon": "media/prompt-library.svg"
         }
       ]
@@ -238,7 +238,7 @@
       "promptLibrary": [
         {
           "id": "promptLibraryGroups",
-          "name": "Prompt Groups",
+          "name": "Libraries",
           "icon": "$(folder)"
         },
         {

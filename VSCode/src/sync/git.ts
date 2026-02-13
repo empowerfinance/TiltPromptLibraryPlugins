@@ -146,6 +146,46 @@ export async function getRemoteUrl(path: string, remote = 'origin'): Promise<str
   return res.stdout.trim();
 }
 
+/**
+ * Get the git user name from git config.
+ * Returns the user.name if configured, or null if not set.
+ */
+export async function getGitUserName(path: string): Promise<string | null> {
+  const res = await runGit(path, ['config', 'user.name']);
+  if (res.code !== 0) return null;
+  return res.stdout.trim() || null;
+}
+
+/**
+ * Generate a unique branch name using the git user name and a random suffix.
+ * Format: prompt-sync/{user-name}-{random6chars}
+ * Falls back to timestamp if user name is not available.
+ */
+export function generateBranchName(userName: string | null): string {
+  const randomSuffix = Math.random().toString(36).substring(2, 8); // 6 random chars
+
+  if (userName && userName.trim()) {
+    // Sanitize the user name for git branch naming:
+    // - Convert to lowercase
+    // - Replace spaces and special chars with hyphens
+    // - Remove consecutive hyphens
+    // - Trim hyphens from start/end
+    const sanitized = userName
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    if (sanitized) {
+      return `prompt-sync/${sanitized}-${randomSuffix}`;
+    }
+  }
+
+  // Fallback to timestamp if no valid user name
+  const timestamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
+  return `prompt-sync/${timestamp}-${randomSuffix}`;
+}
+
 export async function clone(baseDir: string, remoteUrl: string, targetDirName?: string): Promise<{ success: boolean; error?: string }> {
   const args = targetDirName ? ['clone', remoteUrl, targetDirName] : ['clone', remoteUrl];
   console.log(`[git.clone] Cloning ${remoteUrl} to ${baseDir}/${targetDirName || ''}`);
@@ -209,7 +249,7 @@ export async function isDirty(path: string): Promise<boolean> {
   return res.stdout.trim().length > 0;
 }
 
-export function tryBuildGithubCompareUrl(remoteUrl: string, branch: string): vscode.Uri | null {
+export function tryBuildGithubCompareUrl(remoteUrl: string, branch: string, title?: string): vscode.Uri | null {
   // Supports https://github.com/org/repo.git and git@github.com:org/repo.git
   try {
     let org = '';
@@ -225,7 +265,11 @@ export function tryBuildGithubCompareUrl(remoteUrl: string, branch: string): vsc
     } else {
       return null;
     }
-    return vscode.Uri.parse(`https://github.com/${org}/${repo}/compare/${encodeURIComponent(branch)}?expand=1`);
+    let url = `https://github.com/${org}/${repo}/compare/${encodeURIComponent(branch)}?expand=1`;
+    if (title) {
+      url += `&title=${encodeURIComponent(title)}`;
+    }
+    return vscode.Uri.parse(url);
   } catch {
     return null;
   }

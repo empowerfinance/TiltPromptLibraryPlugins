@@ -29,7 +29,16 @@ vi.mock('../sync/git', () => ({
   push: vi.fn(),
   checkoutNewBranch: vi.fn(),
   getRemoteUrl: vi.fn(),
-  getGitVersion: vi.fn()
+  getGitVersion: vi.fn(),
+  getGitUserName: vi.fn(),
+  generateBranchName: vi.fn((userName: string | null) => {
+    const randomSuffix = 'abc123';
+    if (userName && userName.trim()) {
+      const sanitized = userName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+      if (sanitized) return `prompt-sync/${sanitized}-${randomSuffix}`;
+    }
+    return `prompt-sync/2024-01-01-12-00-${randomSuffix}`;
+  })
 }));
 
 vi.mock('../log', () => ({

@@ -152,6 +152,17 @@ export async function getRemoteUrl(path: string, remote = 'origin'): Promise<str
   }
 }
 
+/**
+ * Get the git user name from git config.
+ * VSCode Git API doesn't directly expose user.name, so we return null
+ * and let the caller fall back to spawn git.
+ */
+export async function getGitUserName(_path: string): Promise<string | null> {
+  // VSCode Git API doesn't expose user.name configuration
+  // Return null to signal that caller should use spawn git fallback
+  return null;
+}
+
 export async function getGitVersion(): Promise<{ version?: string; error?: string }> {
   try {
     const git = await getGitExtension();

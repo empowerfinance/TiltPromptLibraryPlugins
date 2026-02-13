@@ -155,5 +155,51 @@ object GitUtils {
         // Then ensure we're on a branch
         return ensureOnBranch(project, repoRoot)
     }
+
+    /**
+     * Get the git user name from git config.
+     * Returns the user.name if configured, or null if not set.
+     */
+    fun getGitUserName(project: Project, repoRoot: File): String? {
+        val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(repoRoot) ?: return null
+        val git = Git.getInstance()
+        val handler = GitLineHandler(project, vf, GitCommand.CONFIG).apply {
+            addParameters("user.name")
+            endOptions()
+        }
+        val result = git.runCommand(handler)
+        return if (result.success()) result.outputAsJoinedString.trim().ifEmpty { null } else null
+    }
+
+    /**
+     * Generate a unique branch name using the git user name and a random suffix.
+     * Format: prompts/sync/{user-name}-{random6chars}
+     * Falls back to timestamp if user name is not available.
+     */
+    fun generateBranchName(userName: String?): String {
+        val randomSuffix = java.util.UUID.randomUUID().toString().take(6)
+
+        if (!userName.isNullOrBlank()) {
+            // Sanitize the user name for git branch naming:
+            // - Convert to lowercase
+            // - Replace spaces and special chars with hyphens
+            // - Remove consecutive hyphens
+            // - Trim hyphens from start/end
+            val sanitized = userName
+                .lowercase()
+                .replace(Regex("[^a-z0-9-]"), "-")
+                .replace(Regex("-+"), "-")
+                .trim('-')
+
+            if (sanitized.isNotEmpty()) {
+                return "prompts/sync/$sanitized-$randomSuffix"
+            }
+        }
+
+        // Fallback to timestamp if no valid user name
+        val timestamp = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmm")
+            .format(java.time.LocalDateTime.now())
+        return "prompts/sync/$timestamp-$randomSuffix"
+    }
 }
 
