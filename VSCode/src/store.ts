@@ -270,7 +270,29 @@ export class LibraryStore {
     }
 
     prompt.private = target.kind === 'private';
-    prompt.libraryId = target.libraryId;
+
+    // When moving between libraries, update the prompt ID to use the target library prefix
+    const oldLibraryId = sourceGroup.libraryId;
+    const newLibraryId = target.libraryId;
+    if (oldLibraryId && newLibraryId && oldLibraryId !== newLibraryId) {
+      // Strip old library prefix(es) and add new one
+      let baseId = prompt.id;
+      // Remove any existing library prefixes (handles stacked prefixes like Credit-Card:EngGeneralPurpose:xxx)
+      while (baseId.includes(':')) {
+        const colonIndex = baseId.indexOf(':');
+        const potentialPrefix = baseId.substring(0, colonIndex);
+        // Check if this looks like a library prefix (contains letters, not just the base ID pattern)
+        if (/^[A-Za-z]/.test(potentialPrefix)) {
+          baseId = baseId.substring(colonIndex + 1);
+        } else {
+          break;
+        }
+      }
+      prompt.id = `${newLibraryId}:${baseId}`;
+      log.info(`Prompt ID updated for cross-library move: ${promptId} -> ${prompt.id}`);
+    }
+
+    prompt.libraryId = newLibraryId;
     prompt.updatedAt = new Date().toISOString();
     target.prompts.push(prompt);
     await this.save(lib);
