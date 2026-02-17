@@ -92,8 +92,8 @@ See [VSCode/README.md](VSCode/README.md) for full documentation.
 
 **Prerequisites:**
 
-- JDK 21 (for Rider 2025.2+) or JDK 17 (for Rider 2024.3–2025.1)
-- JetBrains Rider 2024.3+
+- JDK 21
+- JetBrains Rider 2025.2+
 
 ```bash
 cd Rider
@@ -136,9 +136,12 @@ cd Rider
 **Key files:**
 
 - `src/main/kotlin/com/example/promptlibrary/` - Plugin source
-  - `model/Prompt.kt` - Data model
-  - `repository/PromptRepository.kt` - JSON persistence
-  - `ui/PromptLibraryPanel.kt` - UI components
+  - `model/` - Data models (Prompt, Group, Library)
+  - `repository/PromptRepository.kt` - Prompt storage and persistence
+  - `sync/` - Git sync, YAML read/write, PR workflow
+  - `yaml/` - YAML serialization for prompts and groups
+  - `ui/` - UI panels and dialogs
+  - `settings/` - Plugin settings and library configuration
   - `PromptLibraryToolWindowFactory.kt` - Plugin integration
 
 ### Running Tests

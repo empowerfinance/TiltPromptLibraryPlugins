@@ -23,8 +23,8 @@ This ensures users get a consistent experience regardless of which IDE they use.
 
 **Rider Plugin:**
 
-- JDK 21 (for Rider 2025.2+) or JDK 17 (for legacy)
-- JetBrains Rider 2024.3+
+- JDK 21
+- JetBrains Rider 2025.2+
 
 ### Setting Up Your Development Environment
 

@@ -26,7 +26,7 @@ A prompt library for JetBrains Rider to organize, search, and reuse text prompts
 
 **From Source**
 
-Prerequisites: JDK 21, JetBrains Rider 2024.3+
+Prerequisites: JDK 21, JetBrains Rider 2025.2+
 
 ```bash
 git clone https://github.com/empowerfinance/TiltPromptLibraryPlugins.git
