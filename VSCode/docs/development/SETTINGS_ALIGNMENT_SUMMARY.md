@@ -9,15 +9,15 @@ Successfully aligned all Git settings between the Rider and VS Code plugins. Bot
 
 ## Settings Comparison Table
 
-| Setting | Type | VS Code Default | Rider Default | Description | Status |
-|---------|------|----------------|---------------|-------------|--------|
-| `remoteRepoUrl` | string | `""` | `""` | Remote Git URL for the shared prompts repository (optional for local-only mode) | ✅ Match |
-| `repoPath` | string | `"~/PromptLibrary"` | `"~/PromptLibrary"` | Local path to the repo root where shared prompts YAML will be written | ✅ **Fixed** |
-| `promptsSubdir` | string | `"prompts"` | `"prompts"` | Subdirectory name for prompts under each group directory | ✅ Match |
-| `branchName` | string | `""` | `""` | Branch name to use when Write Strategy is 'branchPR' | ✅ Match |
-| `writeStrategy` | enum | `"direct"` | `DIRECT` | Writing strategy for sync: direct commit vs dedicated branch and PR | ✅ Match |
-| `autoFetch.enabled` | boolean | `false` | `false` | Enable periodic auto-fetch for the repo | ✅ Match |
-| `autoFetch.minutes` | number | `5` | `5` | Fetch interval in minutes when auto-fetch is enabled | ✅ Match |
+| Setting             | Type    | VS Code Default     | Rider Default       | Description                                                                               | Status       |
+| ------------------- | ------- | ------------------- | ------------------- | ----------------------------------------------------------------------------------------- | ------------ |
+| `remoteRepoUrl`     | string  | `""`                | `""`                | Remote Git URL for the shared prompts repository (optional for local-only mode)           | ✅ Match     |
+| `repoPath`          | string  | `"~/PromptLibrary"` | `"~/PromptLibrary"` | Local path to the repo root where shared prompts YAML will be written                     | ✅ **Fixed** |
+| `promptsSubdir`     | string  | `"prompts"`         | `"prompts"`         | Subdirectory name for prompts under each group directory                                  | ✅ Match     |
+| `branchPrefix`      | string  | `""`                | `""`                | Optional prefix for auto-generated branch names (e.g., 'paulg' → 'paulg/prompt-sync/...') | ✅ Match     |
+| `writeStrategy`     | enum    | `"direct"`          | `DIRECT`            | Writing strategy for sync: direct commit vs dedicated branch and PR                       | ✅ Match     |
+| `autoFetch.enabled` | boolean | `false`             | `false`             | Enable periodic auto-fetch for the repo                                                   | ✅ Match     |
+| `autoFetch.minutes` | number  | `5`                 | `5`                 | Fetch interval in minutes when auto-fetch is enabled                                      | ✅ Match     |
 
 ## Key Features - Both Plugins
 
@@ -26,22 +26,26 @@ Successfully aligned all Git settings between the Rider and VS Code plugins. Bot
 Both plugins support tilde (`~`) expansion in paths:
 
 **Examples:**
+
 - `~/PromptLibrary` → `/Users/username/PromptLibrary` (macOS/Linux)
 - `~/PromptLibrary` → `C:\Users\username\PromptLibrary` (Windows)
 - `~/projects/prompts` → `/Users/username/projects/prompts`
 
 **Implementation:**
+
 - **VS Code**: `expandPath()` in `src/settings.ts`
 - **Rider**: `expandPath()` in `PluginSettings.kt`
 
 ### ✅ Auto-Clone Behavior
 
 Both plugins automatically clone the repository if:
+
 1. `repoPath` is set but doesn't exist
 2. `remoteRepoUrl` is configured
 3. User triggers a sync operation
 
 **Implementation:**
+
 - **VS Code**: `ensureRepoCloned()` in `extension.ts`
 - **Rider**: `ensureWorkingCopy()` in `GitRepoManager.kt`
 
@@ -74,11 +78,13 @@ Both plugins support automatic periodic fetching:
 ### 1. Default `repoPath` Changed
 
 **Before:**
+
 ```kotlin
 var repoPath: String = ""
 ```
 
 **After:**
+
 ```kotlin
 var repoPath: String = "~/PromptLibrary"  // Match VS Code default
 ```
@@ -86,6 +92,7 @@ var repoPath: String = "~/PromptLibrary"  // Match VS Code default
 ### 2. Tilde Expansion Added
 
 **New Function:**
+
 ```kotlin
 fun expandPath(filePath: String): String {
     if (filePath.startsWith("~/") || filePath == "~") {
@@ -103,6 +110,7 @@ fun expandPath(filePath: String): String {
 ### 3. GitRepoManager Enhanced
 
 **New Behavior:**
+
 - Expands tilde in `repoPath`
 - Auto-clones if path doesn't exist
 - Creates parent directories
@@ -111,6 +119,7 @@ fun expandPath(filePath: String): String {
 ### 4. Settings UI Updated
 
 **Label Changes:**
+
 - All labels now match VS Code descriptions exactly
 - Added informative help panel
 - Improved clarity and consistency
@@ -118,6 +127,7 @@ fun expandPath(filePath: String): String {
 ### 5. Test Coverage Added
 
 **New Test File:** `PluginSettingsTest.kt`
+
 - 12 comprehensive tests
 - Matches VS Code test coverage
 - All tests passing ✅
@@ -125,18 +135,21 @@ fun expandPath(filePath: String): String {
 ## Verification
 
 ### Build Status
+
 ```
 ✅ Rider: BUILD SUCCESSFUL
 ✅ VS Code: Build successful
 ```
 
 ### Test Status
+
 ```
 ✅ Rider: 156 tests passing (12 new settings tests)
 ✅ VS Code: All tests passing
 ```
 
 ### Functional Parity
+
 ```
 ✅ Default values match
 ✅ Tilde expansion works
@@ -197,6 +210,7 @@ fun expandPath(filePath: String): String {
 **Recommended Setup:**
 
 1. **Accept Defaults**
+
    ```
    repoPath: ~/PromptLibrary (default)
    promptsSubdir: prompts (default)
@@ -204,6 +218,7 @@ fun expandPath(filePath: String): String {
    ```
 
 2. **Add Remote (Optional)**
+
    ```
    remoteRepoUrl: https://github.com/yourorg/prompts.git
    ```
@@ -215,12 +230,14 @@ fun expandPath(filePath: String): String {
 ## Files Modified
 
 ### Rider Plugin
+
 1. `src/main/kotlin/com/example/promptlibrary/settings/PluginSettings.kt`
 2. `src/main/kotlin/com/example/promptlibrary/sync/GitRepoManager.kt`
 3. `src/main/kotlin/com/example/promptlibrary/settings/PluginSettingsConfigurable.kt`
 4. `src/test/kotlin/com/example/promptlibrary/settings/PluginSettingsTest.kt` (new)
 
 ### Documentation
+
 1. `Rider/GIT_SETTINGS_ALIGNMENT.md` (new)
 2. `SETTINGS_ALIGNMENT_SUMMARY.md` (this file)
 
@@ -229,6 +246,7 @@ fun expandPath(filePath: String): String {
 ✅ **Complete Alignment Achieved**
 
 Both Rider and VS Code plugins now provide:
+
 - Identical default values
 - Matching functionality
 - Consistent user experience
@@ -240,12 +258,13 @@ The plugins are now perfectly aligned! 🎉
 ## Next Steps
 
 ### Recommended
+
 - [ ] Update plugin documentation with new defaults
 - [ ] Update README files to reflect alignment
 - [ ] Consider adding migration notes to release notes
 
 ### Optional
+
 - [ ] Add more integration tests
 - [ ] Document advanced configuration scenarios
 - [ ] Create user guide for Git sync features
-

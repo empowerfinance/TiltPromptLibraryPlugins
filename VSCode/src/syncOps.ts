@@ -203,8 +203,7 @@ export class SyncOpsPanel {
       BANNER: banner,
       BRANCH_INDICATOR: branchIndicator,
       DISABLED: disabledAttr,
-      REPO_PATH: s.repoPath || '(not set)',
-      PROMPTS_SUBDIR: s.promptsSubdir
+      REPO_PATH: s.repoPath || '(not set)'
     });
 
     this._panel!.webview.html = html;

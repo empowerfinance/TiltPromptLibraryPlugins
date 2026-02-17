@@ -184,7 +184,6 @@ export class StatusViewProvider implements vscode.WebviewViewProvider {
         </div>
         <div class="kv">
           <div>repoPath: <b>${s.repoPath || '(not set)'}</b></div>
-          <div>promptsSubdir: <b>${s.promptsSubdir}</b></div>
           <div>autoFetch: <b>${s.autoFetch.enabled ? `every ${s.autoFetch.minutes} min` : 'disabled'}</b></div>
         </div>
         <div class="log">

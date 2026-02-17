@@ -193,10 +193,17 @@ export async function writeSinglePrompt(
 /**
  * Deletes a single prompt file from disk.
  *
+ * This function handles both old and new prompt file naming formats:
+ * - New format: p-{libraryId}:{baseId}.yaml (e.g., p-EngGeneralPurpose:abc123.yaml)
+ * - Old format: p-{baseId}.yaml (e.g., p-abc123.yaml)
+ *
+ * When a prompt has a prefixed ID (libraryId:baseId), we attempt to delete both
+ * the new format file and the old format file to ensure proper cleanup.
+ *
  * @param repoRoot - The root directory of the Git repository
  * @param libraryPath - The library folder name
  * @param groupPath - Array of group folder names from root to the target group
- * @param promptId - The ID of the prompt to delete
+ * @param promptId - The ID of the prompt to delete (may be prefixed with libraryId)
  */
 export async function deleteSinglePrompt(
   repoRoot: string,
@@ -210,13 +217,25 @@ export async function deleteSinglePrompt(
     dir = vscode.Uri.joinPath(dir, sanitize(groupFolder));
   }
 
-  // Prompt file is directly in the group folder
-  const file = vscode.Uri.joinPath(dir, `p-${promptId}.yaml`);
-
+  // Delete the file with the full prompt ID (new format: p-{libraryId}:{baseId}.yaml)
+  const newFormatFile = vscode.Uri.joinPath(dir, `p-${promptId}.yaml`);
   try {
-    await vscode.workspace.fs.delete(file);
+    await vscode.workspace.fs.delete(newFormatFile);
   } catch {
     // File might not exist, ignore
+  }
+
+  // If promptId contains a library prefix (e.g., "EngGeneralPurpose:abc123"),
+  // also try to delete the old format file (p-{baseId}.yaml)
+  const colonIndex = promptId.indexOf(':');
+  if (colonIndex > 0) {
+    const baseId = promptId.substring(colonIndex + 1);
+    const oldFormatFile = vscode.Uri.joinPath(dir, `p-${baseId}.yaml`);
+    try {
+      await vscode.workspace.fs.delete(oldFormatFile);
+    } catch {
+      // File might not exist, ignore
+    }
   }
 }
 

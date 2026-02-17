@@ -39,7 +39,7 @@ object SyncOrchestrator {
 
                     indicator.text = "Pulling latest..."
                     SyncLog.info("Pulling latest from remote...")
-                    GitPullService.pull(project, rootDir, settings.branchName)
+                    GitPullService.pull(project, rootDir, null)  // Auto-detect branch from remote
 
                     indicator.text = "Loading remote YAML..."
                     SyncLog.info("Loading remote YAML from library: ${activeLibrary.displayName} at $libraryPath")
@@ -103,14 +103,12 @@ object SyncOrchestrator {
                     SyncLog.info("Fetching from origin...")
                     GitPullService.fetchOnly(project, rootDir)
 
-                    // Use configured branch or detect default from remote
-                    val branchName = settings.branchName.ifBlank {
-                        GitUtils.getDefaultBranch(project, rootDir)
-                    }
+                    // Auto-detect default branch from remote
+                    val targetBranch = GitUtils.getDefaultBranch(project, rootDir)
 
                     indicator.text = "Hard reset to origin..."
-                    SyncLog.info("Hard resetting to origin/$branchName...")
-                    val success = GitPullService.hardResetToOrigin(project, rootDir, branchName)
+                    SyncLog.info("Hard resetting to origin/$targetBranch...")
+                    val success = GitPullService.hardResetToOrigin(project, rootDir, targetBranch)
                     if (!success) {
                         SyncLog.error("Failed to reset to origin")
                         Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", "Failed to reset to origin", NotificationType.ERROR))

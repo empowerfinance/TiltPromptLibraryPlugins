@@ -849,7 +849,7 @@ describe('GroupsProvider hidden libraries behavior', () => {
       repoPath: tmpDir,
       promptsSubdir: 'general',
       hiddenLibraries: [],
-      branchName: '',
+      branchPrefix: '',
       autoFetch: { enabled: false, minutes: 5 },
     };
   });

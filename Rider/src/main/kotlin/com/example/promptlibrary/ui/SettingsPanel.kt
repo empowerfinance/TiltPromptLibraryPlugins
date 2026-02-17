@@ -34,7 +34,7 @@ class SettingsPanel(
     // Note: libraryCombo and libraryFolderField removed - libraries are auto-discovered from disk
     private lateinit var repoField: JTextField
     private lateinit var hiddenLibrariesPanel: JPanel
-    private lateinit var branchField: JTextField
+    private lateinit var branchPrefixField: JTextField
     private lateinit var autoFetchCheckbox: JCheckBox
     private lateinit var autoFetchMinutesField: JSpinner
 
@@ -150,14 +150,14 @@ class SettingsPanel(
             updateHiddenLibrariesPanel()
             add(Box.createVerticalStrut(8))
             
-            // Branch Name
-            branchField = JTextField(settings.branchName).apply {
+            // Branch Prefix
+            branchPrefixField = JTextField(settings.branchPrefix).apply {
                 preferredSize = Dimension(0, fieldHeight)
                 maximumSize = Dimension(Int.MAX_VALUE, fieldHeight)
                 addCaretListener { markDirty() }
             }
-            add(createLabeledField("Branch Name:", branchField))
-            add(createHintLabel("Leave blank to auto-detect (optional, for PR branches)"))
+            add(createLabeledField("Branch Prefix:", branchPrefixField))
+            add(createHintLabel("Optional prefix for auto-generated branch names (e.g., 'paulg' → 'paulg/prompts/sync/...')"))
             add(Box.createVerticalStrut(12))
 
             // Note: writeStrategy removed from UI - both Direct Commit and PR buttons
@@ -390,15 +390,14 @@ class SettingsPanel(
             return
         }
 
-        // Create the library folder with a prompts subdirectory
+        // Create just the library folder with a _library.yaml marker file
+        // No nested folders - user will add groups themselves (matches VS Code plugin structure)
         try {
-            val promptsDir = java.io.File(libraryDir, "prompts")
-            promptsDir.mkdirs()
+            libraryDir.mkdirs()
 
-            // Create a placeholder README in the library folder
-            java.io.File(libraryDir, "README.md").writeText(
-                "# ${titleCase(sanitizedName)} Library\n\nThis library was created for organizing prompts.\n"
-            )
+            // Create a _library.yaml marker file to mark this as a library
+            val libraryYamlContent = "name: ${sanitizedName}\ndescription: \n"
+            java.io.File(libraryDir, "_library.yaml").writeText(libraryYamlContent)
 
             Notifications.Bus.notify(
                 Notification(
@@ -413,8 +412,10 @@ class SettingsPanel(
             refreshAvailableLibraries(repoPath)
             updateHiddenLibrariesPanel()
 
-            // Notify listeners that library settings changed
-            LibraryEvents.fireChanged()
+            // Reload from disk to pick up the new library's content
+            // This ensures the new library appears in the tree immediately
+            SyncOrchestrator.reloadFromDisk(repository)
+            // Note: reloadFromDisk calls LibraryEvents.fireChanged() internally
 
         } catch (e: Exception) {
             Notifications.Bus.notify(
@@ -440,7 +441,7 @@ class SettingsPanel(
         val hiddenLibs = getSelectedHiddenLibraries()
         data.hiddenLibraries = ArrayList(hiddenLibs)  // Use ArrayList for proper XML serialization
 
-        data.branchName = branchField.text.trim()
+        data.branchPrefix = branchPrefixField.text.trim()
         // Note: writeStrategy removed from UI - both buttons available in SyncOps
         data.autoFetchEnabled = autoFetchCheckbox.isSelected
         data.autoFetchMinutes = autoFetchMinutesField.value as Int
@@ -475,7 +476,7 @@ class SettingsPanel(
         // Note: remoteRepoUrl is now internal-only (auto-detected from git)
         // Note: promptsSubdir (active library) removed - libraries are contextual
         repoField.text = settings.repoPath
-        branchField.text = settings.branchName
+        branchPrefixField.text = settings.branchPrefix
         // Note: writeStrategy removed from UI - both buttons available in SyncOps
         autoFetchCheckbox.isSelected = settings.autoFetchEnabled
         autoFetchMinutesField.value = settings.autoFetchMinutes

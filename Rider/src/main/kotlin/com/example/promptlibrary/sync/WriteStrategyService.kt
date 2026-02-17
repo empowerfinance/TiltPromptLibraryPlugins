@@ -264,9 +264,12 @@ object WriteStrategyService {
                     return@executeOnPooledThread
                 }
 
-                // STEP 4: Create new branch
-                val name = "prompts/sync/" + java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmm").format(java.time.LocalDateTime.now())
-                SyncLog.info("Creating branch: $name")
+                // STEP 4: Create new branch with optional prefix + user name + random suffix
+                val settings = PluginSettingsService.instance().data
+                val userName = GitUtils.getGitUserName(project, repoRoot)
+                val prefix = settings.branchPrefix.takeIf { it.isNotBlank() }
+                val name = GitUtils.generateBranchName(userName, prefix)
+                SyncLog.info("Creating branch: $name${prefix?.let { " (prefix: $it)" } ?: ""}")
                 val coRes = git.runCommand(GitLineHandler(project, vf, GitCommand.CHECKOUT).apply {
                     addParameters("-b", name)
                     endOptions()
@@ -305,8 +308,9 @@ object WriteStrategyService {
                 val m = Regex("git@github.com:([^/]+)/([^.]+)(?:.git)?").find(remoteUrl)
                 if (pushResult.success() && m != null) {
                     val (owner, repoName) = m.destructured
-                    SyncLog.info("Opening GitHub compare page...")
-                    PRActions.openCompare(owner, repoName, currentBranch, name)
+                    val prTitle = "Prompt Library Sync - ${userName ?: "Unknown User"}"
+                    SyncLog.info("Opening GitHub compare page with title: $prTitle")
+                    PRActions.openCompare(owner, repoName, currentBranch, name, prTitle)
                 }
 
                 // Show dialog asking if user wants to return to main branch

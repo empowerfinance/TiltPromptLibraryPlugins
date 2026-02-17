@@ -83,6 +83,21 @@ export async function getRemoteUrl(path: string, remote = 'origin'): Promise<str
   }
 }
 
+/**
+ * Get the git user name from git config.
+ * Always uses spawn git since VSCode Git API doesn't expose user.name.
+ */
+export async function getGitUserName(path: string): Promise<string | null> {
+  // VSCode Git API doesn't expose user.name, so always use spawn git
+  return spawnGit.getGitUserName(path);
+}
+
+/**
+ * Generate a unique branch name using the git user name and a random suffix.
+ * Re-exports the spawn git implementation since it's just string manipulation.
+ */
+export const generateBranchName = spawnGit.generateBranchName;
+
 export async function getGitVersion(): Promise<{ version?: string; error?: string }> {
   // Try VSCode API first
   const vscodeResult = await vscodeGit.getGitVersion();

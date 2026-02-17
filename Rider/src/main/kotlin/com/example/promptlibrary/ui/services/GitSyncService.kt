@@ -89,7 +89,7 @@ class GitSyncService(
         }
         
         return try {
-            GitPullService.pull(project, working, settings.branchName)
+            GitPullService.pull(project, working, null)  // Auto-detect branch from remote
             SyncResult.Success
         } catch (e: Exception) {
             SyncResult.Error("Error pulling from Git: ${e.message}")

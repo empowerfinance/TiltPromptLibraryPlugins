@@ -489,5 +489,134 @@ describe('git', () => {
       expect(url).not.toBeNull();
       expect(url?.fsPath).toBe('https://github.com/user/repo/compare/main?expand=1');
     });
+
+    it('should include PR title when provided', () => {
+      const url = git.tryBuildGithubCompareUrl('https://github.com/user/repo.git', 'feature-branch', 'Prompt Library Sync - John Doe');
+
+      expect(url).not.toBeNull();
+      expect(url?.fsPath).toContain('expand=1');
+      expect(url?.fsPath).toContain('title=Prompt%20Library%20Sync%20-%20John%20Doe');
+    });
+
+    it('should work without PR title (optional parameter)', () => {
+      const url = git.tryBuildGithubCompareUrl('https://github.com/user/repo.git', 'feature-branch');
+
+      expect(url).not.toBeNull();
+      expect(url?.fsPath).toBe('https://github.com/user/repo/compare/feature-branch?expand=1');
+      expect(url?.fsPath).not.toContain('title=');
+    });
+  });
+
+  describe('getGitUserName', () => {
+    it('should return user name when configured', async () => {
+      const promise = git.getGitUserName('/test/repo');
+
+      mockProc.stdout.emit('data', Buffer.from('John Doe\n'));
+      mockProc.emit('close', 0);
+
+      const result = await promise;
+
+      expect(result).toBe('John Doe');
+      expect(spawn).toHaveBeenCalledWith('/usr/bin/git', ['config', 'user.name'], expect.any(Object));
+    });
+
+    it('should return null when user name is not configured', async () => {
+      const promise = git.getGitUserName('/test/repo');
+
+      mockProc.stderr.emit('data', Buffer.from(''));
+      mockProc.emit('close', 1);
+
+      const result = await promise;
+
+      expect(result).toBeNull();
+    });
+
+    it('should return null for empty user name', async () => {
+      const promise = git.getGitUserName('/test/repo');
+
+      mockProc.stdout.emit('data', Buffer.from('   \n'));
+      mockProc.emit('close', 0);
+
+      const result = await promise;
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('generateBranchName', () => {
+    it('should generate branch name with sanitized user name', () => {
+      const branch = git.generateBranchName('John Doe');
+
+      expect(branch).toMatch(/^prompt-sync\/john-doe-[a-z0-9]{6}$/);
+    });
+
+    it('should handle user names with special characters', () => {
+      const branch = git.generateBranchName('John O\'Brien-Smith');
+
+      expect(branch).toMatch(/^prompt-sync\/john-o-brien-smith-[a-z0-9]{6}$/);
+    });
+
+    it('should handle user names with multiple spaces', () => {
+      const branch = git.generateBranchName('John   Doe');
+
+      expect(branch).toMatch(/^prompt-sync\/john-doe-[a-z0-9]{6}$/);
+    });
+
+    it('should fallback to timestamp when user name is null', () => {
+      const branch = git.generateBranchName(null);
+
+      // Should match format: prompt-sync/YYYY-MM-DD-HH-MM-{random}
+      expect(branch).toMatch(/^prompt-sync\/\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-[a-z0-9]{6}$/);
+    });
+
+    it('should fallback to timestamp when user name is empty', () => {
+      const branch = git.generateBranchName('');
+
+      expect(branch).toMatch(/^prompt-sync\/\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-[a-z0-9]{6}$/);
+    });
+
+    it('should fallback to timestamp when user name is only whitespace', () => {
+      const branch = git.generateBranchName('   ');
+
+      expect(branch).toMatch(/^prompt-sync\/\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-[a-z0-9]{6}$/);
+    });
+
+    it('should generate unique branch names on each call', () => {
+      const branch1 = git.generateBranchName('John Doe');
+      const branch2 = git.generateBranchName('John Doe');
+
+      expect(branch1).not.toBe(branch2);
+    });
+
+    it('should handle unicode characters by replacing with hyphens', () => {
+      const branch = git.generateBranchName('José García');
+
+      // Unicode chars get replaced with hyphens, then consecutive hyphens are collapsed
+      expect(branch).toMatch(/^prompt-sync\/jos-garc-a-[a-z0-9]{6}$/);
+    });
+
+    it('should handle names that become empty after sanitization', () => {
+      const branch = git.generateBranchName('日本語');
+
+      // All chars are non-ASCII, so should fallback to timestamp
+      expect(branch).toMatch(/^prompt-sync\/\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-[a-z0-9]{6}$/);
+    });
+
+    it('should handle configured branch name as base (e.g. paulg)', () => {
+      // When user has a configured branchName like "paulg", it should still get a random suffix
+      const branch = git.generateBranchName('paulg');
+
+      expect(branch).toMatch(/^prompt-sync\/paulg-[a-z0-9]{6}$/);
+      // Verify it's not just "paulg" without suffix
+      expect(branch).not.toBe('paulg');
+      expect(branch).not.toBe('prompt-sync/paulg');
+    });
+
+    it('should handle email-like names', () => {
+      const branch = git.generateBranchName('paul@example.com');
+
+      // @ and . get replaced with hyphens
+      expect(branch).toMatch(/^prompt-sync\/paul-example-com-[a-z0-9]{6}$/);
+    });
   });
 });

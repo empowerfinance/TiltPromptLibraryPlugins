@@ -38,9 +38,8 @@ describe('settings', () => {
       expect(settings).toEqual({
         remoteRepoUrl: '',
         repoPath: '',
-        promptsSubdir: 'general',
         hiddenLibraries: [],
-        branchName: '',
+        branchPrefix: '',
         autoFetch: {
           enabled: false,
           minutes: 5,
@@ -54,9 +53,8 @@ describe('settings', () => {
           const values: Record<string, any> = {
             'remoteRepoUrl': 'https://github.com/user/repo.git',
             'repoPath': '/custom/path',
-            'promptsSubdir': 'my-prompts',
             'hiddenLibraries': ['archived', 'deprecated'],
-            'branchName': 'feature-branch',
+            'branchPrefix': 'paulg',
             'autoFetch.enabled': true,
             'autoFetch.minutes': 10,
           };
@@ -74,9 +72,8 @@ describe('settings', () => {
       expect(settings).toEqual({
         remoteRepoUrl: 'https://github.com/user/repo.git',
         repoPath: '/custom/path',
-        promptsSubdir: 'my-prompts',
         hiddenLibraries: ['archived', 'deprecated'],
-        branchName: 'feature-branch',
+        branchPrefix: 'paulg',
         autoFetch: {
           enabled: true,
           minutes: 10,
@@ -258,7 +255,7 @@ describe('settings', () => {
               'remoteRepoUrl': 'https://github.com/user/repo.git',
               'repoPath': tmpDir,
               'promptsSubdir': 'platform',
-              'branchName': 'main',
+              'branchPrefix': 'paulg',
               'hiddenLibraries': [],
               'autoFetch.enabled': false,
               'autoFetch.minutes': 5,
@@ -276,7 +273,7 @@ describe('settings', () => {
 
         expect(repoConfig.url).toBe('https://github.com/user/repo.git');
         expect(repoConfig.localPath).toBe(tmpDir);
-        expect(repoConfig.branch).toBe('main');
+        expect(repoConfig.branch).toBe(''); // branch is auto-detected; branchPrefix is only for PR branches
         expect(repoConfig.libraries).toHaveLength(1);
         expect(repoConfig.libraries[0].id).toBe('platform');
         expect(repoConfig.libraries[0].path).toBe('platform');
@@ -299,7 +296,7 @@ describe('settings', () => {
               'remoteRepoUrl': '',
               'repoPath': tmpDir,
               'promptsSubdir': '',
-              'branchName': '',
+              'branchPrefix': '',
             };
             return values[key] ?? defaultValue;
           }),
@@ -390,23 +387,39 @@ describe('settings', () => {
 
   describe('getActiveLibrary', () => {
     it('should return the first enabled library', () => {
-      const mockConfig = {
-        get: vi.fn((key: string, defaultValue: any) => {
-          if (key === 'promptsSubdir') return 'analytics';
-          return defaultValue;
-        }),
-        has: vi.fn(),
-        inspect: vi.fn(),
-        update: vi.fn(),
-      };
+      // Create a temp directory with libraries
+      const fs = require('fs');
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'active-lib-test-'));
 
-      vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+      try {
+        // Create two libraries
+        fs.mkdirSync(path.join(tmpDir, 'analytics'));
+        fs.writeFileSync(path.join(tmpDir, 'analytics', '_library.yaml'), 'name: Analytics\n');
+        fs.mkdirSync(path.join(tmpDir, 'general'));
+        fs.writeFileSync(path.join(tmpDir, 'general', '_library.yaml'), 'name: General\n');
 
-      const activeLibrary = getActiveLibrary();
+        const mockConfig = {
+          get: vi.fn((key: string, defaultValue: any) => {
+            if (key === 'repoPath') return tmpDir;
+            if (key === 'hiddenLibraries') return [];
+            return defaultValue;
+          }),
+          has: vi.fn(),
+          inspect: vi.fn(),
+          update: vi.fn(),
+        };
 
-      expect(activeLibrary.id).toBe('analytics');
-      expect(activeLibrary.path).toBe('analytics');
-      expect(activeLibrary.enabled).toBe(true);
+        vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(mockConfig as any);
+
+        const activeLibrary = getActiveLibrary();
+
+        // Should return the first enabled library (alphabetically sorted)
+        expect(activeLibrary.id).toBe('analytics');
+        expect(activeLibrary.path).toBe('analytics');
+        expect(activeLibrary.enabled).toBe(true);
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
 
     it('should return default library when none configured', () => {

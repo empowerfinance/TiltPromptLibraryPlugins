@@ -1,6 +1,6 @@
 <idea-plugin>
     <id>com.example.riderpromptlibrary</id>
-    <name>Prompt Library</name>
+    <name>Tilt Prompt Library</name>
     <vendor email="support@tilt.com" url="https://tilt.com">Tilt</vendor>
 
     <description><![CDATA[
@@ -23,7 +23,7 @@
 
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="Prompt Library" factoryClass="com.example.promptlibrary.PromptLibraryToolWindowFactory" anchor="left" />
+        <toolWindow id="Tilt Prompt Library" factoryClass="com.example.promptlibrary.PromptLibraryToolWindowFactory" anchor="left" />
         <notificationGroup id="PromptLibrary" displayType="BALLOON" isLogByDefault="true" />
         <!-- Settings are now managed via the embedded Settings tab in the tool window -->
         <applicationService serviceImplementation="com.example.promptlibrary.settings.PluginSettingsService" />
