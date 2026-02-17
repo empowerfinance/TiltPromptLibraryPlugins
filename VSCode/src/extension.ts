@@ -3,8 +3,7 @@ import * as vscode from 'vscode';
 import { LibraryStore } from './store';
 import { GroupsProvider, GroupItem, PromptItem } from './groups';
 import { Prompt, Group } from './model';
-// Note: setActiveLibrary removed - libraries are contextual (no "active library" concept in UI)
-import { getSettings, getActiveLibrary, getLibraryPath, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries, setRemoteRepoUrl, setRepoPath, setActiveLibrary } from './settings';
+import { getSettings, getActiveLibrary, getLibraryPath, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries, setRemoteRepoUrl, setRepoPath } from './settings';
 import { writeSharedGroups, writeToLibrary } from './sync/yamlWriter';
 import { log } from './log';
 import { checkoutNewBranch, checkoutBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, getGitVersion, smartPull, getGitUserName, generateBranchName } from './sync/hybridGit';
@@ -947,10 +946,6 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage(`Library "${libraryName}" created successfully!`);
         log.info(`Created new library: ${libraryName} at ${libraryPath}`);
 
-        // Set the newly created library as the active library
-        await setActiveLibrary(libraryName.trim());
-        log.info(`Set active library to: ${libraryName.trim()}`);
-
         // Re-read all libraries from disk (the new library is now discoverable)
         const enabledLibraries = getEnabledLibraries();
         const libraryGroupsMap = await readFromLibraries(cfg.repoPath, enabledLibraries);
@@ -1256,7 +1251,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       const cfg = getSettings();
-      log.info(`Config: repoPath=${cfg.repoPath}, promptsSubdir=${cfg.promptsSubdir}`);
+      log.info(`Config: repoPath=${cfg.repoPath}`);
       if (!cfg.repoPath) {
         log.warn('No repoPath configured');
         vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.');
@@ -1368,7 +1363,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('promptLibrary.syncBranchPR', async () => {
       log.info('syncBranchPR command started');
       const cfg = getSettings();
-      log.info(`Config: repoPath=${cfg.repoPath}, branchName=${cfg.branchName}`);
+      log.info(`Config: repoPath=${cfg.repoPath}, branchPrefix=${cfg.branchPrefix || '(none)'}`);
       if (!cfg.repoPath) {
         log.warn('No repoPath configured');
         vscode.window.showWarningMessage('Set promptLibrary.repoPath in settings first.');
@@ -1398,11 +1393,11 @@ export function activate(context: vscode.ExtensionContext) {
         });
         return;
       }
-      // Generate branch name: try git author name first, fall back to configured branchName, always add random suffix
+      // Generate branch name: use git author name with optional prefix
       const gitUserName = await getGitUserName(repoPath);
-      const baseName = gitUserName || (cfg.branchName && cfg.branchName.trim()) || null;
-      const branch = generateBranchName(baseName);
-      log.info(`Generated branch name using "${baseName || 'timestamp'}": ${branch}`);
+      const prefix = cfg.branchPrefix?.trim() || null;
+      const branch = generateBranchName(gitUserName, prefix);
+      log.info(`Generated branch name: ${branch}${prefix ? ` (prefix: ${prefix})` : ''}`);
       try {
         // STEP 1: Smart pull - commits local changes first if needed, then pulls with rebase
         log.info('Smart pull: checking for local changes before creating branch...');

@@ -19,7 +19,7 @@ class PluginSettingsService : PersistentStateComponent<PluginSettingsService.Sta
         var repoPath: String = "~/PromptLibrary"  // Match VS Code default
         var promptsSubdir: String = DEFAULT_LIBRARY_NAME  // Active library for writing
         var hiddenLibraries: ArrayList<String> = ArrayList()  // Use ArrayList for proper XML serialization
-        var branchName: String = ""
+        var branchPrefix: String = ""  // Optional prefix for auto-generated branch names
         var writeStrategy: WriteStrategy = WriteStrategy.DIRECT
         var autoFetchEnabled: Boolean = false
         var autoFetchMinutes: Int = 5
@@ -142,7 +142,7 @@ class PluginSettingsService : PersistentStateComponent<PluginSettingsService.Sta
             return RepoConfig(
                 url = settings.remoteRepoUrl,
                 localPath = repoPath,
-                branch = settings.branchName,
+                branch = "",  // auto-detect from origin; branchPrefix is only for PR branch creation
                 libraries = libraries
             )
         }

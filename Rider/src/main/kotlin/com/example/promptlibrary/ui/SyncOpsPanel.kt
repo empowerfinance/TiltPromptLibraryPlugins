@@ -32,7 +32,6 @@ class SyncOpsPanel(
     private val repository: PromptRepository
 ) : JPanel(BorderLayout()) {
     private val logArea = JTextPane()
-    private val settingsLabels = mutableMapOf<String, JLabel>()
     private var branchIndicatorPanel: JPanel? = null
     private var branchLabel: JLabel? = null
     private var returnToMainButton: JButton? = null
@@ -61,10 +60,6 @@ class SyncOpsPanel(
         mainPanel.add(createActionsCard())
         mainPanel.add(Box.createVerticalStrut(12))
 
-        // Settings Display Card
-        mainPanel.add(createSettingsCard())
-        mainPanel.add(Box.createVerticalStrut(12))
-
         // Logs Card (takes remaining space)
         val logsCard = createLogsCard()
 
@@ -84,7 +79,6 @@ class SyncOpsPanel(
         // Register log listener
         SyncLog.addListener(logListener)
         updateLogDisplay()
-        updateSettingsDisplay()
         updateBranchIndicator()
     }
 
@@ -96,14 +90,11 @@ class SyncOpsPanel(
     }
 
     /**
-     * Refresh the panel UI to update branch status and settings.
+     * Refresh the panel UI to update branch status.
      * Can be called from outside after branch changes.
      */
     fun refresh() {
         updateBranchIndicator()
-        SwingUtilities.invokeLater {
-            updateSettingsDisplay()
-        }
     }
 
     private fun getRepoRoot(): File? {
@@ -370,51 +361,6 @@ class SyncOpsPanel(
         }
     }
 
-    private fun createSettingsCard(): JPanel {
-        return createCard("Current Settings") {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-
-            val settings = PluginSettingsService.instance().data
-            val activeLibrary = PluginSettingsService.getActiveLibrary()
-            val enabledLibraries = PluginSettingsService.getEnabledLibraries()
-
-            // Active Library indicator - prominent display
-            val libraryText = if (enabledLibraries.size > 1) {
-                "📚 Active: ${activeLibrary.displayName} (+${enabledLibraries.size - 1} more)"
-            } else {
-                "📚 Active Library: ${activeLibrary.displayName}"
-            }
-            val libraryLabel = JLabel(libraryText).apply {
-                font = font.deriveFont(Font.BOLD, 13f)
-                foreground = JBColor.namedColor("Link.activeForeground", JBColor(0x2470B3, 0x589DF6))
-                alignmentX = Component.LEFT_ALIGNMENT
-                if (enabledLibraries.size > 1) {
-                    toolTipText = "Enabled: ${enabledLibraries.joinToString(", ") { it.displayName }}"
-                }
-            }
-            add(libraryLabel)
-            add(Box.createVerticalStrut(8))
-
-            // Other settings
-            val settingsPanel = JPanel(GridLayout(0, 1, 2, 2)).apply {
-                isOpaque = false
-                alignmentX = Component.LEFT_ALIGNMENT
-            }
-
-            settingsLabels["repoPath"] = JLabel("Repository: ${settings.repoPath.ifEmpty { "(not set)" }}")
-            settingsLabels["promptsSubdir"] = JLabel("Library Path: ${settings.promptsSubdir}")
-            // Note: writeStrategy removed from display - both buttons available below
-
-            settingsLabels.values.forEach { label ->
-                label.font = label.font.deriveFont(12f)
-                label.foreground = JBColor.namedColor("Label.disabledForeground", JBColor.GRAY)
-                settingsPanel.add(label)
-            }
-
-            add(settingsPanel)
-        }
-    }
-
     private fun createLogsCard(): JPanel {
         return createCard("Logs") {
             layout = BorderLayout()
@@ -485,13 +431,6 @@ class SyncOpsPanel(
             // Scroll to bottom
             logArea.caretPosition = logArea.document.length
         }
-    }
-
-    private fun updateSettingsDisplay() {
-        val settings = PluginSettingsService.instance().data
-        settingsLabels["repoPath"]?.text = "repoPath: ${settings.repoPath.ifEmpty { "(not set)" }}"
-        settingsLabels["promptsSubdir"]?.text = "promptsSubdir: ${settings.promptsSubdir}"
-        // Note: writeStrategy removed from display - both buttons available in UI
     }
 
     // Action handlers

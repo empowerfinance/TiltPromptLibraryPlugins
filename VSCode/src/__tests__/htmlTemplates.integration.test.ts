@@ -108,8 +108,6 @@ describe('HTML Templates Integration', () => {
         BANNER: '<div class="banner">Test banner</div>',
         DISABLED: '',
         REPO_PATH: '/test/repo/path',
-        PROMPTS_SUBDIR: 'prompts',
-        WRITE_STRATEGY: 'direct',
       });
 
       // Verify HTML structure
@@ -126,14 +124,10 @@ describe('HTML Templates Integration', () => {
       expect(html).not.toContain('{{NONCE}}');
       expect(html).not.toContain('{{BANNER}}');
       expect(html).not.toContain('{{REPO_PATH}}');
-      expect(html).not.toContain('{{PROMPTS_SUBDIR}}');
-      expect(html).not.toContain('{{WRITE_STRATEGY}}');
 
       // Verify dynamic content was inserted
       expect(html).toContain('Test banner');
       expect(html).toContain('/test/repo/path');
-      expect(html).toContain('prompts');
-      expect(html).toContain('direct');
 
       // Verify key UI elements exist
       expect(html).toContain('id="pullSync"');

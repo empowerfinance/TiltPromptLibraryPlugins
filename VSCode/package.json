@@ -202,24 +202,15 @@
           "order": 1,
           "markdownDescription": "**Local Repository Path** - Path to your prompt library folder. Use the [Setup Wizard](command:promptLibrary.setupRepository) to configure this (clone a repo, select existing folder, or create new)."
         },
-        "promptLibrary.promptsSubdir": {
-          "type": "string",
-          "default": "",
-          "order": 2,
-          "markdownDescription": "**Active Library** - The library folder where new prompts will be saved. This is automatically set when you create a new library."
-        },
         "promptLibrary.hiddenLibraries": {
           "type": "array",
-          "items": {
-            "type": "string"
-          },
           "default": [],
           "markdownDescription": "Libraries to hide from the tree view. [Select libraries to hide](command:promptLibrary.selectHiddenLibraries)"
         },
-        "promptLibrary.branchName": {
+        "promptLibrary.branchPrefix": {
           "type": "string",
           "default": "",
-          "description": "Branch name to use when Write Strategy is 'branchPR'."
+          "description": "Optional prefix for auto-generated branch names (e.g., 'paulg' → 'paulg/prompt-sync/...')."
         },
         "promptLibrary.autoFetch.enabled": {
           "type": "boolean",

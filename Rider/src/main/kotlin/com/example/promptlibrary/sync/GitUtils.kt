@@ -173,11 +173,25 @@ object GitUtils {
 
     /**
      * Generate a unique branch name using the git user name and a random suffix.
-     * Format: prompts/sync/{user-name}-{random6chars}
+     * Format: [prefix/]prompts/sync/{user-name}-{random6chars}
      * Falls back to timestamp if user name is not available.
+     * @param userName Git user name for the branch (optional)
+     * @param prefix Optional prefix to prepend (e.g., 'paulg' → 'paulg/prompts/sync/...')
      */
-    fun generateBranchName(userName: String?): String {
+    fun generateBranchName(userName: String?, prefix: String? = null): String {
         val randomSuffix = java.util.UUID.randomUUID().toString().take(6)
+
+        // Build base path with optional prefix
+        val basePath = if (!prefix.isNullOrBlank()) {
+            val sanitizedPrefix = prefix
+                .lowercase()
+                .replace(Regex("[^a-z0-9-]"), "-")
+                .replace(Regex("-+"), "-")
+                .trim('-')
+            if (sanitizedPrefix.isNotEmpty()) "$sanitizedPrefix/prompts/sync" else "prompts/sync"
+        } else {
+            "prompts/sync"
+        }
 
         if (!userName.isNullOrBlank()) {
             // Sanitize the user name for git branch naming:
@@ -192,14 +206,14 @@ object GitUtils {
                 .trim('-')
 
             if (sanitized.isNotEmpty()) {
-                return "prompts/sync/$sanitized-$randomSuffix"
+                return "$basePath/$sanitized-$randomSuffix"
             }
         }
 
         // Fallback to timestamp if no valid user name
         val timestamp = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmm")
             .format(java.time.LocalDateTime.now())
-        return "prompts/sync/$timestamp-$randomSuffix"
+        return "$basePath/$timestamp-$randomSuffix"
     }
 }
 

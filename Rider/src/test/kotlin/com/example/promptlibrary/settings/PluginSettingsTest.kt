@@ -99,7 +99,7 @@ class PluginSettingsTest {
         assertThat(state.remoteRepoUrl).isEqualTo("")
         assertThat(state.repoPath).isEqualTo("~/PromptLibrary")
         assertThat(state.promptsSubdir).isEqualTo("general") // Changed from "prompts" to "general"
-        assertThat(state.branchName).isEqualTo("")
+        assertThat(state.branchPrefix).isEqualTo("")
         assertThat(state.writeStrategy).isEqualTo(PluginSettingsService.WriteStrategy.DIRECT)
         assertThat(state.autoFetchEnabled).isEqualTo(false)
         assertThat(state.autoFetchMinutes).isEqualTo(5)

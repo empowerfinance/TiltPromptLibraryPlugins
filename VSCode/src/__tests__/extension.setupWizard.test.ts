@@ -91,7 +91,7 @@ describe('Setup Wizard', () => {
       repoPath: '',
       promptsSubdir: 'general',
       hiddenLibraries: [],
-      branchName: '',
+      branchPrefix: '',
       autoFetch: { enabled: false, minutes: 5 }
     });
   });
@@ -223,7 +223,7 @@ describe('syncClonePullImport', () => {
         repoPath: '/existing/repo',
         promptsSubdir: 'general',
         hiddenLibraries: [],
-        branchName: '',
+        branchPrefix: '',
         autoFetch: { enabled: false, minutes: 5 }
       });
 
@@ -253,7 +253,7 @@ describe('syncClonePullImport', () => {
         repoPath: '/existing/repo',
         promptsSubdir: 'general',
         hiddenLibraries: [],
-        branchName: '',
+        branchPrefix: '',
         autoFetch: { enabled: false, minutes: 5 }
       });
 
@@ -270,7 +270,7 @@ describe('syncClonePullImport', () => {
         repoPath: '',
         promptsSubdir: 'general',
         hiddenLibraries: [],
-        branchName: '',
+        branchPrefix: '',
         autoFetch: { enabled: false, minutes: 5 }
       });
 

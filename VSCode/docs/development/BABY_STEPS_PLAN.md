@@ -5,6 +5,7 @@ Objective: Understand the existing Rider Prompt Library plugin and translate it 
 ---
 
 ## 0) What the Rider plugin does (essentials to mirror)
+
 - Tool window with a group tree: Shared and Private namespaces; Private has a pinned Unfiled group; roots show no prompts.
 - Right pane shows prompts for the selected group only.
 - New prompt composer saves into the selected group, defaulting to Private/Unfiled when no group is selected.
@@ -17,6 +18,7 @@ Objective: Understand the existing Rider Prompt Library plugin and translate it 
 ---
 
 ## 1) VS Code architecture mapping
+
 - UI container: contributes.views (activity bar or explorer) with a custom view id (e.g., `promptLibrary`).
 - Group tree: TreeDataProvider to render Shared/Private roots, Unfiled, nested groups, and prompts beneath groups (or keep prompts on right webview—see Phases below). For parity with Rider, prefer groups in a tree and prompts rendered in the same view using a webview or a second tree.
 - Prompt list + composer UI: WebviewView (preferred) embedded as the view content, or use a TreeView for groups and a Webview for the right pane.
@@ -31,6 +33,7 @@ Objective: Understand the existing Rider Prompt Library plugin and translate it 
 ---
 
 ## 2) Data model (parity with Rider)
+
 - Prompt: { id, text, title?, createdAt, updatedAt, tags[], private: boolean } with normalizedText helper.
 - Group: { id, name, kind, description?, tags[], children: Group[], prompts: Prompt[] }.
 - Library: { groups: Group[], privatePrompts: Prompt[] }.
@@ -41,6 +44,7 @@ Objective: Understand the existing Rider Prompt Library plugin and translate it 
 ## 3) Phased baby‑steps plan
 
 ### Phase 1 — Scaffolding and minimal UI
+
 1. Initialize extension
    - Files: package.json, src/extension.ts, basic activate/deactivate, command `promptLibrary.hello`.
    - Contributes: a new view container and a view (sidebar) titled “Prompt Library”.
@@ -56,6 +60,7 @@ Objective: Understand the existing Rider Prompt Library plugin and translate it 
    - Acceptance: groups visible; add/rename/delete updates persist.
 
 ### Phase 2 — Prompt CRUD and list
+
 4. Prompt list UI (webview)
    - Render right‑pane list in a WebviewView: search box, list of prompt cards with copy/edit/delete; expand/collapse per card; Save button enabled only when a group is selected; composer at bottom.
    - Wire message passing (postMessage/from webview) to extension host for repository ops.
@@ -70,6 +75,7 @@ Objective: Understand the existing Rider Prompt Library plugin and translate it 
    - Acceptance: prompt moves and persists.
 
 ### Phase 3 — Import/Export
+
 7. Export JSON (v1 simple array primary)
    - Export scope: selected group or entire library when a root is selected; display in a preview webview with Copy/Save buttons; ensure proper escaping.
    - Acceptance: exported JSON matches selection; copy or save works.
@@ -79,36 +85,44 @@ Objective: Understand the existing Rider Prompt Library plugin and translate it 
    - Acceptance: import count and duplicates skipped are shown; items persist.
 
 ### Phase 4 — Settings and basic Git plumbing
+
 9. Settings page
-   - contributes.configuration: remoteRepoUrl, repoPath, promptsSubdir (default `prompts`), branchName, writeStrategy: direct|branchPR, autoFetchEnabled, autoFetchMinutes.
+   - contributes.configuration: remoteRepoUrl, repoPath, promptsSubdir (default `prompts`), branchPrefix, writeStrategy: direct|branchPR, autoFetchEnabled, autoFetchMinutes.
    - Acceptance: read/write settings via `workspace.getConfiguration`.
 
 10. Git working copy management
-   - If repoPath is set and valid, use it; else if remoteRepoUrl set, clone to `globalStorageUri/repos/<name>`.
-   - Shell out to git (`git clone`, `git pull`, `git checkout -B`, etc.).
-   - Acceptance: clone or open local repo; report errors via message.
+
+- If repoPath is set and valid, use it; else if remoteRepoUrl set, clone to `globalStorageUri/repos/<name>`.
+- Shell out to git (`git clone`, `git pull`, `git checkout -B`, etc.).
+- Acceptance: clone or open local repo; report errors via message.
 
 ### Phase 5 — YAML sync (Shared only)
+
 11. Load from repo into Shared (remote‑wins)
-   - Read YAML tree at `<promptsSubdir>/Group/_group.yaml` and `<promptsSubdir>/Group/prompts/p-*.yaml`; recursively for children.
-   - Replace local Shared with remote; move any local Shared prompts not on remote to Private/Unfiled; show a toast like Rider.
-   - Acceptance: counts and behavior match; Shared replaced correctly.
+
+- Read YAML tree at `<promptsSubdir>/Group/_group.yaml` and `<promptsSubdir>/Group/prompts/p-*.yaml`; recursively for children.
+- Replace local Shared with remote; move any local Shared prompts not on remote to Private/Unfiled; show a toast like Rider.
+- Acceptance: counts and behavior match; Shared replaced correctly.
 
 12. Write YAML + commit & push
-   - Deterministic writes; delete and recreate `<promptsSubdir>` to avoid stale files; commit message summary; direct or branch+PR flow (open compare URL if available).
-   - Acceptance: file diff summary shown; commit/push works or reports no changes.
+
+- Deterministic writes; delete and recreate `<promptsSubdir>` to avoid stale files; commit message summary; direct or branch+PR flow (open compare URL if available).
+- Acceptance: file diff summary shown; commit/push works or reports no changes.
 
 13. Full Sync action
-   - Pull → load YAML → merge remote‑wins → write YAML → commit & push; single command bound to toolbar.
-   - Acceptance: end‑to‑end works with toasts.
+
+- Pull → load YAML → merge remote‑wins → write YAML → commit & push; single command bound to toolbar.
+- Acceptance: end‑to‑end works with toasts.
 
 14. Auto‑fetch scheduler (optional)
-   - If enabled, setInterval to `git fetch` / `git pull --ff-only`; surface status in output/log channel.
-   - Acceptance: periodic fetch with no UI freezes.
+
+- If enabled, setInterval to `git fetch` / `git pull --ff-only`; surface status in output/log channel.
+- Acceptance: periodic fetch with no UI freezes.
 
 ---
 
 ## 4) Parity checks & acceptance criteria
+
 - Sidebar view exists; Shared/Private roots, Unfiled pinning, and non‑prompt roots show no prompts.
 - Prompt composer disabled unless a group is selected; saving into selected group; default to Private/Unfiled as needed.
 - Copy/edit/delete with confirm + undo (optional for MVP – can add later); move to group.
@@ -119,6 +133,7 @@ Objective: Understand the existing Rider Prompt Library plugin and translate it 
 ---
 
 ## 5) Risks/unknowns
+
 - Git API: Leaning on shelling out is simplest; Git extension API can improve UX but adds complexity.
 - Webview vs. Tree-only UI: webview offers richer, Rider‑like cards; Tree‑only version is simpler but less polished.
 - Deterministic YAML: ensure stable ordering and default emission with js-yaml (custom sorting may be required).
@@ -126,12 +141,13 @@ Objective: Understand the existing Rider Prompt Library plugin and translate it 
 ---
 
 ## 6) Out of scope (phase 1)
+
 - Full branch+PR automation across all Git providers; start with direct commit/push.
 - Multi-window or multi-workspace synchronization.
 
 ---
 
 ## 7) Next steps
+
 - Create `VSCode/package.json`, `src/extension.ts`, `src/store.ts`, `src/model.ts`, `media/` for webview assets.
 - Implement Phases 1–2; dogfood with local JSON store before adding Git YAML sync.
-

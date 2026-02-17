@@ -158,11 +158,26 @@ export async function getGitUserName(path: string): Promise<string | null> {
 
 /**
  * Generate a unique branch name using the git user name and a random suffix.
- * Format: prompt-sync/{user-name}-{random6chars}
+ * Format: [prefix/]prompt-sync/{user-name}-{random6chars}
  * Falls back to timestamp if user name is not available.
+ * @param userName - Git user name for the branch (optional)
+ * @param prefix - Optional prefix to prepend (e.g., 'paulg' → 'paulg/prompt-sync/...')
  */
-export function generateBranchName(userName: string | null): string {
+export function generateBranchName(userName: string | null, prefix?: string | null): string {
   const randomSuffix = Math.random().toString(36).substring(2, 8); // 6 random chars
+
+  let basePath = 'prompt-sync';
+  if (prefix && prefix.trim()) {
+    // Sanitize prefix for git branch naming
+    const sanitizedPrefix = prefix
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+    if (sanitizedPrefix) {
+      basePath = `${sanitizedPrefix}/prompt-sync`;
+    }
+  }
 
   if (userName && userName.trim()) {
     // Sanitize the user name for git branch naming:
@@ -177,13 +192,13 @@ export function generateBranchName(userName: string | null): string {
       .replace(/^-|-$/g, '');
 
     if (sanitized) {
-      return `prompt-sync/${sanitized}-${randomSuffix}`;
+      return `${basePath}/${sanitized}-${randomSuffix}`;
     }
   }
 
   // Fallback to timestamp if no valid user name
   const timestamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
-  return `prompt-sync/${timestamp}-${randomSuffix}`;
+  return `${basePath}/${timestamp}-${randomSuffix}`;
 }
 
 export async function clone(baseDir: string, remoteUrl: string, targetDirName?: string): Promise<{ success: boolean; error?: string }> {

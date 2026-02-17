@@ -91,25 +91,17 @@ export const DEFAULT_LIBRARY_NAME = 'general';
 export interface PromptLibrarySettings {
   remoteRepoUrl: string;
   repoPath: string;
-  promptsSubdir: string; // active library folder name for writing, default 'general'
   hiddenLibraries: string[]; // list of library folders to hide (opt-out)
-  branchName: string;
+  branchPrefix: string; // optional prefix for auto-generated branch names
   autoFetch: { enabled: boolean; minutes: number };
 }
 
 /**
  * Gets the current settings from VS Code configuration.
- * Applies migration if needed (e.g., empty promptsSubdir defaults to 'general').
  */
 export function getSettings(): PromptLibrarySettings {
   const cfg = vscode.workspace.getConfiguration('promptLibrary');
   const rawRepoPath = cfg.get<string>('repoPath', '');
-
-  // Get promptsSubdir with fallback to 'general' if empty
-  let promptsSubdir = cfg.get<string>('promptsSubdir', DEFAULT_LIBRARY_NAME);
-  if (!promptsSubdir || promptsSubdir.trim() === '') {
-    promptsSubdir = DEFAULT_LIBRARY_NAME;
-  }
 
   // Get hidden libraries - libraries to exclude from the tree view
   const hiddenLibraries = cfg.get<string[]>('hiddenLibraries', []);
@@ -117,9 +109,8 @@ export function getSettings(): PromptLibrarySettings {
   return {
     remoteRepoUrl: cfg.get<string>('remoteRepoUrl', ''),
     repoPath: rawRepoPath ? expandPath(rawRepoPath) : '',
-    promptsSubdir: promptsSubdir,
     hiddenLibraries: hiddenLibraries,
-    branchName: cfg.get<string>('branchName', ''),
+    branchPrefix: cfg.get<string>('branchPrefix', ''),
     autoFetch: {
       enabled: cfg.get<boolean>('autoFetch.enabled', false),
       minutes: cfg.get<number>('autoFetch.minutes', 5),
@@ -141,7 +132,6 @@ export function getSettings(): PromptLibrarySettings {
  */
 export function getRepoConfig(): RepoConfig {
   const settings = getSettings();
-  const activeLibraryPath = settings.promptsSubdir || DEFAULT_LIBRARY_NAME;
   const hiddenLibrariesSetting = settings.hiddenLibraries || [];
 
   // Auto-discover all libraries from the repository
@@ -154,32 +144,29 @@ export function getRepoConfig(): RepoConfig {
     enabled: !hiddenLibrariesSetting.includes(lib.id)
   }));
 
-  // Note: We no longer add the active library if it doesn't exist on disk.
-  // This prevents phantom libraries from appearing when promptsSubdir points
-  // to a folder that doesn't exist or doesn't have a _library.yaml file.
-  // The active library setting should be updated when the user selects
-  // a different library or when the current one is deleted.
-
   return {
     url: settings.remoteRepoUrl,
     localPath: settings.repoPath,
-    branch: settings.branchName,
+    branch: '', // auto-detect from origin; branchPrefix is only used for PR branch creation
     libraries
   };
 }
 
 /**
- * Gets the currently active library (used for writing).
- * This is the library where new prompts will be saved.
+ * Gets the first enabled library (used as fallback for writing).
+ * In the new architecture, prompts and groups already have libraryId attached,
+ * so this is mainly used when creating new content without a specific library context.
  */
 export function getActiveLibrary(): LibraryConfig {
-  const settings = getSettings();
-  const libraryPath = settings.promptsSubdir || DEFAULT_LIBRARY_NAME;
-
+  const enabledLibraries = getEnabledLibraries();
+  if (enabledLibraries.length > 0) {
+    return enabledLibraries[0];
+  }
+  // Fallback to default library name if no libraries discovered
   return {
-    id: libraryPath,
-    path: libraryPath,
-    displayName: libraryPath, // Display exactly as folder name
+    id: DEFAULT_LIBRARY_NAME,
+    path: DEFAULT_LIBRARY_NAME,
+    displayName: DEFAULT_LIBRARY_NAME,
     enabled: true
   };
 }
@@ -198,14 +185,6 @@ export function getEnabledLibraries(): LibraryConfig[] {
  */
 export function getLibraryPath(repoPath: string, library: LibraryConfig): string {
   return path.join(repoPath, library.path);
-}
-
-/**
- * Sets the active library by updating the promptsSubdir setting.
- */
-export async function setActiveLibrary(libraryPath: string): Promise<void> {
-  const cfg = vscode.workspace.getConfiguration('promptLibrary');
-  await cfg.update('promptsSubdir', libraryPath, vscode.ConfigurationTarget.Global);
 }
 
 /**

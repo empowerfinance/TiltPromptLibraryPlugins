@@ -264,10 +264,12 @@ object WriteStrategyService {
                     return@executeOnPooledThread
                 }
 
-                // STEP 4: Create new branch with user name + random suffix
+                // STEP 4: Create new branch with optional prefix + user name + random suffix
+                val settings = PluginSettingsService.instance().data
                 val userName = GitUtils.getGitUserName(project, repoRoot)
-                val name = GitUtils.generateBranchName(userName)
-                SyncLog.info("Creating branch: $name (user: ${userName ?: "unknown"})")
+                val prefix = settings.branchPrefix.takeIf { it.isNotBlank() }
+                val name = GitUtils.generateBranchName(userName, prefix)
+                SyncLog.info("Creating branch: $name${prefix?.let { " (prefix: $it)" } ?: ""}")
                 val coRes = git.runCommand(GitLineHandler(project, vf, GitCommand.CHECKOUT).apply {
                     addParameters("-b", name)
                     endOptions()

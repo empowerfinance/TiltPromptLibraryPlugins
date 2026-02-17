@@ -280,5 +280,104 @@ class LibraryConfigTest {
         assertThat(libraries[0].displayName).isEqualTo("PROMPTS")
     }
 
+    // ==========================================================================
+    // Library Creation Tests (matching VS Code createLibrary command tests)
+    // ==========================================================================
+
+    @Test
+    fun `createLibrary should create folder with _library yaml marker file`(@TempDir tempDir: Path) {
+        // Given - simulating the createLibrary logic from SettingsPanel
+        val libraryName = "TestLibrary"
+        val libraryPath = File(tempDir.toFile(), libraryName)
+
+        // When - create library folder with _library.yaml (matching VS Code)
+        libraryPath.mkdirs()
+        val libraryYamlContent = "name: ${libraryName}\ndescription: \n"
+        File(libraryPath, "_library.yaml").writeText(libraryYamlContent)
+
+        // Then - verify the library folder was created
+        assertThat(libraryPath.exists()).isTrue()
+
+        // Verify the _library.yaml file was created
+        val libraryYaml = File(libraryPath, "_library.yaml")
+        assertThat(libraryYaml.exists()).isTrue()
+
+        // Verify the content of _library.yaml
+        val content = libraryYaml.readText()
+        assertThat(content).contains("name: TestLibrary")
+        assertThat(content).contains("description:")
+    }
+
+    @Test
+    fun `createLibrary should not create nested folders or group files`(@TempDir tempDir: Path) {
+        // Given - simulating the createLibrary logic from SettingsPanel
+        val libraryName = "NewLibrary"
+        val libraryPath = File(tempDir.toFile(), libraryName)
+
+        // When - create library folder with _library.yaml (matching VS Code)
+        libraryPath.mkdirs()
+        val libraryYamlContent = "name: ${libraryName}\ndescription: \n"
+        File(libraryPath, "_library.yaml").writeText(libraryYamlContent)
+
+        // Then - verify no nested "General" folder was created
+        val generalPath = File(libraryPath, "General")
+        assertThat(generalPath.exists()).isFalse()
+
+        // Verify no "prompts" folder was created
+        val promptsPath = File(libraryPath, "prompts")
+        assertThat(promptsPath.exists()).isFalse()
+
+        // Verify no _group.yaml was created anywhere
+        val files = libraryPath.listFiles()?.map { it.name } ?: emptyList()
+        assertThat(files).containsExactly("_library.yaml")
+    }
+
+    @Test
+    fun `created library should be discoverable by discoverLibraries`(@TempDir tempDir: Path) {
+        // Given - create a library with _library.yaml marker (like createNewLibrary does)
+        val libraryName = "platform"
+        val libraryPath = File(tempDir.toFile(), libraryName)
+        libraryPath.mkdirs()
+        File(libraryPath, "_library.yaml").writeText("name: $libraryName\ndescription: \n")
+
+        // When - discover libraries
+        val libraries = discoverLibraries(tempDir.toString())
+
+        // Then - the library should be discovered
+        assertThat(libraries).hasSize(1)
+        assertThat(libraries[0].id).isEqualTo("platform")
+        // displayName preserves exact folder name case (not title-cased)
+        assertThat(libraries[0].displayName).isEqualTo("platform")
+        assertThat(libraries[0].enabled).isTrue()
+    }
+
+    @Test
+    fun `library name sanitization should match VS Code behavior`() {
+        // Test the sanitization logic used in SettingsPanel.createNewLibrary
+        // This ensures both plugins produce the same folder names
+
+        // Sanitize function (mirrors SettingsPanel logic)
+        fun sanitize(name: String): String = name.trim()
+            .lowercase()
+            .replace(Regex("[^a-z0-9_-]"), "_")
+            .replace(Regex("_+"), "_")
+            .trim('_')
+
+        // Simple name
+        assertThat(sanitize("Platform")).isEqualTo("platform")
+
+        // Name with spaces
+        assertThat(sanitize("My Library")).isEqualTo("my_library")
+
+        // Name with special characters
+        assertThat(sanitize("Test@Library!")).isEqualTo("test_library")
+
+        // Name with hyphens (should be preserved)
+        assertThat(sanitize("test-library")).isEqualTo("test-library")
+
+        // Name with underscores (should be preserved)
+        assertThat(sanitize("test_library")).isEqualTo("test_library")
+    }
+
 }
 

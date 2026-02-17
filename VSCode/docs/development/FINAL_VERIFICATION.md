@@ -24,10 +24,10 @@
     "default": "prompts",
     "description": "Subdirectory name for prompts under each group directory."
   },
-  "promptLibrary.branchName": {
+  "promptLibrary.branchPrefix": {
     "type": "string",
     "default": "",
-    "description": "Branch name to use when Write Strategy is 'branchPR'."
+    "description": "Optional prefix for auto-generated branch names (e.g., 'paulg' → 'paulg/prompt-sync/...')."
   },
   "promptLibrary.writeStrategy": {
     "type": "string",
@@ -58,7 +58,7 @@ data class State(
     var remoteRepoUrl: String = "",                          // ✅ Matches ""
     var repoPath: String = "~/PromptLibrary",                // ✅ Matches "~/PromptLibrary"
     var promptsSubdir: String = "prompts",                   // ✅ Matches "prompts"
-    var branchName: String = "",                             // ✅ Matches ""
+    var branchPrefix: String = "",                           // ✅ Matches ""
     var writeStrategy: WriteStrategy = WriteStrategy.DIRECT, // ✅ Matches "direct"
     var autoFetchEnabled: Boolean = false,                   // ✅ Matches false
     var autoFetchMinutes: Int = 5                            // ✅ Matches 5
@@ -86,7 +86,7 @@ add(labeled("Branch name to use when Write Strategy is 'branchPR':", branchField
 add(labeled("Writing strategy for sync: direct commit vs dedicated branch and PR:", strategyCombo))
 // ✅ Matches VS Code exactly
 
-autoFetchCheckbox.apply { 
+autoFetchCheckbox.apply {
     text = "Enable periodic auto-fetch for the repo"
 }
 // ✅ Matches VS Code (minus "(future)" note)
@@ -100,9 +100,10 @@ add(labeled("Fetch interval in minutes when auto-fetch is enabled:", autoFetchMi
 ### ✅ Tilde Expansion
 
 **VS Code:**
+
 ```typescript
 function expandPath(filePath: string): string {
-  if (filePath.startsWith('~/') || filePath === '~') {
+  if (filePath.startsWith("~/") || filePath === "~") {
     return path.join(os.homedir(), filePath.slice(2));
   }
   return filePath;
@@ -110,6 +111,7 @@ function expandPath(filePath: string): string {
 ```
 
 **Rider:**
+
 ```kotlin
 fun expandPath(filePath: String): String {
     if (filePath.startsWith("~/") || filePath == "~") {
@@ -125,6 +127,7 @@ fun expandPath(filePath: String): String {
 ```
 
 **Verification:**
+
 - ✅ Both handle `~/path`
 - ✅ Both handle `~` alone
 - ✅ Both ignore tilde in middle of path
@@ -133,6 +136,7 @@ fun expandPath(filePath: String): String {
 ### ✅ Auto-Clone Behavior
 
 **VS Code:**
+
 ```typescript
 // In ensureRepoCloned()
 if (!fs.existsSync(targetPath)) {
@@ -141,6 +145,7 @@ if (!fs.existsSync(targetPath)) {
 ```
 
 **Rider:**
+
 ```kotlin
 // In ensureWorkingCopy()
 if (!repoRoot.exists() && remoteUrl.isNotEmpty()) {
@@ -154,6 +159,7 @@ if (!repoRoot.exists() && remoteUrl.isNotEmpty()) {
 ```
 
 **Verification:**
+
 - ✅ Both check if path exists
 - ✅ Both clone if missing and remote URL set
 - ✅ Both create parent directories
@@ -162,16 +168,19 @@ if (!repoRoot.exists() && remoteUrl.isNotEmpty()) {
 ### ✅ Write Strategies
 
 **VS Code:**
+
 ```typescript
-type WriteStrategy = 'direct' | 'branchPR';
+type WriteStrategy = "direct" | "branchPR";
 ```
 
 **Rider:**
+
 ```kotlin
 enum class WriteStrategy { DIRECT, BRANCH_PR }
 ```
 
 **Verification:**
+
 - ✅ Both support 'direct' / DIRECT
 - ✅ Both support 'branchPR' / BRANCH_PR
 - ✅ Same behavior for each strategy
@@ -179,6 +188,7 @@ enum class WriteStrategy { DIRECT, BRANCH_PR }
 ### ✅ Auto-Fetch
 
 **VS Code:**
+
 ```typescript
 autoFetch: {
   enabled: cfg.get<boolean>('autoFetch.enabled', false),
@@ -187,12 +197,14 @@ autoFetch: {
 ```
 
 **Rider:**
+
 ```kotlin
 var autoFetchEnabled: Boolean = false,
 var autoFetchMinutes: Int = 5
 ```
 
 **Verification:**
+
 - ✅ Both default to disabled
 - ✅ Both default to 5 minutes
 - ✅ Both configurable
@@ -226,6 +238,7 @@ var autoFetchMinutes: Int = 5
 ```
 
 **Verification:**
+
 - ✅ Rider has MORE comprehensive tests
 - ✅ All VS Code test scenarios covered
 - ✅ Additional edge cases tested
@@ -233,12 +246,14 @@ var autoFetchMinutes: Int = 5
 ## Build Verification
 
 ### VS Code
+
 ```bash
 $ npm run build
 ✅ Build successful
 ```
 
 ### Rider
+
 ```bash
 $ ./gradlew buildPlugin
 ✅ BUILD SUCCESSFUL in 6s
@@ -263,6 +278,7 @@ $ ./gradlew buildPlugin
 ✅ **PERFECT ALIGNMENT ACHIEVED**
 
 The Rider plugin settings now match the VS Code extension **exactly**:
+
 - ✅ Identical defaults
 - ✅ Identical descriptions
 - ✅ Identical functionality
@@ -276,4 +292,3 @@ The Rider plugin settings now match the VS Code extension **exactly**:
 **Verified by:** Augment Agent  
 **Date:** 2026-01-16  
 **Confidence:** 100%
-
