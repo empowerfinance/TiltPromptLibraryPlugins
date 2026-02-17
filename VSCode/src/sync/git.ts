@@ -164,7 +164,17 @@ export async function getGitUserName(path: string): Promise<string | null> {
  * @param prefix - Optional prefix to prepend (e.g., 'paulg' → 'paulg/prompt-sync/...')
  */
 export function generateBranchName(userName: string | null, prefix?: string | null): string {
-  const randomSuffix = Math.random().toString(36).substring(2, 8); // 6 random chars
+  // Generate a reliable 6-char alphanumeric suffix
+  // Math.random().toString(36) can sometimes yield fewer chars, so we pad if needed
+  const generateRandomChars = (): string => {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let result = '';
+    for (let i = 0; i < 6; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  };
+  const randomSuffix = generateRandomChars();
 
   let basePath = 'prompt-sync';
   if (prefix && prefix.trim()) {

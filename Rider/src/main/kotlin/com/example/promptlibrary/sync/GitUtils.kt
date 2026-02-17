@@ -164,8 +164,9 @@ object GitUtils {
         val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(repoRoot) ?: return null
         val git = Git.getInstance()
         val handler = GitLineHandler(project, vf, GitCommand.CONFIG).apply {
-            addParameters("user.name")
-            endOptions()
+            addParameters("--get", "user.name")
+            // Note: Don't use endOptions() here as it appends '--' which can be
+            // misinterpreted as a value for git config, potentially modifying the setting
         }
         val result = git.runCommand(handler)
         return if (result.success()) result.outputAsJoinedString.trim().ifEmpty { null } else null
