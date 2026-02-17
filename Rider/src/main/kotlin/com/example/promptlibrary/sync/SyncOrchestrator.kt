@@ -28,9 +28,10 @@ object SyncOrchestrator {
 
         // Get all enabled libraries for multi-library support
         val enabledLibraries = PluginSettingsService.getEnabledLibraries()
-        val repoPath = PluginSettingsService.getEffectiveRepoPath()
         val libraryNames = enabledLibraries.joinToString(", ") { it.displayName }
         SyncLog.info("Enabled libraries: $libraryNames")
+        // Use rootDir (the ensured working copy) instead of getEffectiveRepoPath() to avoid empty path issues
+        // when syncing via remoteRepoUrl only (where getEffectiveRepoPath() returns "")
 
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Prompt Library: Sync", false) {
             override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
@@ -46,7 +47,8 @@ object SyncOrchestrator {
                     SyncLog.info("Loading remote YAML from ${enabledLibraries.size} libraries...")
 
                     // Load from all enabled libraries (like forcePull does)
-                    val libraryGroupsMap = GitYamlLoader.loadFromLibraries(File(repoPath), enabledLibraries)
+                    // Use rootDir which is the ensured working copy (handles temp clones correctly)
+                    val libraryGroupsMap = GitYamlLoader.loadFromLibraries(rootDir, enabledLibraries)
 
                     // Merge all groups with library metadata
                     val allRemoteGroups = mutableListOf<Group>()
@@ -64,7 +66,7 @@ object SyncOrchestrator {
 
                     // Partition groups by libraryId and write to each library
                     val libraryGroups = partitionGroupsByLibrary(mergedShared)
-                    val results = GitYamlWriter.writeToLibraries(File(repoPath), libraryGroups, enabledLibraries)
+                    val results = GitYamlWriter.writeToLibraries(rootDir, libraryGroups, enabledLibraries)
 
                     // Aggregate results for logging
                     var totalAdded = 0
@@ -112,13 +114,11 @@ object SyncOrchestrator {
             SyncLog.error("No working copy available")
             return
         }
-        val settings = PluginSettingsService.instance().data
-
         // Get all enabled libraries for multi-library support
         val enabledLibraries = PluginSettingsService.getEnabledLibraries()
-        val repoPath = PluginSettingsService.getEffectiveRepoPath()
         val libraryNames = enabledLibraries.joinToString(", ") { it.displayName }
         SyncLog.info("Enabled libraries: $libraryNames")
+        // Use rootDir (the ensured working copy) instead of getEffectiveRepoPath() to avoid empty path issues
 
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Prompt Library: Force Pull", false) {
             override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
@@ -142,8 +142,8 @@ object SyncOrchestrator {
                     indicator.text = "Loading YAML from ${enabledLibraries.size} libraries..."
                     SyncLog.info("Loading YAML from ${enabledLibraries.size} libraries...")
 
-                    // Load from all enabled libraries
-                    val libraryGroupsMap = GitYamlLoader.loadFromLibraries(File(repoPath), enabledLibraries)
+                    // Load from all enabled libraries (use rootDir which is the ensured working copy)
+                    val libraryGroupsMap = GitYamlLoader.loadFromLibraries(rootDir, enabledLibraries)
 
                     // Merge all groups with library metadata
                     val allGroups = mutableListOf<Group>()
@@ -181,11 +181,18 @@ object SyncOrchestrator {
     /**
      * Partitions groups by their libraryId.
      * Returns a map from libraryId to the list of groups belonging to that library.
-     * Groups without a libraryId are skipped.
+     * Groups without a libraryId are skipped (with a warning logged).
      */
     private fun partitionGroupsByLibrary(groups: List<Group>): Map<String, List<Group>> {
-        return groups.filter { it.libraryId != null }
-            .groupBy { it.libraryId!! }
+        val (withLibraryId, withoutLibraryId) = groups.partition { it.libraryId != null }
+        if (withoutLibraryId.isNotEmpty()) {
+            // Log warning for groups without libraryId - these won't be written anywhere
+            // This shouldn't happen in normal operation since all shared groups are tagged with libraryId when loaded
+            val names = withoutLibraryId.take(5).joinToString(", ") { it.name }
+            val suffix = if (withoutLibraryId.size > 5) " and ${withoutLibraryId.size - 5} more" else ""
+            SyncLog.warn("Skipping ${withoutLibraryId.size} group(s) without libraryId: $names$suffix")
+        }
+        return withLibraryId.groupBy { it.libraryId!! }
     }
 
     private fun collectPromptsById(groups: List<Group>): Map<String, Prompt> {

@@ -30,11 +30,17 @@ object WriteStrategyService {
     /**
      * Partitions groups by their libraryId.
      * Returns a map from libraryId to the list of groups belonging to that library.
-     * Groups without a libraryId are skipped.
+     * Groups without a libraryId are skipped (with a warning logged).
      */
     private fun partitionGroupsByLibrary(groups: List<com.example.promptlibrary.model.Group>): Map<String, List<com.example.promptlibrary.model.Group>> {
-        return groups.filter { it.libraryId != null }
-            .groupBy { it.libraryId!! }
+        val (withLibraryId, withoutLibraryId) = groups.partition { it.libraryId != null }
+        if (withoutLibraryId.isNotEmpty()) {
+            // Log warning for groups without libraryId - these won't be written anywhere
+            val names = withoutLibraryId.take(5).joinToString(", ") { it.name }
+            val suffix = if (withoutLibraryId.size > 5) " and ${withoutLibraryId.size - 5} more" else ""
+            SyncLog.warn("Skipping ${withoutLibraryId.size} group(s) without libraryId: $names$suffix")
+        }
+        return withLibraryId.groupBy { it.libraryId!! }
     }
 
     // Public entry for SyncOrchestrator: assume files are already written; just commit/push

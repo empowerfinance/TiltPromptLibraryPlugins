@@ -19,17 +19,28 @@ import * as fs from 'fs';
 
 /**
  * Partitions groups by their libraryId.
- * Groups without a libraryId are skipped (they shouldn't be written to shared libraries).
+ * Groups without a libraryId are skipped (with a warning logged).
  */
 function partitionGroupsByLibrary(groups: Group[]): Map<string, Group[]> {
   const result = new Map<string, Group[]>();
+  const withoutLibraryId: Group[] = [];
   for (const group of groups) {
     const libId = group.libraryId;
-    if (!libId) continue; // Skip groups without libraryId
+    if (!libId) {
+      withoutLibraryId.push(group);
+      continue;
+    }
     if (!result.has(libId)) {
       result.set(libId, []);
     }
     result.get(libId)!.push(group);
+  }
+  // Log warning for groups without libraryId - these won't be written anywhere
+  // This shouldn't happen in normal operation since all shared groups are tagged with libraryId when loaded
+  if (withoutLibraryId.length > 0) {
+    const names = withoutLibraryId.slice(0, 5).map(g => g.name).join(', ');
+    const suffix = withoutLibraryId.length > 5 ? ` and ${withoutLibraryId.length - 5} more` : '';
+    log.warn(`Skipping ${withoutLibraryId.length} group(s) without libraryId: ${names}${suffix}`);
   }
   return result;
 }
