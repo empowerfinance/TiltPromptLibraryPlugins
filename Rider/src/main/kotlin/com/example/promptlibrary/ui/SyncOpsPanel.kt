@@ -234,7 +234,7 @@ class SyncOpsPanel(
                     ActionButton("Pull & Sync", true) { pullAndSync() },
                     ActionButton("Force Pull & Sync", false) { forcePullAndSync() }
                 ),
-                "Pull latest changes from GitHub and sync to your local library. Use \"Force\" to discard any local changes."
+                "<html><b>Pull & Sync:</b> Pulls remote changes and merges with local (local-only prompts move to Private).<br/><b>Force Pull & Sync:</b> Discards ALL local changes and resets to match GitHub exactly.</html>"
             ))
             
             add(Box.createVerticalStrut(12))

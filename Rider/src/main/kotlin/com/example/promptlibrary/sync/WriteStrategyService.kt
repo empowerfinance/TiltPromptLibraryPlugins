@@ -17,11 +17,24 @@ object WriteStrategyService {
     // Public entry: rewrite files from repository first, then commit/push
     fun write(project: Project, repository: PromptRepository) {
         val repoRoot = workingCopy(project) ?: return
-        val settings = PluginSettingsService.instance().data
-        val yamlRoot = File(repoRoot, settings.promptsSubdir)
         val shared = repository.getSharedGroups()
-        GitYamlWriter.writeSharedGroups(yamlRoot, shared)
+
+        // Partition groups by libraryId and write to each library
+        val enabledLibraries = PluginSettingsService.getEnabledLibraries()
+        val libraryGroups = partitionGroupsByLibrary(shared)
+        GitYamlWriter.writeToLibraries(repoRoot, libraryGroups, enabledLibraries)
+
         commitUsingStrategy(project, repoRoot)
+    }
+
+    /**
+     * Partitions groups by their libraryId.
+     * Returns a map from libraryId to the list of groups belonging to that library.
+     * Groups without a libraryId are skipped.
+     */
+    private fun partitionGroupsByLibrary(groups: List<com.example.promptlibrary.model.Group>): Map<String, List<com.example.promptlibrary.model.Group>> {
+        return groups.filter { it.libraryId != null }
+            .groupBy { it.libraryId!! }
     }
 
     // Public entry for SyncOrchestrator: assume files are already written; just commit/push

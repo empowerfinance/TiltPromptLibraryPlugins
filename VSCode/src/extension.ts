@@ -3,8 +3,8 @@ import * as vscode from 'vscode';
 import { LibraryStore } from './store';
 import { GroupsProvider, GroupItem, PromptItem } from './groups';
 import { Prompt, Group } from './model';
-import { getSettings, getActiveLibrary, getLibraryPath, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries, setRemoteRepoUrl, setRepoPath } from './settings';
-import { writeSharedGroups, writeToLibrary } from './sync/yamlWriter';
+import { getSettings, getLibraryPath, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries, setRemoteRepoUrl, setRepoPath } from './settings';
+import { writeSharedGroups, writeToLibrary, writeToLibraries, WriteResult } from './sync/yamlWriter';
 import { log } from './log';
 import { checkoutNewBranch, checkoutBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, getGitVersion, smartPull, getGitUserName, generateBranchName } from './sync/hybridGit';
 import { tryBuildGithubCompareUrl, fetch as gitFetch, clone as gitClone, resetHardToRemote, cleanUntracked } from './sync/git';
@@ -17,6 +17,22 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 
+/**
+ * Partitions groups by their libraryId.
+ * Groups without a libraryId are skipped (they shouldn't be written to shared libraries).
+ */
+function partitionGroupsByLibrary(groups: Group[]): Map<string, Group[]> {
+  const result = new Map<string, Group[]>();
+  for (const group of groups) {
+    const libId = group.libraryId;
+    if (!libId) continue; // Skip groups without libraryId
+    if (!result.has(libId)) {
+      result.set(libId, []);
+    }
+    result.get(libId)!.push(group);
+  }
+  return result;
+}
 
 class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'promptLibraryView';
@@ -1163,15 +1179,22 @@ export function activate(context: vscode.ExtensionContext) {
         const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
         if (!sharedRoot) { vscode.window.showWarningMessage('Shared root not found'); log.warn('Shared root not found'); return; }
 
-        // Use library-aware writing: write to library folder (promptsSubdir)
-        const activeLibrary = getActiveLibrary();
-        const libraryPath = getLibraryPath(cfg.repoPath, activeLibrary);
-        log.info(`Writing to library: ${activeLibrary.displayName} at ${libraryPath}`);
+        // Partition by libraryId and write each to its library
+        const enabledLibraries = getEnabledLibraries();
+        const libraryGroups = partitionGroupsByLibrary(sharedRoot.children);
+        log.info(`Writing to ${libraryGroups.size} libraries: ${[...libraryGroups.keys()].join(', ')}`);
 
-        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children);
+        const results = await writeToLibraries(cfg.repoPath, libraryGroups, enabledLibraries);
+        let totalAdded = 0, totalUpdated = 0, totalDeleted = 0;
+        for (const [libId, result] of results) {
+          log.info(`  ${libId}: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
+          totalAdded += result.added;
+          totalUpdated += result.updated;
+          totalDeleted += result.deleted;
+        }
         const ms = Date.now() - started;
-        vscode.window.showInformationMessage(`Sync write complete. Added ${result.added}, updated ${result.updated}, deleted ${result.deleted}.`);
-        log.info(`Sync write complete in ${ms}ms. Added ${result.added}, updated ${result.updated}, deleted ${result.deleted}.`);
+        vscode.window.showInformationMessage(`Sync write complete. Added ${totalAdded}, updated ${totalUpdated}, deleted ${totalDeleted}.`);
+        log.info(`Sync write complete in ${ms}ms. Added ${totalAdded}, updated ${totalUpdated}, deleted=${totalDeleted}.`);
       } catch (e: any) {
         log.error(`Sync write failed: ${e?.message || e}`);
         vscode.window.showWarningMessage('Sync write failed. See Sync Status for details.');
@@ -1315,18 +1338,25 @@ export function activate(context: vscode.ExtensionContext) {
         }
         log.info(`Found shared root with ${sharedRoot.children.length} children`);
 
-        // Use library-aware writing: write to library folder (promptsSubdir)
-        const activeLibrary = getActiveLibrary();
-        const libraryPath = getLibraryPath(repoPath, activeLibrary);
-        log.info(`Writing to library: ${activeLibrary.displayName} at ${libraryPath}`);
+        // STEP 2: Write YAML files - partition by libraryId and write each to its library
+        const enabledLibraries = getEnabledLibraries();
+        const libraryGroups = partitionGroupsByLibrary(sharedRoot.children);
+        log.info(`Writing to ${libraryGroups.size} libraries: ${[...libraryGroups.keys()].join(', ')}`);
 
-        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children);
-        log.info(`Write result: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
+        const results = await writeToLibraries(repoPath, libraryGroups, enabledLibraries);
+        let totalAdded = 0, totalUpdated = 0, totalDeleted = 0;
+        for (const [libId, result] of results) {
+          log.info(`  ${libId}: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
+          totalAdded += result.added;
+          totalUpdated += result.updated;
+          totalDeleted += result.deleted;
+        }
+        log.info(`Total write result: added=${totalAdded}, updated=${totalUpdated}, deleted=${totalDeleted}`);
 
         // STEP 3: Stage and commit
         await stageAll(repoPath);
         log.info('Staged all changes');
-        const msg = `Prompt Library sync: +${result.added}/~${result.updated}/-${result.deleted}`;
+        const msg = `Prompt Library sync: +${totalAdded}/~${totalUpdated}/-${totalDeleted}`;
         log.info(`Committing with message: ${msg}`);
         const commitResult = await gitCommit(repoPath, msg);
         log.info(`Commit result: success=${commitResult.success}, nothingToCommit=${commitResult.nothingToCommit}`);
@@ -1444,16 +1474,24 @@ export function activate(context: vscode.ExtensionContext) {
         }
         log.info(`Found shared root with ${sharedRoot.children.length} children`);
 
-        // Use library-aware writing: write to library folder (promptsSubdir)
-        const activeLibrary = getActiveLibrary();
-        const libraryPath = getLibraryPath(repoPath, activeLibrary);
-        log.info(`Writing to library: ${activeLibrary.displayName} at ${libraryPath}`);
+        // STEP 3: Write YAML - partition by libraryId and write each to its library
+        const enabledLibraries = getEnabledLibraries();
+        const libraryGroups = partitionGroupsByLibrary(sharedRoot.children);
+        log.info(`Writing to ${libraryGroups.size} libraries: ${[...libraryGroups.keys()].join(', ')}`);
 
-        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children);
-        log.info(`Write result: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
+        const results = await writeToLibraries(repoPath, libraryGroups, enabledLibraries);
+        let totalAdded = 0, totalUpdated = 0, totalDeleted = 0;
+        for (const [libId, result] of results) {
+          log.info(`  ${libId}: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
+          totalAdded += result.added;
+          totalUpdated += result.updated;
+          totalDeleted += result.deleted;
+        }
+        log.info(`Total write result: added=${totalAdded}, updated=${totalUpdated}, deleted=${totalDeleted}`);
+
         await stageAll(repoPath);
         log.info('Staged all changes');
-        const msg = `Prompt Library sync (PR): +${result.added}/~${result.updated}/-${result.deleted}`;
+        const msg = `Prompt Library sync (PR): +${totalAdded}/~${totalUpdated}/-${totalDeleted}`;
         log.info(`Committing with message: ${msg}`);
         const commitResult = await gitCommit(repoPath, msg);
         log.info(`Commit result: success=${commitResult.success}, nothingToCommit=${commitResult.nothingToCommit}`);

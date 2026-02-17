@@ -25,11 +25,12 @@ object SyncOrchestrator {
             SyncLog.error("No working copy available")
             return
         }
-        val settings = PluginSettingsService.instance().data
 
-        // Get the active library for multi-library support
-        val activeLibrary = PluginSettingsService.getActiveLibrary()
-        val libraryPath = PluginSettingsService.getActiveLibraryPath()
+        // Get all enabled libraries for multi-library support
+        val enabledLibraries = PluginSettingsService.getEnabledLibraries()
+        val repoPath = PluginSettingsService.getEffectiveRepoPath()
+        val libraryNames = enabledLibraries.joinToString(", ") { it.displayName }
+        SyncLog.info("Enabled libraries: $libraryNames")
 
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Prompt Library: Sync", false) {
             override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
@@ -41,18 +42,41 @@ object SyncOrchestrator {
                     SyncLog.info("Pulling latest from remote...")
                     GitPullService.pull(project, rootDir, null)  // Auto-detect branch from remote
 
-                    indicator.text = "Loading remote YAML..."
-                    SyncLog.info("Loading remote YAML from library: ${activeLibrary.displayName} at $libraryPath")
-                    val remoteShared = GitYamlLoader.loadFromRoot(File(libraryPath))
+                    indicator.text = "Loading remote YAML from ${enabledLibraries.size} libraries..."
+                    SyncLog.info("Loading remote YAML from ${enabledLibraries.size} libraries...")
+
+                    // Load from all enabled libraries (like forcePull does)
+                    val libraryGroupsMap = GitYamlLoader.loadFromLibraries(File(repoPath), enabledLibraries)
+
+                    // Merge all groups with library metadata
+                    val allRemoteGroups = mutableListOf<Group>()
+                    for ((libraryId, groups) in libraryGroupsMap) {
+                        val groupsWithMetadata = groups.map { g -> addLibraryMetadata(g, libraryId) }
+                        allRemoteGroups.addAll(groupsWithMetadata)
+                    }
 
                     indicator.text = "Merging... (remote wins)"
                     SyncLog.info("Merging (remote wins)...")
-                    val (mergedShared, keptLocal) = mergeRemoteWins(remoteShared, repo)
+                    val (mergedShared, keptLocal) = mergeRemoteWins(allRemoteGroups, repo)
 
-                    indicator.text = "Writing YAML..."
-                    SyncLog.info("Writing YAML files to library: ${activeLibrary.displayName}")
-                    val (added, updated, deleted) = GitYamlWriter.writeSharedGroups(File(libraryPath), mergedShared)
-                    val changeMsg = "Shared changes: +${added} ~${updated} -${deleted}"
+                    indicator.text = "Writing YAML to ${enabledLibraries.size} libraries..."
+                    SyncLog.info("Writing YAML files to ${enabledLibraries.size} libraries...")
+
+                    // Partition groups by libraryId and write to each library
+                    val libraryGroups = partitionGroupsByLibrary(mergedShared)
+                    val results = GitYamlWriter.writeToLibraries(File(repoPath), libraryGroups, enabledLibraries)
+
+                    // Aggregate results for logging
+                    var totalAdded = 0
+                    var totalUpdated = 0
+                    var totalDeleted = 0
+                    for ((libId, result) in results) {
+                        totalAdded += result.first
+                        totalUpdated += result.second
+                        totalDeleted += result.third
+                        SyncLog.info("Library '$libId': +${result.first} ~${result.second} -${result.third}")
+                    }
+                    val changeMsg = "Shared changes: +${totalAdded} ~${totalUpdated} -${totalDeleted}"
                     SyncLog.info(changeMsg)
                     Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", changeMsg, NotificationType.INFORMATION))
 
@@ -152,6 +176,16 @@ object SyncOrchestrator {
                 }
             }
         })
+    }
+
+    /**
+     * Partitions groups by their libraryId.
+     * Returns a map from libraryId to the list of groups belonging to that library.
+     * Groups without a libraryId are skipped.
+     */
+    private fun partitionGroupsByLibrary(groups: List<Group>): Map<String, List<Group>> {
+        return groups.filter { it.libraryId != null }
+            .groupBy { it.libraryId!! }
     }
 
     private fun collectPromptsById(groups: List<Group>): Map<String, Prompt> {
