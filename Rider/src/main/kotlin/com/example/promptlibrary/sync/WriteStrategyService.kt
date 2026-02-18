@@ -17,11 +17,30 @@ object WriteStrategyService {
     // Public entry: rewrite files from repository first, then commit/push
     fun write(project: Project, repository: PromptRepository) {
         val repoRoot = workingCopy(project) ?: return
-        val settings = PluginSettingsService.instance().data
-        val yamlRoot = File(repoRoot, settings.promptsSubdir)
         val shared = repository.getSharedGroups()
-        GitYamlWriter.writeSharedGroups(yamlRoot, shared)
+
+        // Partition groups by libraryId and write to each library
+        val enabledLibraries = PluginSettingsService.getEnabledLibraries()
+        val libraryGroups = partitionGroupsByLibrary(shared)
+        GitYamlWriter.writeToLibraries(repoRoot, libraryGroups, enabledLibraries)
+
         commitUsingStrategy(project, repoRoot)
+    }
+
+    /**
+     * Partitions groups by their libraryId.
+     * Returns a map from libraryId to the list of groups belonging to that library.
+     * Groups without a libraryId are skipped (with a warning logged).
+     */
+    private fun partitionGroupsByLibrary(groups: List<com.example.promptlibrary.model.Group>): Map<String, List<com.example.promptlibrary.model.Group>> {
+        val (withLibraryId, withoutLibraryId) = groups.partition { it.libraryId != null }
+        if (withoutLibraryId.isNotEmpty()) {
+            // Log warning for groups without libraryId - these won't be written anywhere
+            val names = withoutLibraryId.take(5).joinToString(", ") { it.name }
+            val suffix = if (withoutLibraryId.size > 5) " and ${withoutLibraryId.size - 5} more" else ""
+            SyncLog.warn("Skipping ${withoutLibraryId.size} group(s) without libraryId: $names$suffix")
+        }
+        return withLibraryId.groupBy { it.libraryId!! }
     }
 
     // Public entry for SyncOrchestrator: assume files are already written; just commit/push

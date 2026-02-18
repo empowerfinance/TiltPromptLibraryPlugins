@@ -220,8 +220,17 @@ Thumbs.db
     ): Map<String, Triple<Int, Int, Int>> {
         val results = mutableMapOf<String, Triple<Int, Int, Int>>()
 
+        // Only write to libraries that are represented in libraryGroups
+        // This prevents accidentally wiping libraries that:
+        // 1. Failed to load (and thus aren't in libraryGroups)
+        // 2. Have groups without libraryId (which are skipped during partitioning)
+        // 3. Are enabled but have no content in the current sync
         for (library in libraries.filter { it.enabled }) {
-            val groups = libraryGroups[library.id] ?: emptyList()
+            if (!libraryGroups.containsKey(library.id)) {
+                // Skip libraries not in libraryGroups to avoid wiping their content
+                continue
+            }
+            val groups = libraryGroups[library.id]!!
             try {
                 val result = writeToLibrary(repoRoot, library, groups)
                 results[library.id] = result

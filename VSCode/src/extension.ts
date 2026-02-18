@@ -3,8 +3,8 @@ import * as vscode from 'vscode';
 import { LibraryStore } from './store';
 import { GroupsProvider, GroupItem, PromptItem } from './groups';
 import { Prompt, Group } from './model';
-import { getSettings, getActiveLibrary, getLibraryPath, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries, setRemoteRepoUrl, setRepoPath } from './settings';
-import { writeSharedGroups, writeToLibrary } from './sync/yamlWriter';
+import { getSettings, getLibraryPath, discoverLibraries, onSettingsChanged, getHiddenLibraryPaths, setHiddenLibraries, getEnabledLibraries, showAllLibraries, hideAllLibraries, setRemoteRepoUrl, setRepoPath } from './settings';
+import { writeSharedGroups, writeToLibrary, writeToLibraries, WriteResult } from './sync/yamlWriter';
 import { log } from './log';
 import { checkoutNewBranch, checkoutBranch, commit as gitCommit, getCurrentBranch, getRemoteUrl, isGitRepo, push as gitPush, stageAll, getGitVersion, smartPull, getGitUserName, generateBranchName } from './sync/hybridGit';
 import { tryBuildGithubCompareUrl, fetch as gitFetch, clone as gitClone, resetHardToRemote, cleanUntracked } from './sync/git';
@@ -17,6 +17,33 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 
+/**
+ * Partitions groups by their libraryId.
+ * Groups without a libraryId are skipped (with a warning logged).
+ */
+function partitionGroupsByLibrary(groups: Group[]): Map<string, Group[]> {
+  const result = new Map<string, Group[]>();
+  const withoutLibraryId: Group[] = [];
+  for (const group of groups) {
+    const libId = group.libraryId;
+    if (!libId) {
+      withoutLibraryId.push(group);
+      continue;
+    }
+    if (!result.has(libId)) {
+      result.set(libId, []);
+    }
+    result.get(libId)!.push(group);
+  }
+  // Log warning for groups without libraryId - these won't be written anywhere
+  // This shouldn't happen in normal operation since all shared groups are tagged with libraryId when loaded
+  if (withoutLibraryId.length > 0) {
+    const names = withoutLibraryId.slice(0, 5).map(g => g.name).join(', ');
+    const suffix = withoutLibraryId.length > 5 ? ` and ${withoutLibraryId.length - 5} more` : '';
+    log.warn(`Skipping ${withoutLibraryId.length} group(s) without libraryId: ${names}${suffix}`);
+  }
+  return result;
+}
 
 class PromptLibraryViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'promptLibraryView';
@@ -466,54 +493,65 @@ export function activate(context: vscode.ExtensionContext) {
         log.info(`Send to Augment: Prompt text length = ${promptText.length} chars`);
         log.info(`Send to Augment: Prompt preview = ${promptText.substring(0, 50)}...`);
 
-        // Try to send to Augment (do NOT copy to clipboard - user has separate copy button for that)
+        // Save original clipboard content so we can restore it after pasting
+        let originalClipboard: string | undefined;
+        try {
+          originalClipboard = await vscode.env.clipboard.readText();
+          log.info('Send to Augment: Saved original clipboard content');
+        } catch {
+          log.warn('Send to Augment: Could not read original clipboard');
+        }
+
+        // Temporarily use clipboard for paste operation
+        log.info('Send to Augment: Temporarily copying to clipboard for paste...');
+        await vscode.env.clipboard.writeText(promptText);
+
+        // Try to send to Augment
         try {
           log.info('Send to Augment: Starting integration...');
 
-          // Try Augment's newChat command with text parameter first
+          // Augment uses Cmd+L / Ctrl+L to open its chat panel
+          // But we need to find the actual command name
           const allCommands = await vscode.commands.getCommands(true);
-          const augmentCommands = allCommands.filter(cmd => cmd.toLowerCase().includes('augment'));
-          log.info(`Send to Augment: Found ${augmentCommands.length} Augment commands`);
+          const augmentCommands = allCommands.filter(cmd => cmd.toLowerCase().includes('augment') && cmd.toLowerCase().includes('chat'));
+          log.info(`Send to Augment: Found ${augmentCommands.length} Augment chat commands: ${JSON.stringify(augmentCommands.slice(0, 10))}`);
 
-          // Strategy 1: Try augment.newChat or similar with text parameter
-          const newChatCommands = augmentCommands.filter(cmd =>
-            cmd.includes('newChat') || cmd.includes('startChat') || cmd.includes('sendMessage')
-          );
-          log.info(`Send to Augment: newChat commands: ${JSON.stringify(newChatCommands)}`);
-
+          // Try to open Augment's chat panel and paste
           let success = false;
 
-          // Try commands that might accept text directly
-          for (const cmd of newChatCommands) {
+          // Strategy 1: Try to focus Augment's chat panel directly
+          const chatFocusCommands = augmentCommands.filter(cmd =>
+            cmd.includes('focus') || cmd.includes('open') || cmd.includes('show')
+          );
+
+          for (const cmd of chatFocusCommands) {
             try {
-              log.info(`Send to Augment: Trying ${cmd} with text parameter`);
-              await vscode.commands.executeCommand(cmd, promptText);
-              log.info(`Send to Augment: ✓ ${cmd} executed with text`);
-              vscode.window.setStatusBarMessage('✓ Sent to Augment', 2000);
-              success = true;
-              break;
-            } catch (e: any) {
-              log.warn(`Send to Augment: ${cmd} with text failed - ${e?.message}`);
-            }
-          }
+              log.info(`Send to Augment: Trying command: ${cmd}`);
+              await vscode.commands.executeCommand(cmd);
+              log.info(`Send to Augment: ✓ ${cmd} executed`);
 
-          // Strategy 2: Open Augment chat panel (user can paste manually if needed)
-          if (!success) {
-            const chatFocusCommands = augmentCommands.filter(cmd =>
-              cmd.toLowerCase().includes('chat') && (cmd.includes('focus') || cmd.includes('open') || cmd.includes('show'))
-            );
+              // Wait longer for Augment's input to be ready and focused
+              await new Promise(resolve => setTimeout(resolve, 500));
 
-            for (const cmd of chatFocusCommands) {
+              // The text is already in clipboard from earlier
+              // Just try to paste it
               try {
-                log.info(`Send to Augment: Trying to open panel: ${cmd}`);
-                await vscode.commands.executeCommand(cmd);
-                log.info(`Send to Augment: ✓ ${cmd} executed - panel opened`);
-                vscode.window.setStatusBarMessage('✓ Augment opened', 2000);
+                log.info('Send to Augment: Attempting paste from clipboard...');
+                await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+                log.info('Send to Augment: ✓ Paste command executed');
+
+                // Give it a moment to paste
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                vscode.window.setStatusBarMessage('✓ Sent to Augment', 2000);
                 success = true;
                 break;
-              } catch (e: any) {
-                log.warn(`Send to Augment: ${cmd} failed - ${e?.message}`);
+              } catch (pasteError: any) {
+                log.warn(`Send to Augment: Paste failed - ${pasteError?.message}`);
+                // Continue to try other commands
               }
+            } catch (e: any) {
+              log.warn(`Send to Augment: ${cmd} failed - ${e?.message}`);
             }
           }
 
@@ -523,17 +561,22 @@ export function activate(context: vscode.ExtensionContext) {
         } catch (chatError: any) {
           log.warn(`Send to Augment: Chat integration failed - ${chatError?.message || chatError}`);
           log.warn(`Send to Augment: Error stack: ${chatError?.stack || 'no stack'}`);
-
-          // Chat command failed - show helpful message (but don't copy to clipboard)
-          vscode.window.showInformationMessage(
-            'Could not open Augment. Use the copy button to copy the prompt, then paste manually.',
-            'Got it'
-          );
+          vscode.window.showWarningMessage('Could not send to Augment. Try opening Augment manually (Cmd+L).');
+        } finally {
+          // Restore original clipboard content
+          if (originalClipboard !== undefined) {
+            try {
+              await vscode.env.clipboard.writeText(originalClipboard);
+              log.info('Send to Augment: Restored original clipboard content');
+            } catch {
+              log.warn('Send to Augment: Could not restore original clipboard');
+            }
+          }
         }
       } catch (e: any) {
         log.error(`Send to Augment: FATAL ERROR - ${e?.message || e}`);
         log.error(`Send to Augment: Error stack: ${e?.stack || 'no stack'}`);
-        vscode.window.showWarningMessage('Failed to send to Augment. Use the copy button instead.');
+        vscode.window.showWarningMessage('Failed to send to Augment.');
       }
       log.info('=== Send to Augment: END ===');
     }),
@@ -1163,15 +1206,22 @@ export function activate(context: vscode.ExtensionContext) {
         const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
         if (!sharedRoot) { vscode.window.showWarningMessage('Shared root not found'); log.warn('Shared root not found'); return; }
 
-        // Use library-aware writing: write to library folder (promptsSubdir)
-        const activeLibrary = getActiveLibrary();
-        const libraryPath = getLibraryPath(cfg.repoPath, activeLibrary);
-        log.info(`Writing to library: ${activeLibrary.displayName} at ${libraryPath}`);
+        // Partition by libraryId and write each to its library
+        const enabledLibraries = getEnabledLibraries();
+        const libraryGroups = partitionGroupsByLibrary(sharedRoot.children);
+        log.info(`Writing to ${libraryGroups.size} libraries: ${[...libraryGroups.keys()].join(', ')}`);
 
-        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children);
+        const results = await writeToLibraries(cfg.repoPath, libraryGroups, enabledLibraries);
+        let totalAdded = 0, totalUpdated = 0, totalDeleted = 0;
+        for (const [libId, result] of results) {
+          log.info(`  ${libId}: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
+          totalAdded += result.added;
+          totalUpdated += result.updated;
+          totalDeleted += result.deleted;
+        }
         const ms = Date.now() - started;
-        vscode.window.showInformationMessage(`Sync write complete. Added ${result.added}, updated ${result.updated}, deleted ${result.deleted}.`);
-        log.info(`Sync write complete in ${ms}ms. Added ${result.added}, updated ${result.updated}, deleted ${result.deleted}.`);
+        vscode.window.showInformationMessage(`Sync write complete. Added ${totalAdded}, updated ${totalUpdated}, deleted ${totalDeleted}.`);
+        log.info(`Sync write complete in ${ms}ms. Added ${totalAdded}, updated ${totalUpdated}, deleted=${totalDeleted}.`);
       } catch (e: any) {
         log.error(`Sync write failed: ${e?.message || e}`);
         vscode.window.showWarningMessage('Sync write failed. See Sync Status for details.');
@@ -1315,18 +1365,25 @@ export function activate(context: vscode.ExtensionContext) {
         }
         log.info(`Found shared root with ${sharedRoot.children.length} children`);
 
-        // Use library-aware writing: write to library folder (promptsSubdir)
-        const activeLibrary = getActiveLibrary();
-        const libraryPath = getLibraryPath(repoPath, activeLibrary);
-        log.info(`Writing to library: ${activeLibrary.displayName} at ${libraryPath}`);
+        // STEP 2: Write YAML files - partition by libraryId and write each to its library
+        const enabledLibraries = getEnabledLibraries();
+        const libraryGroups = partitionGroupsByLibrary(sharedRoot.children);
+        log.info(`Writing to ${libraryGroups.size} libraries: ${[...libraryGroups.keys()].join(', ')}`);
 
-        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children);
-        log.info(`Write result: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
+        const results = await writeToLibraries(repoPath, libraryGroups, enabledLibraries);
+        let totalAdded = 0, totalUpdated = 0, totalDeleted = 0;
+        for (const [libId, result] of results) {
+          log.info(`  ${libId}: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
+          totalAdded += result.added;
+          totalUpdated += result.updated;
+          totalDeleted += result.deleted;
+        }
+        log.info(`Total write result: added=${totalAdded}, updated=${totalUpdated}, deleted=${totalDeleted}`);
 
         // STEP 3: Stage and commit
         await stageAll(repoPath);
         log.info('Staged all changes');
-        const msg = `Prompt Library sync: +${result.added}/~${result.updated}/-${result.deleted}`;
+        const msg = `Prompt Library sync: +${totalAdded}/~${totalUpdated}/-${totalDeleted}`;
         log.info(`Committing with message: ${msg}`);
         const commitResult = await gitCommit(repoPath, msg);
         log.info(`Commit result: success=${commitResult.success}, nothingToCommit=${commitResult.nothingToCommit}`);
@@ -1444,16 +1501,24 @@ export function activate(context: vscode.ExtensionContext) {
         }
         log.info(`Found shared root with ${sharedRoot.children.length} children`);
 
-        // Use library-aware writing: write to library folder (promptsSubdir)
-        const activeLibrary = getActiveLibrary();
-        const libraryPath = getLibraryPath(repoPath, activeLibrary);
-        log.info(`Writing to library: ${activeLibrary.displayName} at ${libraryPath}`);
+        // STEP 3: Write YAML - partition by libraryId and write each to its library
+        const enabledLibraries = getEnabledLibraries();
+        const libraryGroups = partitionGroupsByLibrary(sharedRoot.children);
+        log.info(`Writing to ${libraryGroups.size} libraries: ${[...libraryGroups.keys()].join(', ')}`);
 
-        const result = await writeSharedGroups(vscode.Uri.file(libraryPath), sharedRoot.children);
-        log.info(`Write result: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
+        const results = await writeToLibraries(repoPath, libraryGroups, enabledLibraries);
+        let totalAdded = 0, totalUpdated = 0, totalDeleted = 0;
+        for (const [libId, result] of results) {
+          log.info(`  ${libId}: added=${result.added}, updated=${result.updated}, deleted=${result.deleted}`);
+          totalAdded += result.added;
+          totalUpdated += result.updated;
+          totalDeleted += result.deleted;
+        }
+        log.info(`Total write result: added=${totalAdded}, updated=${totalUpdated}, deleted=${totalDeleted}`);
+
         await stageAll(repoPath);
         log.info('Staged all changes');
-        const msg = `Prompt Library sync (PR): +${result.added}/~${result.updated}/-${result.deleted}`;
+        const msg = `Prompt Library sync (PR): +${totalAdded}/~${totalUpdated}/-${totalDeleted}`;
         log.info(`Committing with message: ${msg}`);
         const commitResult = await gitCommit(repoPath, msg);
         log.info(`Commit result: success=${commitResult.success}, nothingToCommit=${commitResult.nothingToCommit}`);

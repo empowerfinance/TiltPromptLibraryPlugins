@@ -393,8 +393,17 @@ export async function writeToLibraries(
 ): Promise<Map<string, WriteResult>> {
   const results = new Map<string, WriteResult>();
 
+  // Only write to libraries that are represented in libraryGroups
+  // This prevents accidentally wiping libraries that:
+  // 1. Failed to load (and thus aren't in libraryGroups)
+  // 2. Have groups without libraryId (which are skipped during partitioning)
+  // 3. Are enabled but have no content in the current sync
   for (const library of libraries.filter(l => l.enabled)) {
-    const groups = libraryGroups.get(library.id) || [];
+    if (!libraryGroups.has(library.id)) {
+      // Skip libraries not in libraryGroups to avoid wiping their content
+      continue;
+    }
+    const groups = libraryGroups.get(library.id)!;
     try {
       const result = await writeToLibrary(repoRoot, library, groups);
       results.set(library.id, result);
