@@ -235,10 +235,12 @@
                 <button id="importJson" class="btn">Import JSON</button>
                 <button id="exportJson" class="btn">Export JSON</button>
                 <button id="dedupe" class="btn">Remove Duplicates</button>
+                <button id="cleanupFilenames" class="btn">Clean Filenames</button>
                 <button id="clear" class="btn">Clear Logs</button>
                 <button id="resetLib" class="btn">Reset Library</button>
               </div>
-              <div class="btn-help">Manage your library settings, import/export data, and perform maintenance tasks.</div>
+              <div class="btn-help">Manage your library settings, import/export data, and perform maintenance tasks. <strong>Clean Filenames</strong> renames any prompt files with
+                invalid characters (: or /) in their names.</div>
             </div>
           </div>
           <div class="kv">
@@ -264,6 +266,7 @@
 
     const importBtn = document.getElementById('importJson'); if (importBtn) importBtn.addEventListener('click', () => vscode.postMessage({ type: 'importJson' }));
     const dedupeBtn = document.getElementById('dedupe'); if (dedupeBtn) dedupeBtn.addEventListener('click', () => vscode.postMessage({ type: 'deduplicate' }));
+    const cleanupBtn = document.getElementById('cleanupFilenames'); if (cleanupBtn) cleanupBtn.addEventListener('click', () => vscode.postMessage({ type: 'cleanupFilenames' }));
 
     const exportBtn = document.getElementById('exportJson'); if (exportBtn) exportBtn.addEventListener('click', () => vscode.postMessage({ type: 'exportJson' }));
 

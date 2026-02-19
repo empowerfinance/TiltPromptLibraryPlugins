@@ -154,7 +154,8 @@ async function writeGroupDir(parent: vscode.Uri, g: Group) {
 
   // Write prompts directly in the group folder (no prompts/ subdirectory)
   for (const p of g.prompts) {
-    const file = vscode.Uri.joinPath(dir, `p-${p.id}.yaml`);
+    // Sanitize the prompt ID for the filename to handle legacy prefixed IDs (e.g., "Platform:xxx" -> "Platform-xxx")
+    const file = vscode.Uri.joinPath(dir, `p-${sanitize(p.id)}.yaml`);
     // Never write private prompts to shared tree (strip private)
     const content = writePromptYaml(p.private ? { ...p, private: false } : p);
     await vscode.workspace.fs.writeFile(file, Buffer.from(content, 'utf8'));
@@ -193,7 +194,8 @@ export async function writeSinglePrompt(
   await vscode.workspace.fs.createDirectory(dir);
 
   // Write the prompt file directly in the group folder
-  const file = vscode.Uri.joinPath(dir, `p-${prompt.id}.yaml`);
+  // Sanitize the prompt ID for the filename to handle legacy prefixed IDs (e.g., "Platform:xxx" -> "Platform-xxx")
+  const file = vscode.Uri.joinPath(dir, `p-${sanitize(prompt.id)}.yaml`);
   const content = writePromptYaml(prompt.private ? { ...prompt, private: false } : prompt);
   await vscode.workspace.fs.writeFile(file, Buffer.from(content, 'utf8'));
 }
@@ -201,12 +203,12 @@ export async function writeSinglePrompt(
 /**
  * Deletes a single prompt file from disk.
  *
- * This function handles both old and new prompt file naming formats:
- * - New format: p-{libraryId}:{baseId}.yaml (e.g., p-EngGeneralPurpose:abc123.yaml)
- * - Old format: p-{baseId}.yaml (e.g., p-abc123.yaml)
+ * This function handles multiple prompt file naming formats:
+ * - Current format: p-{sanitized-id}.yaml (e.g., p-Platform-abc123.yaml for ID "Platform:abc123")
+ * - Legacy format with raw ID: p-{id}.yaml (may not exist if ID had illegal chars)
+ * - Old format without prefix: p-{baseId}.yaml (e.g., p-abc123.yaml)
  *
- * When a prompt has a prefixed ID (libraryId:baseId), we attempt to delete both
- * the new format file and the old format file to ensure proper cleanup.
+ * We attempt to delete all possible filename formats to ensure proper cleanup.
  *
  * @param repoRoot - The root directory of the Git repository
  * @param libraryPath - The library folder name
@@ -225,16 +227,27 @@ export async function deleteSinglePrompt(
     dir = vscode.Uri.joinPath(dir, sanitize(groupFolder));
   }
 
-  // Delete the file with the full prompt ID (new format: p-{libraryId}:{baseId}.yaml)
-  const newFormatFile = vscode.Uri.joinPath(dir, `p-${promptId}.yaml`);
+  // Try sanitized filename first (current format)
+  const sanitizedFile = vscode.Uri.joinPath(dir, `p-${sanitize(promptId)}.yaml`);
   try {
-    await vscode.workspace.fs.delete(newFormatFile);
+    await vscode.workspace.fs.delete(sanitizedFile);
   } catch {
     // File might not exist, ignore
   }
 
-  // If promptId contains a library prefix (e.g., "EngGeneralPurpose:abc123"),
-  // also try to delete the old format file (p-{baseId}.yaml)
+  // If the ID contains special chars, the sanitized name differs from the raw ID
+  // Try the raw ID format as fallback (legacy files that were never sanitized)
+  if (sanitize(promptId) !== promptId) {
+    const rawFile = vscode.Uri.joinPath(dir, `p-${promptId}.yaml`);
+    try {
+      await vscode.workspace.fs.delete(rawFile);
+    } catch {
+      // File might not exist, ignore
+    }
+  }
+
+  // If promptId contains a library prefix (e.g., "Platform:abc123"),
+  // also try to delete the base ID format (p-{baseId}.yaml) for old prompts
   const colonIndex = promptId.indexOf(':');
   if (colonIndex > 0) {
     const baseId = promptId.substring(colonIndex + 1);
@@ -421,4 +434,195 @@ export async function writeToLibraries(
   }
 
   return results;
+}
+
+// ============================================================================
+// Cleanup Functions (for migrating legacy files)
+// ============================================================================
+
+export interface CleanupResult {
+  renamed: number;
+  errors: string[];
+}
+
+/**
+ * Cleans up prompt files with problematic names (containing : or / characters).
+ *
+ * This function scans all prompt files in the library and renames any that have
+ * unsanitized IDs in their filenames. For example:
+ * - `p-Platform:abc123.yaml` -> `p-Platform-abc123.yaml`
+ * - `p-Platform/abc123.yaml` (subdirectory) -> `p-Platform-abc123.yaml` (flat file)
+ *
+ * The internal ID inside the YAML file is NOT changed - only the filename is fixed.
+ * This ensures backward compatibility while fixing filesystem issues.
+ *
+ * @param repoRoot - The root directory of the Git repository
+ * @param libraries - Array of library configurations to clean
+ * @returns Cleanup result with count of renamed files and any errors
+ */
+export async function cleanupPromptFilenames(
+  repoRoot: string,
+  libraries: LibraryConfig[]
+): Promise<CleanupResult> {
+  let renamed = 0;
+  const errors: string[] = [];
+
+  for (const library of libraries.filter(l => l.enabled)) {
+    const libraryDir = vscode.Uri.file(path.join(repoRoot, library.path));
+
+    try {
+      // List all directories in the library (these are groups)
+      const entries = await safeReadDir(libraryDir);
+
+      for (const [name, type] of entries) {
+        if (type !== vscode.FileType.Directory) continue;
+        if (name.startsWith('.') || name.startsWith('_')) continue;
+
+        const groupDir = vscode.Uri.joinPath(libraryDir, name);
+        const result = await cleanupGroupDir(groupDir);
+        renamed += result.renamed;
+        errors.push(...result.errors);
+      }
+    } catch (e: any) {
+      errors.push(`Failed to process library ${library.path}: ${e?.message || e}`);
+    }
+  }
+
+  return { renamed, errors };
+}
+
+/**
+ * Cleans up a single group directory, renaming prompt files as needed.
+ */
+async function cleanupGroupDir(groupDir: vscode.Uri): Promise<CleanupResult> {
+  let renamed = 0;
+  const errors: string[] = [];
+
+  try {
+    const entries = await safeReadDir(groupDir);
+
+    for (const [name, type] of entries) {
+      // Handle files directly in the group
+      if (type === vscode.FileType.File && name.startsWith('p-') && (name.endsWith('.yaml') || name.endsWith('.yml'))) {
+        // Check if the filename needs sanitization
+        // Extract the ID from the filename: p-{id}.yaml
+        const ext = name.endsWith('.yaml') ? '.yaml' : '.yml';
+        const id = name.slice(2, -ext.length); // Remove "p-" prefix and extension
+        const sanitizedId = sanitize(id);
+
+        if (id !== sanitizedId) {
+          // Filename needs to be renamed
+          const oldFile = vscode.Uri.joinPath(groupDir, name);
+          const newFile = vscode.Uri.joinPath(groupDir, `p-${sanitizedId}${ext}`);
+
+          try {
+            // Check if target already exists
+            try {
+              await vscode.workspace.fs.stat(newFile);
+              // Target exists - read both files and compare
+              errors.push(`Cannot rename ${name} to p-${sanitizedId}${ext}: target already exists`);
+              continue;
+            } catch {
+              // Target doesn't exist, proceed with rename
+            }
+
+            // Read content, write to new location, delete old
+            const content = await vscode.workspace.fs.readFile(oldFile);
+            await vscode.workspace.fs.writeFile(newFile, content);
+            await vscode.workspace.fs.delete(oldFile);
+            renamed++;
+          } catch (e: any) {
+            errors.push(`Failed to rename ${name}: ${e?.message || e}`);
+          }
+        }
+      }
+
+      // Handle subdirectories that look like broken prompt files (e.g., "p-Platform" dir with "xxx.yaml" inside)
+      // This happens when a filename contains "/" - it creates a subdirectory
+      if (type === vscode.FileType.Directory && name.startsWith('p-')) {
+        const subDir = vscode.Uri.joinPath(groupDir, name);
+        const subResult = await cleanupBrokenPromptDir(groupDir, subDir, name);
+        renamed += subResult.renamed;
+        errors.push(...subResult.errors);
+      }
+    }
+  } catch (e: any) {
+    errors.push(`Failed to read group directory: ${e?.message || e}`);
+  }
+
+  return { renamed, errors };
+}
+
+/**
+ * Handles a "broken" prompt subdirectory created when a filename contained "/".
+ * For example: `p-Platform/` directory with `abc123.yaml` inside should become `p-Platform-abc123.yaml`
+ */
+async function cleanupBrokenPromptDir(
+  groupDir: vscode.Uri,
+  subDir: vscode.Uri,
+  dirName: string
+): Promise<CleanupResult> {
+  let renamed = 0;
+  const errors: string[] = [];
+
+  try {
+    const entries = await safeReadDir(subDir);
+
+    for (const [name, type] of entries) {
+      if (type !== vscode.FileType.File) continue;
+      if (!(name.endsWith('.yaml') || name.endsWith('.yml'))) continue;
+
+      // The full "ID" would be dirName (e.g., "p-Platform") + "/" + name (e.g., "abc123.yaml")
+      // But we need to reconstruct the original intended filename
+      const ext = name.endsWith('.yaml') ? '.yaml' : '.yml';
+      const baseId = name.slice(0, -ext.length);
+      const prefix = dirName.slice(2); // Remove "p-" from directory name
+      const fullId = `${prefix}/${baseId}`;
+      const sanitizedId = sanitize(fullId);
+
+      const oldFile = vscode.Uri.joinPath(subDir, name);
+      const newFile = vscode.Uri.joinPath(groupDir, `p-${sanitizedId}${ext}`);
+
+      try {
+        // Check if target already exists
+        try {
+          await vscode.workspace.fs.stat(newFile);
+          errors.push(`Cannot move ${dirName}/${name} to p-${sanitizedId}${ext}: target already exists`);
+          continue;
+        } catch {
+          // Target doesn't exist, proceed
+        }
+
+        // Read content, write to new location, delete old
+        const content = await vscode.workspace.fs.readFile(oldFile);
+        await vscode.workspace.fs.writeFile(newFile, content);
+        await vscode.workspace.fs.delete(oldFile);
+        renamed++;
+      } catch (e: any) {
+        errors.push(`Failed to move ${dirName}/${name}: ${e?.message || e}`);
+      }
+    }
+
+    // Try to delete the now-empty subdirectory
+    try {
+      const remaining = await safeReadDir(subDir);
+      if (remaining.length === 0) {
+        await vscode.workspace.fs.delete(subDir);
+      }
+    } catch {
+      // Directory might not be empty or might not exist, ignore
+    }
+  } catch (e: any) {
+    errors.push(`Failed to process broken prompt dir ${dirName}: ${e?.message || e}`);
+  }
+
+  return { renamed, errors };
+}
+
+async function safeReadDir(dir: vscode.Uri): Promise<Array<[string, vscode.FileType]>> {
+  try {
+    return await vscode.workspace.fs.readDirectory(dir);
+  } catch {
+    return [];
+  }
 }

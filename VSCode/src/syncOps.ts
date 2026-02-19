@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import { log } from './log';
-import { getSettings } from './settings';
+import { getSettings, getEnabledLibraries } from './settings';
 import { loadHtmlTemplate, getNonce, generateCSP } from './ui/htmlLoader';
 import { getCurrentBranch, checkoutBranch, smartPull } from './sync/hybridGit';
+import { cleanupPromptFilenames } from './sync/yamlWriter';
 import * as path from 'path';
 import * as os from 'os';
 
@@ -94,6 +95,49 @@ export class SyncOpsPanel {
       case 'returnToMain':
         await this.returnToMainAndPull();
         break;
+      case 'cleanupFilenames':
+        await this.cleanupPromptFilenames();
+        break;
+    }
+  }
+
+  private static async cleanupPromptFilenames() {
+    const s = getSettings();
+    if (!s.repoPath) {
+      vscode.window.showWarningMessage('No repoPath configured.');
+      return;
+    }
+
+    // Handle ~ expansion
+    const repoPath = s.repoPath.startsWith('~/')
+      ? path.join(os.homedir(), s.repoPath.slice(2))
+      : s.repoPath.startsWith('~')
+        ? os.homedir()
+        : s.repoPath;
+
+    log.info('Cleaning up prompt filenames...');
+
+    const libraries = getEnabledLibraries();
+    if (libraries.length === 0) {
+      log.warn('No enabled libraries found.');
+      return;
+    }
+
+    const result = await cleanupPromptFilenames(repoPath, libraries);
+
+    if (result.renamed > 0) {
+      log.info(`✅ Renamed ${result.renamed} prompt file(s)`);
+      vscode.window.showInformationMessage(`Cleaned up ${result.renamed} prompt file(s).`);
+    } else {
+      log.info('No files needed cleanup.');
+      vscode.window.showInformationMessage('All prompt filenames are already clean.');
+    }
+
+    if (result.errors.length > 0) {
+      for (const err of result.errors) {
+        log.error(err);
+      }
+      vscode.window.showWarningMessage(`Cleanup completed with ${result.errors.length} error(s). Check logs for details.`);
     }
   }
 
