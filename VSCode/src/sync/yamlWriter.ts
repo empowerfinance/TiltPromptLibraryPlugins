@@ -27,7 +27,8 @@ function yamlScalar(s: string): string {
 
 function writeGroupMeta(g: Group): string {
   // Only meta (id, name), omit children/prompts to keep file clean, parity with Rider
-  return `id: ${yamlScalar(g.id)}\nname: ${yamlScalar(g.name)}\n`;
+  // Strip any library prefix from the ID (e.g., "Platform:grp-mlr7om6k" -> "grp-mlr7om6k")
+  return `id: ${yamlScalar(stripIdPrefix(g.id))}\nname: ${yamlScalar(g.name)}\n`;
 }
 
 /** Exported for testing */
@@ -526,7 +527,31 @@ async function cleanupGroupDir(groupDir: vscode.Uri): Promise<CleanupResult> {
     const entries = await safeReadDir(groupDir);
 
     for (const [name, type] of entries) {
-      // Handle files directly in the group
+      // Handle _group.yaml - strip library prefix from group ID
+      if (type === vscode.FileType.File && (name === '_group.yaml' || name === '_group.yml')) {
+        const groupMetaFile = vscode.Uri.joinPath(groupDir, name);
+        try {
+          const contentBytes = await vscode.workspace.fs.readFile(groupMetaFile);
+          let content = Buffer.from(contentBytes).toString('utf8');
+
+          // Check if the group ID has a library prefix that should be stripped
+          const idMatch = content.match(/^id:\s*["']?([^"'\n]+)["']?/m);
+          if (idMatch) {
+            const internalId = idMatch[1].trim();
+            const strippedId = stripIdPrefix(internalId);
+            if (strippedId !== internalId) {
+              content = content.replace(/^id:\s*["']?[^"'\n]+["']?/m, `id: "${strippedId}"`);
+              await vscode.workspace.fs.writeFile(groupMetaFile, Buffer.from(content, 'utf8'));
+              cleaned++;
+            }
+          }
+        } catch (e: any) {
+          errors.push(`Failed to process ${name}: ${e?.message || e}`);
+        }
+        continue;
+      }
+
+      // Handle prompt files (p-*.yaml)
       if (type === vscode.FileType.File && name.startsWith('p-') && (name.endsWith('.yaml') || name.endsWith('.yml'))) {
         const ext = name.endsWith('.yaml') ? '.yaml' : '.yml';
         const filenameId = name.slice(2, -ext.length); // Remove "p-" prefix and extension
