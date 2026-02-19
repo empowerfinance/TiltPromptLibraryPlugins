@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./media/banner.png" alt="Tilt Prompt Library Logo" width="600" />
+</p>
+
 # Tilt Prompt Library Plugins
 
 [![Build and Release Pipeline](https://github.com/empowerfinance/TiltPromptLibraryPlugins/actions/workflows/build-v0.1.yml/badge.svg)](https://github.com/empowerfinance/TiltPromptLibraryPlugins/actions/workflows/build-v0.1.yml)

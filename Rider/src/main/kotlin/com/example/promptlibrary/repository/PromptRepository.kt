@@ -306,8 +306,16 @@ class PromptRepository {
         fun addInto(g: Group): Group {
             return if (g.id == targetGroupId) {
                 val m = moved ?: return g
+                // When moving into a shared group with libraryId, prefix the ID with the library namespace
+                val newId = if (g.tags.contains(TAG_SHARED) && g.libraryId != null) {
+                    // Strip any existing library prefix and add the new one
+                    val baseId = m.id.substringAfter(":", m.id)
+                    "${g.libraryId}:$baseId"
+                } else {
+                    m.id
+                }
                 // When moving into a group, mark as non-private and inherit libraryId
-                g.copy(prompts = g.prompts + m.copy(isPrivate = false, libraryId = g.libraryId))
+                g.copy(prompts = g.prompts + m.copy(id = newId, isPrivate = false, libraryId = g.libraryId))
             } else {
                 g.copy(children = g.children.map { addInto(it) })
             }
@@ -322,7 +330,10 @@ class PromptRepository {
 
         // Disk sync: write to new location if target is a shared group
         if (moved != null && targetGroup != null && targetGroup.tags.contains(TAG_SHARED) && targetGroup.libraryId != null) {
-            val updatedPrompt = moved!!.copy(isPrivate = false, libraryId = targetGroup.libraryId)
+            // Generate the new ID with library prefix for disk write
+            val baseId = moved!!.id.substringAfter(":", moved!!.id)
+            val newId = "${targetGroup.libraryId}:$baseId"
+            val updatedPrompt = moved!!.copy(id = newId, isPrivate = false, libraryId = targetGroup.libraryId)
             writePromptToDisk(lib, targetGroup, updatedPrompt)
         }
     }

@@ -145,11 +145,67 @@ class PromptYamlTest {
     fun `should handle null title`() {
         val prompt = Prompt(id = "no-title", text = "Text", title = null)
         val file = tempDir.resolve("no-title.yaml").toFile()
-        
+
         PromptYaml.writePrompt(prompt, file)
         val loaded = PromptYaml.readPrompt(file)
-        
+
         assertThat(loaded.title).isNull()
     }
-}
 
+    @Test
+    fun `should remove trailing whitespace from each line`() {
+        val textWithTrailingSpaces = "Line 1 with trailing spaces   \nLine 2 with tabs\t\t\nLine 3 clean"
+        val prompt = Prompt(id = "trailing-ws", text = textWithTrailingSpaces)
+        val file = tempDir.resolve("trailing-ws.yaml").toFile()
+
+        PromptYaml.writePrompt(prompt, file)
+
+        // Read the raw file content and verify no trailing whitespace
+        val content = file.readText()
+        val lines = content.lines()
+        for (line in lines) {
+            assertThat(line).isEqualTo(line.trimEnd())
+        }
+
+        // Verify content is preserved (minus trailing whitespace)
+        val loaded = PromptYaml.readPrompt(file)
+        assertThat(loaded.text).isEqualTo("Line 1 with trailing spaces\nLine 2 with tabs\nLine 3 clean")
+    }
+
+    @Test
+    fun `should remove trailing empty lines from text content`() {
+        val textWithTrailingNewlines = "Content here\n\n\n"
+        val prompt = Prompt(id = "trailing-newlines", text = textWithTrailingNewlines)
+        val file = tempDir.resolve("trailing-newlines.yaml").toFile()
+
+        PromptYaml.writePrompt(prompt, file)
+
+        // Verify no whitespace-only lines in the output
+        val content = file.readText()
+        val lines = content.lines()
+        for (line in lines) {
+            // No line should be just whitespace
+            assertThat(line.isNotBlank() || line.isEmpty()).isTrue()
+        }
+
+        // Content should have trailing newlines removed
+        val loaded = PromptYaml.readPrompt(file)
+        assertThat(loaded.text).isEqualTo("Content here")
+    }
+
+    @Test
+    fun `should handle text with only whitespace gracefully`() {
+        val whitespaceOnly = "   \n  \n\t\t"
+        val prompt = Prompt(id = "whitespace-only", text = whitespaceOnly)
+        val file = tempDir.resolve("whitespace-only.yaml").toFile()
+
+        PromptYaml.writePrompt(prompt, file)
+
+        // File should be written without trailing whitespace
+        val content = file.readText()
+        val lines = content.lines()
+        for (line in lines) {
+            assertThat(line).isEqualTo(line.trimEnd())
+        }
+    }
+}

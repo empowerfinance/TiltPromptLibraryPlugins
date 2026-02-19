@@ -7,9 +7,14 @@ import { log } from './log';
 
 const LIB_FILE = 'library.v2.json';
 
-function genId(prefix?: string): string {
-  const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  return prefix ? `${prefix}-${suffix}` : suffix;
+/**
+ * Generates a unique ID for a prompt.
+ * IDs are simple timestamp-random strings without library prefixes.
+ * The library association is tracked via the `libraryId` property on the prompt object.
+ * @returns A unique ID string
+ */
+function genId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
 export class LibraryStore {
@@ -93,6 +98,7 @@ export class LibraryStore {
     const now = new Date().toISOString();
     const fallbackTitle = (text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim();
     const finalTitle = (((title ?? '').trim()) && !/^(null|undefined|~)$/i.test((title ?? '').trim())) ? (title as string).trim() : fallbackTitle;
+    // Generate a simple ID - library association is tracked via the libraryId property
     const prompt: Prompt = { id: genId(), text, title: finalTitle || undefined, createdAt: now, updatedAt: now, tags: [], private: group.kind === 'private', libraryId: group.libraryId };
     group.prompts.push(prompt);
     await this.save(lib);
@@ -270,29 +276,8 @@ export class LibraryStore {
     }
 
     prompt.private = target.kind === 'private';
-
-    // When moving between libraries, update the prompt ID to use the target library prefix
-    const oldLibraryId = sourceGroup.libraryId;
-    const newLibraryId = target.libraryId;
-    if (oldLibraryId && newLibraryId && oldLibraryId !== newLibraryId) {
-      // Strip old library prefix(es) and add new one
-      let baseId = prompt.id;
-      // Remove any existing library prefixes (handles stacked prefixes like Credit-Card:EngGeneralPurpose:xxx)
-      while (baseId.includes(':')) {
-        const colonIndex = baseId.indexOf(':');
-        const potentialPrefix = baseId.substring(0, colonIndex);
-        // Check if this looks like a library prefix (contains letters, not just the base ID pattern)
-        if (/^[A-Za-z]/.test(potentialPrefix)) {
-          baseId = baseId.substring(colonIndex + 1);
-        } else {
-          break;
-        }
-      }
-      prompt.id = `${newLibraryId}:${baseId}`;
-      log.info(`Prompt ID updated for cross-library move: ${promptId} -> ${prompt.id}`);
-    }
-
-    prompt.libraryId = newLibraryId;
+    // Update the libraryId property - the prompt ID itself doesn't change
+    prompt.libraryId = target.libraryId;
     prompt.updatedAt = new Date().toISOString();
     target.prompts.push(prompt);
     await this.save(lib);
