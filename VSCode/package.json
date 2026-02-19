@@ -305,14 +305,9 @@
           "group": "inline@2"
         },
         {
-          "command": "promptLibrary.movePrompt",
-          "when": "view == promptLibraryGroups && viewItem == prompt",
-          "group": "inline@3"
-        },
-        {
           "command": "promptLibrary.deletePrompt",
           "when": "view == promptLibraryGroups && viewItem == prompt",
-          "group": "inline@4"
+          "group": "inline@3"
         }
       ]
     }
