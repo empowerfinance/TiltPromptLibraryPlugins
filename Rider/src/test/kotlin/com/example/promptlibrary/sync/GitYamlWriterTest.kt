@@ -250,5 +250,41 @@ class GitYamlWriterTest {
         assertThat(File(rootDir, "Parent/Child/Grandchild/_group.yaml")).doesNotExist()
         assertThat(File(rootDir, "Parent/Child/Grandchild/p-p3.yaml")).doesNotExist()
     }
-}
 
+    @Test
+    fun `should write prompt with library-prefixed ID correctly`() {
+        val rootDir = tempDir.resolve("repo").toFile()
+        // Prompt with library-prefixed ID (e.g., "Platform:abc123")
+        val prompt = Prompt(id = "Platform:test-123", text = "Test prompt", libraryId = "Platform")
+        val group = Group(id = "g1", name = "Quality", prompts = listOf(prompt), libraryId = "Platform")
+
+        GitYamlWriter.writeSharedGroups(rootDir, listOf(group))
+
+        // File should be named with the full prefixed ID
+        val promptFile = File(rootDir, "Quality/p-Platform:test-123.yaml")
+        assertThat(promptFile).exists()
+
+        // Read and verify the ID is preserved
+        val loaded = PromptYaml.readPrompt(promptFile)
+        assertThat(loaded.id).isEqualTo("Platform:test-123")
+    }
+
+    @Test
+    fun `writeSinglePrompt should write prompt with library-prefixed ID`() {
+        val repoRoot = tempDir.resolve("repo").toFile()
+        repoRoot.mkdirs()
+        val libraryDir = File(repoRoot, "Platform")
+        libraryDir.mkdirs()
+
+        val prompt = Prompt(id = "Platform:xyz-789", text = "Single prompt test", libraryId = "Platform")
+
+        GitYamlWriter.writeSinglePrompt(repoRoot, "Platform", listOf("Quality"), prompt)
+
+        // File should be created with the library-prefixed ID
+        val promptFile = File(repoRoot, "Platform/Quality/p-Platform:xyz-789.yaml")
+        assertThat(promptFile).exists()
+
+        val loaded = PromptYaml.readPrompt(promptFile)
+        assertThat(loaded.id).isEqualTo("Platform:xyz-789")
+    }
+}

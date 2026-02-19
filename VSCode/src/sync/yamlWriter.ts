@@ -30,15 +30,23 @@ function writeGroupMeta(g: Group): string {
   return `id: ${yamlScalar(g.id)}\nname: ${yamlScalar(g.name)}\n`;
 }
 
-function writePromptYaml(p: Prompt): string {
+/** Exported for testing */
+export function writePromptYaml(p: Prompt): string {
   // We purposefully strip potentially private fields for public sync
   const safe: Prompt = p.private ? { ...p, private: false } : p;
   const lines: string[] = [];
   lines.push(`id: ${yamlScalar(safe.id)}`);
   if (safe.title) lines.push(`title: ${yamlScalar(safe.title)}`);
   lines.push(`text: |`);
+  // Normalize line endings, trim trailing whitespace from each line, and remove trailing empty lines
   const textNL = (safe.text || '').replace(/\r\n?/g, '\n');
-  textNL.split('\n').forEach(line => lines.push(`  ${line}`));
+  const textLines = textNL
+    .split('\n')
+    .map(line => line.trimEnd())  // Remove trailing whitespace from each line
+    .join('\n')
+    .trimEnd()  // Remove trailing empty lines
+    .split('\n');
+  textLines.forEach(line => lines.push(`  ${line}`));
   if (safe.tags?.length) {
     lines.push(`tags:`);
     safe.tags.forEach(t => lines.push(`  - ${yamlScalar(t)}`));

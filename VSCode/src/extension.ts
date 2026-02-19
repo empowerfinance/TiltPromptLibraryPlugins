@@ -1491,6 +1491,9 @@ export function activate(context: vscode.ExtensionContext) {
           return;
         }
 
+        // Refresh panel immediately after branch creation so user sees the new branch
+        await SyncOpsPanel.refresh();
+
         // STEP 3: Write YAML
         const lib = await store.getLibrary();
         const sharedRoot = lib.groups.find(g => g.id === 'root-shared');
@@ -1553,6 +1556,9 @@ export function activate(context: vscode.ExtensionContext) {
             log.warn('Remote is not a recognized GitHub URL; open a PR manually.');
           }
         }
+
+        // Refresh panel after push so user sees the branch even while dialog is open
+        await SyncOpsPanel.refresh();
 
         // Ask user if they want to return to main branch
         const choice = await vscode.window.showInformationMessage(

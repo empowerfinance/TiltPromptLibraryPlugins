@@ -7,9 +7,14 @@ import { log } from './log';
 
 const LIB_FILE = 'library.v2.json';
 
-function genId(prefix?: string): string {
+/**
+ * Generates a unique ID for a prompt.
+ * @param libraryId - Optional library ID to use as a namespace prefix (e.g., "Platform" -> "Platform:xxx")
+ * @returns A unique ID, optionally prefixed with the library namespace
+ */
+function genId(libraryId?: string): string {
   const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  return prefix ? `${prefix}-${suffix}` : suffix;
+  return libraryId ? `${libraryId}:${suffix}` : suffix;
 }
 
 export class LibraryStore {
@@ -93,7 +98,9 @@ export class LibraryStore {
     const now = new Date().toISOString();
     const fallbackTitle = (text || '').replace(/\r\n?|\n/g, ' ').slice(0, 20).trim();
     const finalTitle = (((title ?? '').trim()) && !/^(null|undefined|~)$/i.test((title ?? '').trim())) ? (title as string).trim() : fallbackTitle;
-    const prompt: Prompt = { id: genId(), text, title: finalTitle || undefined, createdAt: now, updatedAt: now, tags: [], private: group.kind === 'private', libraryId: group.libraryId };
+    // For shared groups with a libraryId, prefix the ID with the library namespace (e.g., "Platform:xxx")
+    const promptId = group.kind === 'shared' && group.libraryId ? genId(group.libraryId) : genId();
+    const prompt: Prompt = { id: promptId, text, title: finalTitle || undefined, createdAt: now, updatedAt: now, tags: [], private: group.kind === 'private', libraryId: group.libraryId };
     group.prompts.push(prompt);
     await this.save(lib);
 
