@@ -115,7 +115,7 @@ export class SyncOpsPanel {
         ? os.homedir()
         : s.repoPath;
 
-    log.info('Cleaning up prompt filenames...');
+    log.info('Cleaning up prompt filenames and internal IDs...');
 
     const libraries = getEnabledLibraries();
     if (libraries.length === 0) {
@@ -125,12 +125,12 @@ export class SyncOpsPanel {
 
     const result = await cleanupPromptFilenames(repoPath, libraries);
 
-    if (result.renamed > 0) {
-      log.info(`✅ Renamed ${result.renamed} prompt file(s)`);
-      vscode.window.showInformationMessage(`Cleaned up ${result.renamed} prompt file(s).`);
+    if (result.cleaned > 0) {
+      log.info(`✅ Cleaned up ${result.cleaned} prompt file(s)`);
+      vscode.window.showInformationMessage(`Cleaned up ${result.cleaned} prompt file(s). Filenames sanitized and library prefixes stripped from IDs.`);
     } else {
       log.info('No files needed cleanup.');
-      vscode.window.showInformationMessage('All prompt filenames are already clean.');
+      vscode.window.showInformationMessage('All prompt files are already clean.');
     }
 
     if (result.errors.length > 0) {

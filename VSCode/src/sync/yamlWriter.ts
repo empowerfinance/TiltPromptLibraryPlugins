@@ -35,7 +35,9 @@ export function writePromptYaml(p: Prompt): string {
   // We purposefully strip potentially private fields for public sync
   const safe: Prompt = p.private ? { ...p, private: false } : p;
   const lines: string[] = [];
-  lines.push(`id: ${yamlScalar(safe.id)}`);
+  // Strip any library prefix from the ID (e.g., "General:mlr7om6k" -> "mlr7om6k")
+  // This ensures the internal ID is always clean, matching our sanitized filenames
+  lines.push(`id: ${yamlScalar(stripIdPrefix(safe.id))}`);
   if (safe.title) lines.push(`title: ${yamlScalar(safe.title)}`);
   lines.push(`text: |`);
   // Normalize line endings, trim trailing whitespace from each line, and remove trailing empty lines
@@ -56,6 +58,27 @@ export function writePromptYaml(p: Prompt): string {
 
 function sanitize(name: string): string {
   return name.replace(/[^A-Za-z0-9._-]/g, '-');
+}
+
+/**
+ * Strips library prefix(es) from a prompt ID.
+ * Handles stacked prefixes like "Credit-Card:EngGeneralPurpose:xxx" → "xxx"
+ * Returns the base ID without any library prefixes.
+ */
+function stripIdPrefix(id: string): string {
+  let baseId = id;
+  // Remove any existing library prefixes (handles stacked prefixes)
+  while (baseId.includes(':')) {
+    const colonIndex = baseId.indexOf(':');
+    const potentialPrefix = baseId.substring(0, colonIndex);
+    // Check if this looks like a library prefix (starts with a letter, not just the base ID pattern)
+    if (/^[A-Za-z]/.test(potentialPrefix)) {
+      baseId = baseId.substring(colonIndex + 1);
+    } else {
+      break;
+    }
+  }
+  return baseId;
 }
 
 export interface WriteResult { added: number; updated: number; deleted: number; }
@@ -441,30 +464,31 @@ export async function writeToLibraries(
 // ============================================================================
 
 export interface CleanupResult {
-  renamed: number;
+  cleaned: number;
   errors: string[];
 }
 
 /**
- * Cleans up prompt files with problematic names (containing : or / characters).
+ * Cleans up prompt files with problematic names and internal IDs.
  *
- * This function scans all prompt files in the library and renames any that have
- * unsanitized IDs in their filenames. For example:
- * - `p-Platform:abc123.yaml` -> `p-Platform-abc123.yaml`
- * - `p-Platform/abc123.yaml` (subdirectory) -> `p-Platform-abc123.yaml` (flat file)
+ * This function scans all prompt files in the library and:
+ * 1. Renames files with unsanitized IDs in their filenames:
+ *    - `p-Platform:abc123.yaml` -> `p-Platform-abc123.yaml`
+ *    - `p-Platform/abc123.yaml` (subdirectory) -> `p-Platform-abc123.yaml` (flat file)
+ * 2. Strips library prefixes from the internal `id` field inside the YAML:
+ *    - `id: "Platform:abc123"` -> `id: "abc123"`
  *
- * The internal ID inside the YAML file is NOT changed - only the filename is fixed.
- * This ensures backward compatibility while fixing filesystem issues.
+ * The prompt content and other fields are preserved unchanged.
  *
  * @param repoRoot - The root directory of the Git repository
  * @param libraries - Array of library configurations to clean
- * @returns Cleanup result with count of renamed files and any errors
+ * @returns Cleanup result with count of cleaned files and any errors
  */
 export async function cleanupPromptFilenames(
   repoRoot: string,
   libraries: LibraryConfig[]
 ): Promise<CleanupResult> {
-  let renamed = 0;
+  let cleaned = 0;
   const errors: string[] = [];
 
   for (const library of libraries.filter(l => l.enabled)) {
@@ -480,7 +504,7 @@ export async function cleanupPromptFilenames(
 
         const groupDir = vscode.Uri.joinPath(libraryDir, name);
         const result = await cleanupGroupDir(groupDir);
-        renamed += result.renamed;
+        cleaned += result.cleaned;
         errors.push(...result.errors);
       }
     } catch (e: any) {
@@ -488,14 +512,14 @@ export async function cleanupPromptFilenames(
     }
   }
 
-  return { renamed, errors };
+  return { cleaned, errors };
 }
 
 /**
- * Cleans up a single group directory, renaming prompt files as needed.
+ * Cleans up a single group directory, fixing filenames and internal IDs as needed.
  */
 async function cleanupGroupDir(groupDir: vscode.Uri): Promise<CleanupResult> {
-  let renamed = 0;
+  let cleaned = 0;
   const errors: string[] = [];
 
   try {
@@ -504,36 +528,59 @@ async function cleanupGroupDir(groupDir: vscode.Uri): Promise<CleanupResult> {
     for (const [name, type] of entries) {
       // Handle files directly in the group
       if (type === vscode.FileType.File && name.startsWith('p-') && (name.endsWith('.yaml') || name.endsWith('.yml'))) {
-        // Check if the filename needs sanitization
-        // Extract the ID from the filename: p-{id}.yaml
         const ext = name.endsWith('.yaml') ? '.yaml' : '.yml';
-        const id = name.slice(2, -ext.length); // Remove "p-" prefix and extension
-        const sanitizedId = sanitize(id);
+        const filenameId = name.slice(2, -ext.length); // Remove "p-" prefix and extension
+        const sanitizedFilenameId = sanitize(filenameId);
+        const needsFilenameRename = filenameId !== sanitizedFilenameId;
 
-        if (id !== sanitizedId) {
-          // Filename needs to be renamed
-          const oldFile = vscode.Uri.joinPath(groupDir, name);
-          const newFile = vscode.Uri.joinPath(groupDir, `p-${sanitizedId}${ext}`);
+        const oldFile = vscode.Uri.joinPath(groupDir, name);
 
-          try {
-            // Check if target already exists
-            try {
-              await vscode.workspace.fs.stat(newFile);
-              // Target exists - read both files and compare
-              errors.push(`Cannot rename ${name} to p-${sanitizedId}${ext}: target already exists`);
-              continue;
-            } catch {
-              // Target doesn't exist, proceed with rename
+        try {
+          // Read the file content to check/fix internal ID
+          const contentBytes = await vscode.workspace.fs.readFile(oldFile);
+          let content = Buffer.from(contentBytes).toString('utf8');
+          let contentChanged = false;
+
+          // Check if the internal ID has a library prefix that should be stripped
+          const idMatch = content.match(/^id:\s*["']?([^"'\n]+)["']?/m);
+          if (idMatch) {
+            const internalId = idMatch[1].trim();
+            const strippedId = stripIdPrefix(internalId);
+            if (strippedId !== internalId) {
+              // Replace the ID in the content
+              content = content.replace(/^id:\s*["']?[^"'\n]+["']?/m, `id: "${strippedId}"`);
+              contentChanged = true;
+            }
+          }
+
+          if (needsFilenameRename || contentChanged) {
+            const newFile = needsFilenameRename
+              ? vscode.Uri.joinPath(groupDir, `p-${sanitizedFilenameId}${ext}`)
+              : oldFile;
+
+            // Check if target already exists (only if renaming)
+            if (needsFilenameRename) {
+              try {
+                await vscode.workspace.fs.stat(newFile);
+                errors.push(`Cannot rename ${name} to p-${sanitizedFilenameId}${ext}: target already exists`);
+                continue;
+              } catch {
+                // Target doesn't exist, proceed
+              }
             }
 
-            // Read content, write to new location, delete old
-            const content = await vscode.workspace.fs.readFile(oldFile);
-            await vscode.workspace.fs.writeFile(newFile, content);
-            await vscode.workspace.fs.delete(oldFile);
-            renamed++;
-          } catch (e: any) {
-            errors.push(`Failed to rename ${name}: ${e?.message || e}`);
+            // Write the (possibly updated) content to the (possibly new) location
+            await vscode.workspace.fs.writeFile(newFile, Buffer.from(content, 'utf8'));
+
+            // Delete old file if we renamed
+            if (needsFilenameRename) {
+              await vscode.workspace.fs.delete(oldFile);
+            }
+
+            cleaned++;
           }
+        } catch (e: any) {
+          errors.push(`Failed to process ${name}: ${e?.message || e}`);
         }
       }
 
@@ -542,7 +589,7 @@ async function cleanupGroupDir(groupDir: vscode.Uri): Promise<CleanupResult> {
       if (type === vscode.FileType.Directory && name.startsWith('p-')) {
         const subDir = vscode.Uri.joinPath(groupDir, name);
         const subResult = await cleanupBrokenPromptDir(groupDir, subDir, name);
-        renamed += subResult.renamed;
+        cleaned += subResult.cleaned;
         errors.push(...subResult.errors);
       }
     }
@@ -550,7 +597,7 @@ async function cleanupGroupDir(groupDir: vscode.Uri): Promise<CleanupResult> {
     errors.push(`Failed to read group directory: ${e?.message || e}`);
   }
 
-  return { renamed, errors };
+  return { cleaned, errors };
 }
 
 /**
@@ -562,7 +609,7 @@ async function cleanupBrokenPromptDir(
   subDir: vscode.Uri,
   dirName: string
 ): Promise<CleanupResult> {
-  let renamed = 0;
+  let cleaned = 0;
   const errors: string[] = [];
 
   try {
@@ -593,11 +640,23 @@ async function cleanupBrokenPromptDir(
           // Target doesn't exist, proceed
         }
 
-        // Read content, write to new location, delete old
-        const content = await vscode.workspace.fs.readFile(oldFile);
-        await vscode.workspace.fs.writeFile(newFile, content);
+        // Read content and also strip any library prefix from internal ID
+        const contentBytes = await vscode.workspace.fs.readFile(oldFile);
+        let content = Buffer.from(contentBytes).toString('utf8');
+
+        // Check if the internal ID has a library prefix that should be stripped
+        const idMatch = content.match(/^id:\s*["']?([^"'\n]+)["']?/m);
+        if (idMatch) {
+          const internalId = idMatch[1].trim();
+          const strippedId = stripIdPrefix(internalId);
+          if (strippedId !== internalId) {
+            content = content.replace(/^id:\s*["']?[^"'\n]+["']?/m, `id: "${strippedId}"`);
+          }
+        }
+
+        await vscode.workspace.fs.writeFile(newFile, Buffer.from(content, 'utf8'));
         await vscode.workspace.fs.delete(oldFile);
-        renamed++;
+        cleaned++;
       } catch (e: any) {
         errors.push(`Failed to move ${dirName}/${name}: ${e?.message || e}`);
       }
@@ -616,7 +675,7 @@ async function cleanupBrokenPromptDir(
     errors.push(`Failed to process broken prompt dir ${dirName}: ${e?.message || e}`);
   }
 
-  return { renamed, errors };
+  return { cleaned, errors };
 }
 
 async function safeReadDir(dir: vscode.Uri): Promise<Array<[string, vscode.FileType]>> {
