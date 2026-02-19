@@ -3,7 +3,7 @@
   "displayName": "Tilt Prompt Library",
   "description": "Unified prompt library with one-click editing, GitHub sync, and Augment integration. Organize prompts in shared/private groups.",
   "version": "0.0.1",
-  "publisher": "tilt",
+  "publisher": "TiltFinance",
   "license": "MIT",
   "icon": "media/prompt-library.png",
   "repository": {
