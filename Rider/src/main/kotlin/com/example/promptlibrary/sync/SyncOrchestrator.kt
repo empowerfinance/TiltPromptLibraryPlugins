@@ -20,21 +20,13 @@ object SyncOrchestrator {
      * Validates that groups were loaded successfully before replacing in-memory state.
      * This prevents accidental data loss if library discovery fails.
      *
-     * @return true if validation passes, false if groups are empty (with error notification shown)
+     * @return true if validation passes, false if groups are empty
      */
     private fun validateGroupsNotEmpty(
         allGroups: List<Group>,
         enabledLibraries: List<LibraryConfig>
     ): Boolean {
-        if (allGroups.isEmpty()) {
-            val errMsg = "No groups loaded from ${enabledLibraries.size} libraries. Aborting to prevent data loss."
-            SyncLog.error(errMsg)
-            Notifications.Bus.notify(
-                Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR)
-            )
-            return false
-        }
-        return true
+        return allGroups.isNotEmpty()
     }
 
     /**
@@ -89,7 +81,11 @@ object SyncOrchestrator {
                     }
 
                     // Validate that we loaded groups before replacing in-memory state
+                    // This prevents accidental data loss if library discovery fails
                     if (!validateGroupsNotEmpty(allGroups, enabledLibraries)) {
+                        val errMsg = "No groups loaded from ${enabledLibraries.size} libraries. Aborting to prevent data loss."
+                        SyncLog.error(errMsg)
+                        Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
                         return
                     }
 
