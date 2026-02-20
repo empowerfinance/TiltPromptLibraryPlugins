@@ -346,6 +346,27 @@ describe('YAML escape sequence handling (cross-platform compatibility)', () => {
     expect(groups[0].prompts[0].text).toBe('Line1\\nLine2');  // Backslash-n should remain literal
   });
 
+  it('should preserve unknown escape sequences in double-quoted strings', async () => {
+    // Unknown escapes like \P should preserve the backslash to avoid data loss
+    write(path.join(repoRoot, 'escape-unknown', 'TestGroup', '_group.yaml'), [
+      'id: "grp-unknown"',
+      'name: "TestGroup"',
+      ''
+    ].join('\n'));
+
+    write(path.join(repoRoot, 'escape-unknown', 'TestGroup', 'p-unknown.yaml'), [
+      'id: "unknown"',
+      'text: "C:\\\\Path\\\\to\\\\file"',  // Double backslash should become single
+      ''
+    ].join('\n'));
+
+    const uri = vscode.Uri.file(path.join(repoRoot, 'escape-unknown'));
+    const groups = await readSharedGroups(uri);
+
+    expect(groups.length).toBe(1);
+    expect(groups[0].prompts[0].text).toBe('C:\\Path\\to\\file');
+  });
+
   it('should still handle block scalars correctly', async () => {
     write(path.join(repoRoot, 'block-scalar', 'TestGroup', '_group.yaml'), [
       'id: "grp-block"',

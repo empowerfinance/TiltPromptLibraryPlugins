@@ -32,7 +32,7 @@ function stripQuotes(s: string): string {
         case 'r': return '\r';
         case '\\': return '\\';
         case '"': return '"';
-        default: return char;  // Unknown escape, just return the character
+        default: return '\\' + char;  // Unknown escape, preserve backslash to avoid data loss
       }
     });
   }
