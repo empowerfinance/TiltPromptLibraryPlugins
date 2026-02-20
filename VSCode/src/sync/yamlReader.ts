@@ -22,8 +22,23 @@ function parseGroupMeta(content: string): GroupMeta | null {
 }
 
 function stripQuotes(s: string): string {
-  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-    return s.slice(1, -1).replace(/\\"/g, '"');
+  if (s.startsWith('"') && s.endsWith('"')) {
+    // Double-quoted YAML strings: unescape all standard escape sequences
+    // Use a single pass with a replacer function to handle all escapes correctly
+    return s.slice(1, -1).replace(/\\(.)/g, (_, char) => {
+      switch (char) {
+        case 'n': return '\n';
+        case 't': return '\t';
+        case 'r': return '\r';
+        case '\\': return '\\';
+        case '"': return '"';
+        default: return '\\' + char;  // Unknown escape, preserve backslash to avoid data loss
+      }
+    });
+  }
+  if (s.startsWith("'") && s.endsWith("'")) {
+    // Single-quoted YAML strings: only '' is escaped to '
+    return s.slice(1, -1).replace(/''/g, "'");
   }
   return s;
 }
