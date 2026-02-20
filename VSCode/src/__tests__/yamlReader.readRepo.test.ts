@@ -174,6 +174,203 @@ describe('readFromLibrary', () => {
   });
 });
 
+describe('YAML escape sequence handling (cross-platform compatibility)', () => {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-escape-'));
+  const repoRoot = path.join(tmpRoot, 'EscapeRepo');
+
+  afterAll(() => {
+    try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { }
+  });
+
+  it('should unescape \\n in double-quoted strings (KAML format)', async () => {
+    // KAML/snakeyaml may produce: text: "Line1\nLine2\nLine3"
+    write(path.join(repoRoot, 'escape-newline', 'TestGroup', '_group.yaml'), [
+      'id: "grp-escape"',
+      'name: "TestGroup"',
+      ''
+    ].join('\n'));
+
+    write(path.join(repoRoot, 'escape-newline', 'TestGroup', 'p-multiline.yaml'), [
+      'id: "multiline"',
+      'title: "Multiline Test"',
+      'text: "Line1\\nLine2\\nLine3"',  // Escaped newlines as KAML might produce
+      ''
+    ].join('\n'));
+
+    const uri = vscode.Uri.file(path.join(repoRoot, 'escape-newline'));
+    const groups = await readSharedGroups(uri);
+
+    expect(groups.length).toBe(1);
+    expect(groups[0].prompts.length).toBe(1);
+    expect(groups[0].prompts[0].text).toBe('Line1\nLine2\nLine3');
+  });
+
+  it('should unescape \\t in double-quoted strings', async () => {
+    write(path.join(repoRoot, 'escape-tab', 'TestGroup', '_group.yaml'), [
+      'id: "grp-tab"',
+      'name: "TestGroup"',
+      ''
+    ].join('\n'));
+
+    write(path.join(repoRoot, 'escape-tab', 'TestGroup', 'p-tabs.yaml'), [
+      'id: "tabs"',
+      'text: "Col1\\tCol2\\tCol3"',
+      ''
+    ].join('\n'));
+
+    const uri = vscode.Uri.file(path.join(repoRoot, 'escape-tab'));
+    const groups = await readSharedGroups(uri);
+
+    expect(groups.length).toBe(1);
+    expect(groups[0].prompts[0].text).toBe('Col1\tCol2\tCol3');
+  });
+
+  it('should unescape \\\\ (backslash) in double-quoted strings', async () => {
+    write(path.join(repoRoot, 'escape-backslash', 'TestGroup', '_group.yaml'), [
+      'id: "grp-bs"',
+      'name: "TestGroup"',
+      ''
+    ].join('\n'));
+
+    write(path.join(repoRoot, 'escape-backslash', 'TestGroup', 'p-backslash.yaml'), [
+      'id: "backslash"',
+      'text: "Path\\\\to\\\\file"',
+      ''
+    ].join('\n'));
+
+    const uri = vscode.Uri.file(path.join(repoRoot, 'escape-backslash'));
+    const groups = await readSharedGroups(uri);
+
+    expect(groups.length).toBe(1);
+    expect(groups[0].prompts[0].text).toBe('Path\\to\\file');
+  });
+
+  it('should unescape \\" (quotes) in double-quoted strings', async () => {
+    write(path.join(repoRoot, 'escape-quote', 'TestGroup', '_group.yaml'), [
+      'id: "grp-quote"',
+      'name: "TestGroup"',
+      ''
+    ].join('\n'));
+
+    write(path.join(repoRoot, 'escape-quote', 'TestGroup', 'p-quotes.yaml'), [
+      'id: "quotes"',
+      'text: "He said \\"hello\\""',
+      ''
+    ].join('\n'));
+
+    const uri = vscode.Uri.file(path.join(repoRoot, 'escape-quote'));
+    const groups = await readSharedGroups(uri);
+
+    expect(groups.length).toBe(1);
+    expect(groups[0].prompts[0].text).toBe('He said "hello"');
+  });
+
+  it('should unescape \\r (carriage return) in double-quoted strings', async () => {
+    write(path.join(repoRoot, 'escape-cr', 'TestGroup', '_group.yaml'), [
+      'id: "grp-cr"',
+      'name: "TestGroup"',
+      ''
+    ].join('\n'));
+
+    write(path.join(repoRoot, 'escape-cr', 'TestGroup', 'p-cr.yaml'), [
+      'id: "cr"',
+      'text: "Line1\\r\\nLine2"',  // Windows-style line endings
+      ''
+    ].join('\n'));
+
+    const uri = vscode.Uri.file(path.join(repoRoot, 'escape-cr'));
+    const groups = await readSharedGroups(uri);
+
+    expect(groups.length).toBe(1);
+    expect(groups[0].prompts[0].text).toBe('Line1\r\nLine2');
+  });
+
+  it('should handle multiple escape sequences in one string', async () => {
+    write(path.join(repoRoot, 'escape-multiple', 'TestGroup', '_group.yaml'), [
+      'id: "grp-multi"',
+      'name: "TestGroup"',
+      ''
+    ].join('\n'));
+
+    write(path.join(repoRoot, 'escape-multiple', 'TestGroup', 'p-multi.yaml'), [
+      'id: "multi"',
+      'text: "Line1\\nLine2\\tTabbed\\\\Path\\"Quote\\""',
+      ''
+    ].join('\n'));
+
+    const uri = vscode.Uri.file(path.join(repoRoot, 'escape-multiple'));
+    const groups = await readSharedGroups(uri);
+
+    expect(groups.length).toBe(1);
+    expect(groups[0].prompts[0].text).toBe('Line1\nLine2\tTabbed\\Path"Quote"');
+  });
+
+  it('should handle single-quoted strings with escaped apostrophes', async () => {
+    write(path.join(repoRoot, 'escape-single', 'TestGroup', '_group.yaml'), [
+      'id: "grp-single"',
+      'name: "TestGroup"',
+      ''
+    ].join('\n'));
+
+    write(path.join(repoRoot, 'escape-single', 'TestGroup', 'p-single.yaml'), [
+      'id: "single"',
+      "text: 'It''s working'",  // YAML single quote escaping: '' -> '
+      ''
+    ].join('\n'));
+
+    const uri = vscode.Uri.file(path.join(repoRoot, 'escape-single'));
+    const groups = await readSharedGroups(uri);
+
+    expect(groups.length).toBe(1);
+    expect(groups[0].prompts[0].text).toBe("It's working");
+  });
+
+  it('should NOT unescape backslash sequences in single-quoted strings', async () => {
+    // Single-quoted strings in YAML do NOT interpret escape sequences (except '')
+    write(path.join(repoRoot, 'escape-single-no', 'TestGroup', '_group.yaml'), [
+      'id: "grp-single-no"',
+      'name: "TestGroup"',
+      ''
+    ].join('\n'));
+
+    write(path.join(repoRoot, 'escape-single-no', 'TestGroup', 'p-single-no.yaml'), [
+      'id: "single-no"',
+      "text: 'Line1\\nLine2'",  // Should remain literal \n
+      ''
+    ].join('\n'));
+
+    const uri = vscode.Uri.file(path.join(repoRoot, 'escape-single-no'));
+    const groups = await readSharedGroups(uri);
+
+    expect(groups.length).toBe(1);
+    expect(groups[0].prompts[0].text).toBe('Line1\\nLine2');  // Backslash-n should remain literal
+  });
+
+  it('should still handle block scalars correctly', async () => {
+    write(path.join(repoRoot, 'block-scalar', 'TestGroup', '_group.yaml'), [
+      'id: "grp-block"',
+      'name: "TestGroup"',
+      ''
+    ].join('\n'));
+
+    write(path.join(repoRoot, 'block-scalar', 'TestGroup', 'p-block.yaml'), [
+      'id: "block"',
+      'text: |',
+      '  Line1',
+      '  Line2',
+      '  Line3',
+      ''
+    ].join('\n'));
+
+    const uri = vscode.Uri.file(path.join(repoRoot, 'block-scalar'));
+    const groups = await readSharedGroups(uri);
+
+    expect(groups.length).toBe(1);
+    // Block scalars may include trailing newline depending on parser implementation
+    expect(groups[0].prompts[0].text.trim()).toBe('Line1\nLine2\nLine3');
+  });
+});
+
 describe('readFromLibraries', () => {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-readlibs-'));
   const repoRoot = path.join(tmpRoot, 'MultiLibRepo');
