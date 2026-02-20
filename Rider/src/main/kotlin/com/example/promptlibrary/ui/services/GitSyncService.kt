@@ -33,7 +33,8 @@ class GitSyncService(
     }
     
     /**
-     * Loads prompts from the Git repository into Shared groups.
+     * Loads prompts from all enabled libraries in the Git repository into Shared groups.
+     * Uses multi-library support to load from multiple library folders.
      *
      * @return Result of the operation
      */

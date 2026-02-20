@@ -3,6 +3,7 @@ package com.example.promptlibrary.sync
 import com.example.promptlibrary.model.Group
 import com.example.promptlibrary.model.GroupKind
 import com.example.promptlibrary.model.Prompt
+import com.example.promptlibrary.settings.PluginSettingsService
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -166,6 +167,155 @@ class SyncOrchestratorTest {
             val group = Group(id = "g1", name = "Empty Group")
             val count = countPrompts(listOf(group))
             assertThat(count).isEqualTo(0)
+        }
+    }
+
+    @Nested
+    inner class ValidateGroupsNotEmptyTests {
+
+        private val validateMethod = getPrivateMethod(
+            "validateGroupsNotEmpty",
+            List::class.java,
+            List::class.java
+        )
+
+        @Suppress("UNCHECKED_CAST")
+        private fun validateGroupsNotEmpty(
+            allGroups: List<Group>,
+            enabledLibraries: List<PluginSettingsService.LibraryConfig>
+        ): Boolean {
+            return validateMethod.invoke(SyncOrchestrator, allGroups, enabledLibraries) as Boolean
+        }
+
+        @Test
+        fun `should return true when groups are not empty`() {
+            val groups = listOf(
+                Group(id = "g1", name = "Test Group", libraryId = "platform")
+            )
+            val libraries = listOf(
+                PluginSettingsService.LibraryConfig(
+                    id = "platform",
+                    path = "platform",
+                    displayName = "Platform",
+                    enabled = true
+                )
+            )
+
+            val result = validateGroupsNotEmpty(groups, libraries)
+
+            assertThat(result).isTrue()
+        }
+
+        @Test
+        fun `should return false when groups are empty`() {
+            val groups = emptyList<Group>()
+            val libraries = listOf(
+                PluginSettingsService.LibraryConfig(
+                    id = "platform",
+                    path = "platform",
+                    displayName = "Platform",
+                    enabled = true
+                )
+            )
+
+            val result = validateGroupsNotEmpty(groups, libraries)
+
+            assertThat(result).isFalse()
+        }
+
+        @Test
+        fun `should return true with multiple groups from multiple libraries`() {
+            val groups = listOf(
+                Group(id = "g1", name = "Platform Group", libraryId = "platform"),
+                Group(id = "g2", name = "General Group", libraryId = "general"),
+                Group(id = "g3", name = "Analytics Group", libraryId = "analytics")
+            )
+            val libraries = listOf(
+                PluginSettingsService.LibraryConfig(
+                    id = "platform",
+                    path = "platform",
+                    displayName = "Platform",
+                    enabled = true
+                ),
+                PluginSettingsService.LibraryConfig(
+                    id = "general",
+                    path = "general",
+                    displayName = "General",
+                    enabled = true
+                ),
+                PluginSettingsService.LibraryConfig(
+                    id = "analytics",
+                    path = "analytics",
+                    displayName = "Analytics",
+                    enabled = true
+                )
+            )
+
+            val result = validateGroupsNotEmpty(groups, libraries)
+
+            assertThat(result).isTrue()
+        }
+
+        @Test
+        fun `should return false when groups are empty even with multiple libraries enabled`() {
+            val groups = emptyList<Group>()
+            val libraries = listOf(
+                PluginSettingsService.LibraryConfig(
+                    id = "platform",
+                    path = "platform",
+                    displayName = "Platform",
+                    enabled = true
+                ),
+                PluginSettingsService.LibraryConfig(
+                    id = "general",
+                    path = "general",
+                    displayName = "General",
+                    enabled = true
+                )
+            )
+
+            val result = validateGroupsNotEmpty(groups, libraries)
+
+            assertThat(result).isFalse()
+        }
+
+        @Test
+        fun `should return true with single group`() {
+            val groups = listOf(
+                Group(id = "g1", name = "Single Group", libraryId = "platform")
+            )
+            val libraries = listOf(
+                PluginSettingsService.LibraryConfig(
+                    id = "platform",
+                    path = "platform",
+                    displayName = "Platform",
+                    enabled = true
+                )
+            )
+
+            val result = validateGroupsNotEmpty(groups, libraries)
+
+            assertThat(result).isTrue()
+        }
+
+        @Test
+        fun `should return true even when groups have null libraryId`() {
+            // This tests the edge case where manually created groups might have null libraryId
+            val groups = listOf(
+                Group(id = "g1", name = "Group without library", libraryId = null)
+            )
+            val libraries = listOf(
+                PluginSettingsService.LibraryConfig(
+                    id = "platform",
+                    path = "platform",
+                    displayName = "Platform",
+                    enabled = true
+                )
+            )
+
+            val result = validateGroupsNotEmpty(groups, libraries)
+
+            assertThat(result).isTrue()
         }
     }
 }

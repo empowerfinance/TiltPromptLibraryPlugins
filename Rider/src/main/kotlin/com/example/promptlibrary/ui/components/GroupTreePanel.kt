@@ -432,7 +432,9 @@ class GroupTreePanel(
                     root.add(libraryNode)
 
                     // Filter groups that belong to this library
-                    // Also include groups with null libraryId under the active library
+                    // Note: Groups with null libraryId can occur when users manually create shared groups
+                    // before configuring a library or when getEffectiveLibraryPath() fails.
+                    // We show these under the active library so they're visible and can be managed.
                     val libraryGroups = if (isActive) {
                         sharedGroups.filter { it.libraryId == lib.id || it.libraryId == null }
                     } else {
