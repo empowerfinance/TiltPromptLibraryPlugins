@@ -432,7 +432,12 @@ class GroupTreePanel(
                     root.add(libraryNode)
 
                     // Filter groups that belong to this library
-                    val libraryGroups = sharedGroups.filter { it.libraryId == lib.id }
+                    // Also include groups with null libraryId under the active library
+                    val libraryGroups = if (isActive) {
+                        sharedGroups.filter { it.libraryId == lib.id || it.libraryId == null }
+                    } else {
+                        sharedGroups.filter { it.libraryId == lib.id }
+                    }
                     addNodes(libraryNode, libraryGroups)
                 }
             } else {
@@ -504,7 +509,7 @@ class GroupTreePanel(
     /**
      * Clears the tree selection.
      */
-    fun clearSelection() {
+    fun clearSelection() {  
         groupTree.clearSelection()
         selectedGroupId = null
     }
