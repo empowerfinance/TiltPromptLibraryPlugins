@@ -4,6 +4,7 @@ import com.example.promptlibrary.events.LibraryEvents
 import com.example.promptlibrary.model.Group
 import com.example.promptlibrary.model.Prompt
 import com.example.promptlibrary.repository.PromptRepository
+import com.example.promptlibrary.settings.LibraryConfig
 import com.example.promptlibrary.settings.PluginSettingsService
 import com.example.promptlibrary.settings.titleCase
 import com.intellij.notification.Notification
@@ -23,7 +24,7 @@ object SyncOrchestrator {
      */
     private fun validateGroupsNotEmpty(
         allGroups: List<Group>,
-        enabledLibraries: List<PluginSettingsService.LibraryConfig>
+        enabledLibraries: List<LibraryConfig>
     ): Boolean {
         if (allGroups.isEmpty()) {
             val errMsg = "No groups loaded from ${enabledLibraries.size} libraries. Aborting to prevent data loss."

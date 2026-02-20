@@ -3,7 +3,7 @@ package com.example.promptlibrary.sync
 import com.example.promptlibrary.model.Group
 import com.example.promptlibrary.model.GroupKind
 import com.example.promptlibrary.model.Prompt
-import com.example.promptlibrary.settings.PluginSettingsService
+import com.example.promptlibrary.settings.LibraryConfig
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -182,7 +182,7 @@ class SyncOrchestratorTest {
         @Suppress("UNCHECKED_CAST")
         private fun validateGroupsNotEmpty(
             allGroups: List<Group>,
-            enabledLibraries: List<PluginSettingsService.LibraryConfig>
+            enabledLibraries: List<LibraryConfig>
         ): Boolean {
             return validateMethod.invoke(SyncOrchestrator, allGroups, enabledLibraries) as Boolean
         }
@@ -193,7 +193,7 @@ class SyncOrchestratorTest {
                 Group(id = "g1", name = "Test Group", libraryId = "platform")
             )
             val libraries = listOf(
-                PluginSettingsService.LibraryConfig(
+                LibraryConfig(
                     id = "platform",
                     path = "platform",
                     displayName = "Platform",
@@ -210,7 +210,7 @@ class SyncOrchestratorTest {
         fun `should return false when groups are empty`() {
             val groups = emptyList<Group>()
             val libraries = listOf(
-                PluginSettingsService.LibraryConfig(
+                LibraryConfig(
                     id = "platform",
                     path = "platform",
                     displayName = "Platform",
@@ -231,19 +231,19 @@ class SyncOrchestratorTest {
                 Group(id = "g3", name = "Analytics Group", libraryId = "analytics")
             )
             val libraries = listOf(
-                PluginSettingsService.LibraryConfig(
+                LibraryConfig(
                     id = "platform",
                     path = "platform",
                     displayName = "Platform",
                     enabled = true
                 ),
-                PluginSettingsService.LibraryConfig(
+                LibraryConfig(
                     id = "general",
                     path = "general",
                     displayName = "General",
                     enabled = true
                 ),
-                PluginSettingsService.LibraryConfig(
+                LibraryConfig(
                     id = "analytics",
                     path = "analytics",
                     displayName = "Analytics",
@@ -260,13 +260,13 @@ class SyncOrchestratorTest {
         fun `should return false when groups are empty even with multiple libraries enabled`() {
             val groups = emptyList<Group>()
             val libraries = listOf(
-                PluginSettingsService.LibraryConfig(
+                LibraryConfig(
                     id = "platform",
                     path = "platform",
                     displayName = "Platform",
                     enabled = true
                 ),
-                PluginSettingsService.LibraryConfig(
+                LibraryConfig(
                     id = "general",
                     path = "general",
                     displayName = "General",
@@ -285,7 +285,7 @@ class SyncOrchestratorTest {
                 Group(id = "g1", name = "Single Group", libraryId = "platform")
             )
             val libraries = listOf(
-                PluginSettingsService.LibraryConfig(
+                LibraryConfig(
                     id = "platform",
                     path = "platform",
                     displayName = "Platform",
@@ -305,7 +305,7 @@ class SyncOrchestratorTest {
                 Group(id = "g1", name = "Group without library", libraryId = null)
             )
             val libraries = listOf(
-                PluginSettingsService.LibraryConfig(
+                LibraryConfig(
                     id = "platform",
                     path = "platform",
                     displayName = "Platform",
