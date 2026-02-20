@@ -37,7 +37,15 @@ object SyncOrchestrator {
                 try {
                     indicator.text = "Pulling from remote..."
                     SyncLog.info("Pulling from remote...")
-                    GitPullService.pull(project, rootDir, null)  // Auto-detect branch from remote
+
+                    // Use synchronous pull to ensure we wait for completion before loading YAML
+                    val pullResult = GitPullService.pullSync(project, rootDir)
+                    if (!pullResult.success) {
+                        val errMsg = "Pull failed: ${pullResult.error ?: "Unknown error"}"
+                        SyncLog.error(errMsg)
+                        Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
+                        return
+                    }
 
                     indicator.text = "Loading YAML from ${enabledLibraries.size} libraries..."
                     SyncLog.info("Loading YAML from ${enabledLibraries.size} libraries...")
@@ -56,6 +64,15 @@ object SyncOrchestrator {
                         val promptCount = countPrompts(groups)
                         totalPrompts += promptCount
                         SyncLog.info("Library '$libraryId': ${groups.size} groups, $promptCount prompts")
+                    }
+
+                    // Validate that we loaded groups before replacing in-memory state
+                    // This prevents accidental data loss if library discovery fails
+                    if (allGroups.isEmpty()) {
+                        val errMsg = "No groups loaded from ${enabledLibraries.size} libraries. Aborting to prevent data loss."
+                        SyncLog.error(errMsg)
+                        Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", errMsg, NotificationType.ERROR))
+                        return
                     }
 
                     indicator.text = "Updating library..."
