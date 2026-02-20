@@ -42,31 +42,43 @@ class GitSyncService(
             return SyncResult.Warning("No project available.")
         }
 
-        val settings = PluginSettingsService.instance().data
-        val working = GitRepoManager.ensureWorkingCopy(project).first
-        
-        if (working == null) {
+        val repoDir = GitRepoManager.ensureWorkingCopy(project).first
+
+        if (repoDir == null) {
             return SyncResult.Warning("No working copy available. Set remote URL in settings.")
         }
-        
-        val root = File(working, settings.promptsSubdir)
-        if (!root.exists() || !root.isDirectory) {
-            return SyncResult.Warning("Invalid prompts subdir.")
+
+        if (!repoDir.exists() || !repoDir.isDirectory) {
+            return SyncResult.Warning("Invalid repository directory.")
         }
-        
+
         return try {
-            val groups = GitYamlLoader.loadFromRoot(root)
-            repository.replaceSharedGroups(groups)
-            
+            // Load groups from all enabled libraries with proper libraryId tagging
+            val enabledLibraries = PluginSettingsService.getEnabledLibraries()
+            if (enabledLibraries.isEmpty()) {
+                return SyncResult.Warning("No libraries enabled. Configure libraries in settings.")
+            }
+
+            val libraryGroupsMap = GitYamlLoader.loadFromLibraries(repoDir, enabledLibraries)
+            val allGroups = mutableListOf<com.example.promptlibrary.model.Group>()
+            var totalPrompts = 0
+
+            for ((libraryId, groups) in libraryGroupsMap) {
+                allGroups.addAll(groups)
+                totalPrompts += groups.sumOf { it.prompts.size }
+            }
+
+            repository.replaceSharedGroups(allGroups)
+
             Notifications.Bus.notify(
                 Notification(
                     "PromptLibrary",
                     "Git Sync",
-                    "Imported ${groups.size} Shared group(s) from Git (remote-wins).",
+                    "Imported ${allGroups.size} Shared group(s), $totalPrompts prompt(s) from ${enabledLibraries.size} library(ies).",
                     NotificationType.INFORMATION
                 )
             )
-            
+
             SyncResult.Success
         } catch (e: Exception) {
             SyncResult.Error("Error loading YAML: ${e.message}")
@@ -113,7 +125,8 @@ class GitSyncService(
     }
     
     /**
-     * Runs a full sync: pull, merge (remote wins), write YAML, commit & push.
+     * Runs a pull & sync: pull from remote with rebase, load YAML into memory.
+     * NO writing, NO committing, NO pushing - this is a read-only operation.
      */
     fun runFullSync(): SyncResult {
         if (project == null) {
@@ -124,12 +137,12 @@ class GitSyncService(
             SyncOrchestrator.sync(project, repository)
             SyncResult.Success
         } catch (e: Exception) {
-            SyncResult.Error("Error during full sync: ${e.message}")
+            SyncResult.Error("Error during pull & sync: ${e.message}")
         }
     }
-    
+
     /**
-     * Nukes the local working copy and re-syncs.
+     * Nukes the local working copy and re-syncs (pull only, no push).
      */
     fun nukeRepoAndResync(): SyncResult {
         if (project == null) {

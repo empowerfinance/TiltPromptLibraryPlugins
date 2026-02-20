@@ -16,7 +16,8 @@ import java.io.File
 
 object SyncOrchestrator {
     /**
-     * Full sync: pull from remote, merge, write YAML, commit & push
+     * Pull & Sync: pull from remote with rebase, load YAML into memory.
+     * NO writing, NO committing, NO pushing - this is a read-only operation.
      */
     fun sync(project: Project, repo: PromptRepository) {
         SyncLog.info("Starting sync...")
@@ -30,67 +31,42 @@ object SyncOrchestrator {
         val enabledLibraries = PluginSettingsService.getEnabledLibraries()
         val libraryNames = enabledLibraries.joinToString(", ") { it.displayName }
         SyncLog.info("Enabled libraries: $libraryNames")
-        // Use rootDir (the ensured working copy) instead of getEffectiveRepoPath() to avoid empty path issues
-        // when syncing via remoteRepoUrl only (where getEffectiveRepoPath() returns "")
 
-        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Prompt Library: Sync", false) {
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Prompt Library: Pull & Sync", false) {
             override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
                 try {
-                    indicator.text = "Saving edits..."
-                    SyncLog.info("Saving edits...")
-
-                    indicator.text = "Pulling latest..."
-                    SyncLog.info("Pulling latest from remote...")
+                    indicator.text = "Pulling from remote..."
+                    SyncLog.info("Pulling from remote...")
                     GitPullService.pull(project, rootDir, null)  // Auto-detect branch from remote
 
-                    indicator.text = "Loading remote YAML from ${enabledLibraries.size} libraries..."
-                    SyncLog.info("Loading remote YAML from ${enabledLibraries.size} libraries...")
+                    indicator.text = "Loading YAML from ${enabledLibraries.size} libraries..."
+                    SyncLog.info("Loading YAML from ${enabledLibraries.size} libraries...")
 
-                    // Load from all enabled libraries (like forcePull does)
-                    // Use rootDir which is the ensured working copy (handles temp clones correctly)
+                    // Load from all enabled libraries (use rootDir which is the ensured working copy)
                     val libraryGroupsMap = GitYamlLoader.loadFromLibraries(rootDir, enabledLibraries)
 
                     // Merge all groups with library metadata
-                    val allRemoteGroups = mutableListOf<Group>()
+                    val allGroups = mutableListOf<Group>()
+                    var totalPrompts = 0
+
                     for ((libraryId, groups) in libraryGroupsMap) {
+                        // Add library metadata to groups and prompts
                         val groupsWithMetadata = groups.map { g -> addLibraryMetadata(g, libraryId) }
-                        allRemoteGroups.addAll(groupsWithMetadata)
+                        allGroups.addAll(groupsWithMetadata)
+                        val promptCount = countPrompts(groups)
+                        totalPrompts += promptCount
+                        SyncLog.info("Library '$libraryId': ${groups.size} groups, $promptCount prompts")
                     }
 
-                    indicator.text = "Merging... (remote wins)"
-                    SyncLog.info("Merging (remote wins)...")
-                    val (mergedShared, keptLocal) = mergeRemoteWins(allRemoteGroups, repo)
+                    indicator.text = "Updating library..."
+                    SyncLog.info("Updating library with ${allGroups.size} groups from ${enabledLibraries.size} libraries...")
+                    // Replace shared groups entirely with what's from remote
+                    repo.replaceSharedGroups(allGroups)
 
-                    indicator.text = "Writing YAML to ${enabledLibraries.size} libraries..."
-                    SyncLog.info("Writing YAML files to ${enabledLibraries.size} libraries...")
+                    val msg = "Pull & Sync complete: ${allGroups.size} groups, $totalPrompts prompts from ${enabledLibraries.size} library(ies)"
+                    SyncLog.info(msg)
+                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", msg, NotificationType.INFORMATION))
 
-                    // Partition groups by libraryId and write to each library
-                    val libraryGroups = partitionGroupsByLibrary(mergedShared)
-                    val results = GitYamlWriter.writeToLibraries(rootDir, libraryGroups, enabledLibraries)
-
-                    // Aggregate results for logging
-                    var totalAdded = 0
-                    var totalUpdated = 0
-                    var totalDeleted = 0
-                    for ((libId, result) in results) {
-                        totalAdded += result.first
-                        totalUpdated += result.second
-                        totalDeleted += result.third
-                        SyncLog.info("Library '$libId': +${result.first} ~${result.second} -${result.third}")
-                    }
-                    val changeMsg = "Shared changes: +${totalAdded} ~${totalUpdated} -${totalDeleted}"
-                    SyncLog.info(changeMsg)
-                    Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", changeMsg, NotificationType.INFORMATION))
-
-                    indicator.text = "Committing & pushing..."
-                    SyncLog.info("Committing & pushing...")
-                    // Note: commitUsingStrategy runs asynchronously and notifies success/failure via notifications
-                    WriteStrategyService.commitUsingStrategy(project, rootDir)
-                    if (keptLocal > 0) {
-                        val keptMsg = "Kept ${keptLocal} local prompt(s) in Private/Unfiled (not on remote)"
-                        SyncLog.info(keptMsg)
-                        Notifications.Bus.notify(Notification("PromptLibrary", "Git Sync", keptMsg, NotificationType.INFORMATION))
-                    }
                     // Notify library listeners to refresh
                     LibraryEvents.fireChanged()
                 } catch (e: Exception) {
